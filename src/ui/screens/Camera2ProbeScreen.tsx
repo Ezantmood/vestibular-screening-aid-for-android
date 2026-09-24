@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Button, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { getCamera2Capabilities, supportsHighSpeedTarget } from '../../camera/camera2Probe';
+import { getCamera2Capabilities, getHighSpeedTargetVerdict } from '../../camera/camera2Probe';
+import type { HighSpeedTargetVerdict } from '../../camera/camera2Probe';
 import type { Camera2ProbeResult, FpsRange } from '../../camera/camera2ProbeTypes';
 import { HIGH_SPEED_TARGETS } from '../../camera/camera2ProbeTypes';
 
@@ -14,12 +15,28 @@ function formatRanges(ranges: FpsRange[]): string {
   return ranges.map((r) => `[${r.min}, ${r.max}]`).join(' ');
 }
 
-function TargetBadge({ supported, label }: { supported: boolean; label: string }) {
+function TargetBadge({ verdict }: { verdict: HighSpeedTargetVerdict }) {
+  const { target, kind, matchingRanges } = verdict;
+  const style =
+    kind === 'FIXED'
+      ? styles.badgeYes
+      : kind === 'UPPER_BOUND'
+        ? styles.badgeMaybe
+        : styles.badgeNo;
+  const headline =
+    kind === 'FIXED'
+      ? `YES — fixed [${target.fps}, ${target.fps}] advertised`
+      : kind === 'UPPER_BOUND'
+        ? 'UPPER — fps is a range maximum, no fixed range'
+        : 'NO — not advertised';
   return (
-    <View style={[styles.badge, supported ? styles.badgeYes : styles.badgeNo]}>
+    <View style={[styles.badge, style]}>
       <Text style={styles.badgeText}>
-        {supported ? 'YES' : 'NO'} — {label}
+        {headline} — {target.label}
       </Text>
+      {kind === 'UPPER_BOUND' && (
+        <Text style={styles.badgeDetail}>max of: {formatRanges(matchingRanges)}</Text>
+      )}
     </View>
   );
 }
@@ -40,13 +57,13 @@ function CameraCard({ camera }: { camera: Camera2ProbeResult }) {
         <Text style={styles.error}>Per-camera error: {camera.error}</Text>
       )}
 
-      <Text style={styles.sectionTitle}>High-speed targets</Text>
+      <Text style={styles.sectionTitle}>High-speed targets (strict Camera2 reading)</Text>
+      <Text style={styles.note}>
+        YES = fixed [fps, fps] advertised. UPPER = fps only tops a range (no fixed range). Raw
+        ranges below are authoritative.
+      </Text>
       {HIGH_SPEED_TARGETS.map((target) => (
-        <TargetBadge
-          key={target.label}
-          label={target.label}
-          supported={supportsHighSpeedTarget(camera, target)}
-        />
+        <TargetBadge key={target.label} verdict={getHighSpeedTargetVerdict(camera, target)} />
       ))}
 
       <Text style={styles.sectionTitle}>Normal AE FPS ranges</Text>
@@ -132,8 +149,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  badgeDetail: {
+    fontSize: 12,
+    marginTop: 2,
+  },
   badgeYes: {
     backgroundColor: '#d9f2dd',
+  },
+  badgeMaybe: {
+    backgroundColor: '#fdf0d5',
   },
   card: {
     borderColor: '#ccc',

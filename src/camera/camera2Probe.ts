@@ -4,7 +4,7 @@
 
 import { requireOptionalNativeModule } from 'expo';
 
-import type { Camera2ProbeResult, HighSpeedTarget } from './camera2ProbeTypes';
+import type { Camera2ProbeResult, FpsRange, HighSpeedTarget } from './camera2ProbeTypes';
 
 interface ExpoCamera2ProbeNativeModule {
   getCameraCapabilities(): Promise<Camera2ProbeResult[]>;
@@ -36,20 +36,64 @@ export async function getCamera2Capabilities(): Promise<Camera2ProbeResult[]> {
 }
 
 /**
- * True when Camera2 reports `size` with a high-speed FPS range covering `fps`.
- * A range covers fps when range.min <= fps <= range.max (constrained
- * high-speed ranges are typically fixed, e.g. [120, 120]).
+ * Strict verdict for one (size, fps) target, derived only from the exact
+ * high-speed configurations advertised by Camera2 for that size.
+ *
+ * A target fps merely falling inside some `[min, max]` range is NOT support:
+ * constrained high-speed sessions only accept ranges from
+ * `getHighSpeedVideoFpsRangesFor(size)`, and exact-rate capture needs the
+ * fixed `[fps, fps]` range. When fps only matches a range *maximum*
+ * (e.g. `[30, 120]` for a 120fps target), that is reported distinctly as
+ * `UPPER_BOUND` — whether a session then captures exactly at fps depends on
+ * session/AE behavior, so the raw advertised ranges stay authoritative.
  */
-export function supportsHighSpeedTarget(
+export type HighSpeedTargetVerdictKind = 'FIXED' | 'UPPER_BOUND' | 'NOT_ADVERTISED';
+
+export interface HighSpeedTargetVerdict {
+  target: HighSpeedTarget;
+  /** The size appears in `getHighSpeedVideoSizes()`. */
+  sizeAdvertised: boolean;
+  /** A fixed `[fps, fps]` range is advertised for this size. */
+  fixedRangeExists: boolean;
+  /** `fps` equals the upper bound of at least one advertised range. */
+  upperBoundAdvertised: boolean;
+  /** Advertised ranges for this size whose upper bound equals `fps`. */
+  matchingRanges: FpsRange[];
+  kind: HighSpeedTargetVerdictKind;
+}
+
+export function getHighSpeedTargetVerdict(
   camera: Camera2ProbeResult,
   target: HighSpeedTarget,
-): boolean {
-  return camera.highSpeedVideoSizes.some(
-    (entry) =>
-      entry.width === target.width &&
-      entry.height === target.height &&
-      entry.fpsRanges.some((range) => range.min <= target.fps && target.fps <= range.max),
+): HighSpeedTargetVerdict {
+  const none = (sizeAdvertised: boolean): HighSpeedTargetVerdict => ({
+    target,
+    sizeAdvertised,
+    fixedRangeExists: false,
+    upperBoundAdvertised: false,
+    matchingRanges: [],
+    kind: 'NOT_ADVERTISED',
+  });
+
+  const entry = camera.highSpeedVideoSizes.find(
+    (e) => e.width === target.width && e.height === target.height,
   );
+  if (!entry) {
+    return none(false);
+  }
+  const matchingRanges = entry.fpsRanges.filter((range) => range.max === target.fps);
+  if (matchingRanges.length === 0) {
+    return none(true);
+  }
+  const fixedRangeExists = matchingRanges.some((range) => range.min === target.fps);
+  return {
+    target,
+    sizeAdvertised: true,
+    fixedRangeExists,
+    upperBoundAdvertised: true,
+    matchingRanges,
+    kind: fixedRangeExists ? 'FIXED' : 'UPPER_BOUND',
+  };
 }
 
 export type { Camera2ProbeResult, HighSpeedTarget };

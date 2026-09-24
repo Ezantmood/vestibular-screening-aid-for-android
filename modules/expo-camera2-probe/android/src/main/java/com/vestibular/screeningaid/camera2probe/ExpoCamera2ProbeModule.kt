@@ -14,6 +14,17 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * Iterates every camera in [CameraManager.cameraIdList] and reports static
  * characteristics only. No capture sessions, no recording, no image data.
  * Designed to run inside an Expo Development Build on Android.
+ *
+ * Permission note (API 29+): clients without CAMERA permission receive
+ * restricted characteristics ([CameraCharacteristics.getKeysNeedingPermission]).
+ * Verified against AOSP that none of the six keys read here needs the
+ * permission (LENS_FACING, INFO_SUPPORTED_HARDWARE_LEVEL, SENSOR_ORIENTATION,
+ * CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES, REQUEST_AVAILABLE_CAPABILITIES,
+ * SCALER_STREAM_CONFIGURATION_MAP) — only device-specific calibration keys
+ * (lens pose/distortion, sensor color transforms) are gated. Every read is
+ * still null-safe, so a withheld key degrades to UNKNOWN/empty instead of a
+ * crash. No CAMERA permission is declared or requested: the probe never opens
+ * the camera.
  */
 class ExpoCamera2ProbeModule : Module() {
   override fun definition() = ModuleDefinition {
