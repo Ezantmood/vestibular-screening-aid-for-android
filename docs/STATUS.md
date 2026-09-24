@@ -17,6 +17,27 @@
 - App entry (`App.tsx` → `HomeScreen`) verified by type/lint; runtime boot check in Expo Go is the next manual step on the Redmi device.
 - No camera/tracking/auth/DB code present by design (stubs only).
 
+## Next task (was: Camera2 capability probe)
+
+**P0.1 done (2026-09-24, code-complete, on-device run still pending):**
+`modules/expo-camera2-probe` (Android-only Kotlin local module) queries the real
+Camera2 API for every `CameraManager.cameraIdList` camera: ID, lens facing,
+hardware level, sensor orientation, AE FPS ranges, constrained-high-speed-video
+flag, all `getHighSpeedVideoSizes()` + per-size `getHighSpeedVideoFpsRangesFor()`.
+TS seam: `src/camera/camera2Probe{,Types}.ts`; debug UI: `Camera2ProbeScreen`
+(highlights 1080p@120, 720p@120, 720p@240 + raw ranges). Nothing hard-coded.
+
+## Verification (P0.1)
+
+- `npm run check` (typecheck + lint) — pass. `npx prettier --check .` — pass.
+- `npx expo prebuild --no-install --platform android` — pass; autolinking
+  resolves `com.vestibular.screeningaid.camera2probe.ExpoCamera2ProbeModule`.
+- Full Gradle build + on-device probe on the Redmi Note 13 Pro 5G still pending
+  (needs Android SDK + `npm run android`, now `expo run:android` Dev Build).
+  In Expo Go the screen shows a "Development Build required" hint, no crash.
+
 ## Next task
 
-**Camera2 capability probe (Phase 1):** on the Redmi Note 13 Pro 5G, report supported resolutions/fps (front camera, high-fps modes) and Expo Go vs Dev Build verdict. Do not implement tracking yet.
+**On-device P0.1 validation:** Dev Build on the Redmi, record the probe report
+(resolutions/fps, front-camera limits), then go/no-go for Phase 2. Still no
+tracking/recording (out of scope for P0.1).

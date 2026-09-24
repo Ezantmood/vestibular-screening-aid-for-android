@@ -8,3 +8,4 @@ Recorded bootstrap decisions. Rationale is one line each; revisit only with new 
 4. **Kotlin for Android native modules** — Google-recommended, Camera2 samples/interop are Kotlin-first.
 5. **Camera2 planned for high-speed capture** — stock Expo camera APIs don't guarantee high-fps/front-camera control; probe first (Phase 1).
 6. **MVP = Smooth Pursuit + Horizontal Saccades** — smallest pair covering pursuit + saccadic systems; registry in `src/tests/registry.ts`.
+7. **P0.1 probe = Android-only local Expo module, read-only** — `modules/expo-camera2-probe` (Kotlin, autolinked, no app.json plugin entry); TS loads it via `requireOptionalNativeModule` so Expo Go degrades to a Dev-Build hint. No CAMERA permission (characteristics queries don't need it).

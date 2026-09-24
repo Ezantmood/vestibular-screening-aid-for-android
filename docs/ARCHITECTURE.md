@@ -18,11 +18,13 @@ Camera (src/camera) + Patients (src/patients) are cross-cutting services.
 4. `tests/registry.ts` is the single source of truth for available tests.
 5. Stubs stay stubs until their roadmap phase; mark with `TODO (Phase N)`.
 
-## Future native seam (no code yet)
+## Native seam
 
 ```
-src/camera/CameraService (TS interface)
-  └─ Phase 2+: Kotlin module (Camera2 API) via Expo Dev Build / config plugin
+src/camera/CameraService (TS interface, still stub)
+src/camera/camera2Probe{,Types}.ts ──optional──▶ ExpoCamera2Probe (Kotlin, Android-only)
+  └─ P0.1: read-only capability probe via Expo Dev Build (`expo run:android`).
+     Phase 2+: capture/frames behind `CameraService` (see docs/ROADMAP.md).
 ```
 
 See `docs/PROJECT_SPEC.md` for scope, `docs/ROADMAP.md` for phase order.

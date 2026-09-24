@@ -12,7 +12,7 @@ Smartphone-based **central vestibular screening** via eye-movement tracking.
 
 ```bash
 npm install
-npm run android   # or: npm start, then scan QR with Expo Go
+npm run android   # Expo Development Build (custom native Camera2 probe); or: npm start, then Expo Go (probe shows Dev-Build hint)
 npm run typecheck
 npm run lint
 ```
@@ -21,13 +21,14 @@ Requires Node 18+ (tested here on Node 25 + Expo SDK 57).
 
 ## Scripts
 
-| Command                         | Purpose                       |
-| ------------------------------- | ----------------------------- |
-| `npm start` / `npm run android` | Run in Expo Go                |
-| `npm run typecheck`             | `tsc --noEmit`                |
-| `npm run lint`                  | ESLint (`eslint-config-expo`) |
-| `npm run format`                | Prettier check                |
-| `npm run check`                 | typecheck + lint              |
+| Command             | Purpose                                   |
+| ------------------- | ----------------------------------------- |
+| `npm start`         | Run in Expo Go (no native probe)          |
+| `npm run android`   | Dev Build on Android (`expo run:android`) |
+| `npm run typecheck` | `tsc --noEmit`                            |
+| `npm run lint`      | ESLint (`eslint-config-expo`)             |
+| `npm run format`    | Prettier check                            |
+| `npm run check`     | typecheck + lint                          |
 
 ## Structure
 
