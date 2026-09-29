@@ -1,0 +1,25 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.vestibular.screeningaid.framepipeline'
+version = '0.1.0'
+
+android {
+  namespace "com.vestibular.screeningaid.framepipeline"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // P2 eye-ROI feasibility only (offline, post-recording). Face/eye boxes are
+  // NOT pupil tracking — pupil centroid tracking is a later milestone that
+  // must reuse the decode pipeline here without rewriting it.
+  implementation 'com.google.mlkit:face-detection:16.1.7'
+}

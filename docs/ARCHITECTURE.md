@@ -28,7 +28,20 @@ src/camera/highSpeedCapture.ts + frameTiming.ts ──optional──▶ ExpoCame
   └─ P1: constrained high-speed session + MediaRecorder file + SENSOR_TIMESTAMP
      report; debug UI `HighSpeedTestScreen`. Mode list comes from the P0.1 probe;
      the module re-validates exact (size, range) pairs natively.
-     Phase 2+: capture/frames behind `CameraService` (see docs/ROADMAP.md).
+     CaptureResult callbacks are an observed ~60 Hz batched stream here — never
+     the per-video-frame clock (see docs/DECISIONS.md).
+src/camera/framePipeline.ts + videoTimeline.ts + frameChange.ts + framePipelineReport.ts
+  ──optional──▶ ExpoFramePipeline (Kotlin, Android-only)
+  └─ P2: offline MediaExtractor + MediaCodec decode of a P1 MP4 (no surface,
+     CPU YUV Image); encoded/media PTS timeline (never sensor exposure);
+     downsampled-Y MAD duplicate candidates; debug UI `FramePipelineScreen`
+     (FRONT 1080p120 default, rear = benchmark).
+src/eyetracking/faceRoi.ts (isolated ROI interface; ML Kit boxes are feasibility
+  only, never pupil tracking)
+  └─ P2: face/eye ROI consumer of decoded frames. Pupil centroid tracking
+     (next milestone, e.g. OpenCV/custom CV) consumes the same decoder output
+     behind its own interface — no decode rewrite.
+      Phase 2+: capture/frames behind `CameraService` (see docs/ROADMAP.md).
 ```
 
 See `docs/PROJECT_SPEC.md` for scope, `docs/ROADMAP.md` for phase order.

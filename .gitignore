@@ -44,3 +44,11 @@ yarn-error.*
 modules/*/android/build/
 modules/*/android/.cxx/
 modules/*/android/.gradle/
+
+# P2 debug artifacts guard: recorded videos / face images pulled off-device
+# for inspection must never be committed (debug JPEGs stay in device-local
+# app cache; this is a backstop for anything copied into the repo).
+*.mp4
+*.avi
+*.mov
+debug-artifacts/

@@ -115,9 +115,10 @@ No tracking/recording was implemented (out of scope for P0.1).
   fixed modes (rear 1080p120 / 720p120 / 720p240, front 1080p120): every
   session CONFIGURED, every recording SUCCESS with file output, no camera
   errors. Encoder-side (MediaExtractor) sustains ≈116 fps for 120 modes and
-  ≈227 fps for the 240 mode. Xiaomi limitation: CaptureResult callbacks are
-  throttled to ≈60 Hz regardless of stream rate, so per-frame timing must
-  come from video frames, not `onCaptureCompleted`. Full table + raw blocks:
+  ≈227 fps for the 240 mode. Observed Camera2/HAL callback behavior during
+  constrained high-speed batching: CaptureResult callbacks arrived at ≈60 Hz
+  regardless of stream rate, so per-frame timing must come from video frames,
+  not `onCaptureCompleted`. Full table + raw blocks:
   `docs/device-probes/P1_HIGH_SPEED_VALIDATION.md`. Wireless-ADB shell lacks
   INJECT_EVENTS/`pm grant`, so runs used a temporary auto-run harness
   (reverted; final APK rebuilt from the manual-only tree, reinstalled and
@@ -125,3 +126,51 @@ No tracking/recording was implemented (out of scope for P0.1).
 - Recommendation (technical): proceed with rear 1920×1080 @ fixed 120fps
   (reliable session, ≈116 fps sustained, max spatial detail); keep 720p240
   as temporal benchmark; next prototype needs a frame-level timing path.
+  (Superseded by the P2 architecture correction: FRONT 1080p120 is the
+  primary MVP eye-tracking candidate, rear modes are benchmarks —
+  see `docs/DECISIONS.md` §12.)
+
+## P2 — High-speed frame decode + eye ROI feasibility (code-complete, on-device validation pending)
+
+- Architecture correction applied: FRONT 1920×1080 @ fixed 120fps is the
+  primary MVP candidate (user looks at the display while the camera observes
+  the eyes); rear 1080p120 / 720p240 are benchmarks (`docs/DECISIONS.md`
+  §12–14). `HighSpeedTestScreen` mode order retouched (front first); P0.1/P1
+  logic untouched. P1 wording revised: ~60 Hz CaptureResult cadence is now
+  described as observed Camera2/HAL callback behavior during constrained
+  high-speed batching, never as the per-video-frame clock.
+- New Android-only module `modules/expo-frame-pipeline` (Kotlin, autolinked;
+  ML Kit `face-detection:16.1.7` for the ROI pass only). One offline call
+  decodes a P1 MP4 via MediaExtractor + MediaCodec (no surface, CPU YUV —
+  never `getFrameAtTime` as primary): sequential index + decoded PTS (µs) +
+  size per frame; encoded/media PTS timeline stats (mean/median/min/max/p95,
+  effective FPS, non-monotonic/duplicate-PTS/large-gap counts; nominal
+  8.333 ms @120fps); downsampled-Y (96×54, no RGB) MAD duplicate candidates
+  (≤1.5 candidate / 1.5–5.0 low-motion-not-duplicate, longest run, stats);
+  ML Kit face/eye ROI on ≤9 offline frames with 0°/90°/270° rotation fallback
+  (ROIs only, never pupil tracking); begin/mid/end JPEGs + eye crops to
+  device-local cache (never git).
+- TS seam: `framePipeline.ts` loader, `videoTimeline.ts` + `frameChange.ts`
+  pure logic, `framePipelineReport.ts` copyable report with separate
+  `FRAME_PIPELINE_*` / `EYE_ROI_*` verdicts, `faceRoi.ts` isolated ROI
+  interface (pupil stage reuses the decoder untouched). Debug UI
+  `FramePipelineScreen` (front default) wired into Home. No pupil/gaze/
+  stimulus/metric/diagnosis code (out of scope).
+
+## Verification (P2, 2026-09-29)
+
+- `npm run check` (typecheck + lint) — pass. `npx prettier --check .` — pass.
+- Pure-logic execution checks (node, synthetic data) — pass: perfect 120fps →
+  120.00 fps/0 gaps; 1 dropped frame → 1 large gap; non-monotonic (2) +
+  duplicate-PTS (1) counted; MAD classify (candidate/low-motion/changing/
+  skipped) + longest-run correct; verdicts PASS/FAIL/UNKNOWN behave per bar.
+- `npx expo prebuild --platform android` — pass (all three native modules
+  autolinked).
+- `:app:assembleDebug` BUILD SUCCESSFUL (JDK 21).
+- On-device validation — PENDING: the Xiaomi was unreachable over ADB this
+  session (no USB device, no wireless-debugging mDNS advertisement, prior
+  wireless IP not answering), so no numbers were captured or invented.
+  Procedure + report template ready in
+  `docs/device-probes/P2_FRAME_DECODE_EYE_ROI.md`: FRONT 1920×1080
+  `[120,120]` ~10 s self-test (look at display) + motion control, optional
+  rear 720p240 benchmark.

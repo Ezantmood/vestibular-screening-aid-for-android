@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { Button, StyleSheet, Text, View } from 'react-native';
 import { APP_NAME, APP_TAGLINE, MVP_TESTS } from '../../config/constants';
 import Camera2ProbeScreen from './Camera2ProbeScreen';
+import FramePipelineScreen from './FramePipelineScreen';
 import HighSpeedTestScreen from './HighSpeedTestScreen';
 
 export default function HomeScreen() {
   const [showProbe, setShowProbe] = useState(false);
   const [showHighSpeed, setShowHighSpeed] = useState(false);
+  const [showPipeline, setShowPipeline] = useState(false);
 
   if (showProbe) {
     return (
@@ -26,6 +28,15 @@ export default function HomeScreen() {
     );
   }
 
+  if (showPipeline) {
+    return (
+      <View style={styles.probeWrapper}>
+        <Button title="Back" onPress={() => setShowPipeline(false)} />
+        <FramePipelineScreen />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container} testID="home-screen">
       <Text style={styles.title}>{APP_NAME}</Text>
@@ -34,6 +45,7 @@ export default function HomeScreen() {
       <Text style={styles.note}>Screening aid, not a diagnostic device.</Text>
       <Button title="Camera2 capability probe (P0.1)" onPress={() => setShowProbe(true)} />
       <Button title="High-speed capture validation (P1)" onPress={() => setShowHighSpeed(true)} />
+      <Button title="Frame decode + eye ROI (P2)" onPress={() => setShowPipeline(true)} />
     </View>
   );
 }

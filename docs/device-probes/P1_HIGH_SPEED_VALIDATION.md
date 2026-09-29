@@ -27,15 +27,17 @@ auto-start one mode, log report to logcat), fully reverted afterwards —
 No session failures, no camera errors, no disconnects; every run closed the
 camera cleanly. No per-run errors.
 
-## Key findings (Xiaomi/Camera2 limitations)
+## Key findings (observed Camera2/HAL behavior during constrained high-speed batching)
 
 1. **Recording sustains the advertised rate** (encoder-side, the ground truth
    for eye-tracking frames): ≈116 fps for 120 modes, ≈227 fps for the 240
    mode — 3–6% under nominal, consistent with recorder start/stop transients.
-2. **CaptureResult callbacks are throttled to ≈60 Hz** on garnet regardless of
-   stream rate (120fps → every 2nd frame, 240fps → every 4th). Median cadence
-   is exact (≈16.64 ms), so per-frame timing must come from the video frames
-   (ImageReader/file timestamps), never from `onCaptureCompleted` alone.
+2. **CaptureResult callbacks arrived at ≈60 Hz in these runs** regardless of
+   stream rate (120fps → every 2nd frame, 240fps → every 4th). This is observed
+   Camera2/HAL callback behavior during constrained high-speed batching — not
+   a proven device hardware cap — and the median cadence is exact (≈16.64 ms).
+   Per-video-frame timing must therefore come from decoded media frames/PTS,
+   never from `onCaptureCompleted` alone.
 3. The on-screen "Observed FPS / large gaps / estimated missing frames" are
    computed over the throttled callback stream — valid stability signal for
    that stream (jitter 2.6–5.8 ms stddev, max single gap 33–67 ms), NOT frame

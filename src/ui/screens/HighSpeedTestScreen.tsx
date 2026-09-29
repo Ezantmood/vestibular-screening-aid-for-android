@@ -37,23 +37,25 @@ interface HighSpeedMode {
 const TEST_DURATION_SEC = 10;
 
 /**
- * Priority from the P0.1 physical probe results (spatial detail first):
- * 1920×1080 fixed 120fps, then 1280×720 fixed 120fps, then 1280×720 fixed
- * 240fps. This only ORDERS actually-advertised fixed modes — capability
- * detection itself comes from Camera2, never from this list.
+ * P2 architecture correction: FRONT 1920×1080 @ fixed 120fps is the primary
+ * MVP eye-tracking candidate (user looks at the display); rear modes are
+ * technical benchmarks. This only ORDERS actually-advertised fixed modes —
+ * capability detection itself comes from Camera2, never from this list.
  */
 function modePriority(mode: HighSpeedMode): number {
-  const fps = mode.fpsMax;
-  if (mode.width === 1920 && mode.height === 1080 && fps === 120) {
+  if (mode.lensFacing === 'FRONT' && mode.width === 1920 && mode.fpsMax === 120) {
     return 0;
   }
-  if (mode.width === 1280 && mode.height === 720 && fps === 120) {
+  if (mode.lensFacing === 'BACK' && mode.width === 1920 && mode.fpsMax === 120) {
     return 1;
   }
-  if (mode.width === 1280 && mode.height === 720 && fps === 240) {
+  if (mode.width === 1280 && mode.height === 720 && mode.fpsMax === 120) {
     return 2;
   }
-  return 3;
+  if (mode.width === 1280 && mode.height === 720 && mode.fpsMax === 240) {
+    return 3;
+  }
+  return 4;
 }
 
 async function requestCameraPermission(): Promise<PermissionState> {
