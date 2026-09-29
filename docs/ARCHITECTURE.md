@@ -24,6 +24,10 @@ Camera (src/camera) + Patients (src/patients) are cross-cutting services.
 src/camera/CameraService (TS interface, still stub)
 src/camera/camera2Probe{,Types}.ts ──optional──▶ ExpoCamera2Probe (Kotlin, Android-only)
   └─ P0.1: read-only capability probe via Expo Dev Build (`expo run:android`).
+src/camera/highSpeedCapture.ts + frameTiming.ts ──optional──▶ ExpoCamera2HighSpeed (Kotlin, Android-only)
+  └─ P1: constrained high-speed session + MediaRecorder file + SENSOR_TIMESTAMP
+     report; debug UI `HighSpeedTestScreen`. Mode list comes from the P0.1 probe;
+     the module re-validates exact (size, range) pairs natively.
      Phase 2+: capture/frames behind `CameraService` (see docs/ROADMAP.md).
 ```
 

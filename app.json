@@ -12,6 +12,7 @@
     "android": {
       "package": "com.vestibular.screeningaid",
       "versionCode": 1,
+      "permissions": ["android.permission.CAMERA"],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -19,7 +19,10 @@
 
 ## Next task (was: Camera2 capability probe)
 
-**P0.1 COMPLETE (2026-09-24, verified on-device):**
+**P0.1 COMPLETE (2026-09-29, verified on-device, rear + front recorded):**
+Full physical-device report stored in
+`docs/device-probes/XIAOMI_2312DRA50G_ANDROID13.md` (source of truth: raw
+Camera2 report, not Xiaomi slow-motion modes).
 `modules/expo-camera2-probe` (Android-only Kotlin local module) queries the real
 Camera2 API for every `CameraManager.cameraIdList` camera: ID, lens facing,
 hardware level, sensor orientation, AE FPS ranges, constrained-high-speed-video
@@ -71,3 +74,44 @@ Nothing hard-coded, nothing inferred from Xiaomi slow-motion modes.
 **Phase 2 go/no-go (not started):** both cameras advertise fixed 120fps ranges
 (incl. front 1080p120/720p120); only the rear camera offers fixed 240fps.
 No tracking/recording was implemented (out of scope for P0.1).
+
+## P1 — High-speed capture + frame timing validation (code-complete, on-device measurement pending)
+
+- New Android-only module `modules/expo-camera2-high-speed` (Kotlin, autolinked;
+  read-only probe untouched). Opens the camera, runs a real
+  `CameraConstrainedHighSpeedCaptureSession` (`createHighSpeedRequestList` +
+  `setRepeatingBurst`) on a video-only MediaRecorder surface (app-private
+  cache, no audio → no mic permission), collects `SENSOR_TIMESTAMP` +
+  frame numbers, then cross-checks the file with MediaExtractor
+  (sample count + duration; nulls when unavailable, never invented).
+- Safety in native code: mode must EXACTLY match a live Camera2-advertised
+  `(size, [fps, fps])` pair (`[30, 240]` is never rewritten); CAMERA must be
+  granted; all camera/recorder/thread resources released in `finally`, plus
+  cancel + `OnDestroy` force-close so the camera is never left locked.
+- `app.json` declares `android.permission.CAMERA` only; runtime flow via
+  `PermissionsAndroid` handles granted / denied / permanently-denied
+  (→ Settings) / unavailable (Expo Go). UI shows camera ID, front/back,
+  resolution, exact range; lists only fixed ranges sorted 1080p120 →
+  720p120 → 720p240 from live probe data.
+- Timing stats (`src/camera/frameTiming.ts`, pure + execution-tested on
+  synthetic data: perfect 120fps → 120.00 obs/0 gaps; 1 dropped frame →
+  1 gap + 1 estimated miss; edge cases throw): samples, duration, mean,
+  median, min, max, observed FPS, jitter stddev, p95, large gaps (>1.5×T),
+  estimated missing frames Σ(round(dt/T)−1) — documented estimate, not proof.
+
+## Verification (P1, 2026-09-29)
+
+- `npm run check` — pass. `npx prettier --check .` — pass.
+- Frame-timing execution tests on synthetic data — pass (see STATUS history).
+- `npx expo prebuild --platform android` — pass (`android.permission.CAMERA`
+  in manifest; both native modules autolinked).
+- `:app:assembleDebug` BUILD SUCCESSFUL (JDK 21); `:expo-camera2-high-speed:compileDebugKotlin`
+  OK after fixing `createHighSpeedRequestList` to the instance API (it is not static).
+- Deployed to Xiaomi 2312DRA50G over wireless ADB (`adb reverse` + Metro on
+  `:8081` already running): install Success, MainActivity launches, JS bundle
+  loads, no fatal/logcat errors.
+- P0.1 probe screen untouched (Home still lists it; verified in UI dump).
+- On-device 10 s measurements (rear 1080p120 / 720p120 / 720p240, front
+  1080p120) — PENDING manual taps: wireless-ADB shell lacks INJECT_EVENTS so
+  `input tap` automation is rejected. Procedure + results table:
+  `docs/device-probes/P1_HIGH_SPEED_VALIDATION.md`.
