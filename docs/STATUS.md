@@ -111,7 +111,17 @@ No tracking/recording was implemented (out of scope for P0.1).
   `:8081` already running): install Success, MainActivity launches, JS bundle
   loads, no fatal/logcat errors.
 - P0.1 probe screen untouched (Home still lists it; verified in UI dump).
-- On-device 10 s measurements (rear 1080p120 / 720p120 / 720p240, front
-  1080p120) — PENDING manual taps: wireless-ADB shell lacks INJECT_EVENTS so
-  `input tap` automation is rejected. Procedure + results table:
-  `docs/device-probes/P1_HIGH_SPEED_VALIDATION.md`.
+- On-device 10 s measurements — DONE 2026-09-29, all four P0.1-advertised
+  fixed modes (rear 1080p120 / 720p120 / 720p240, front 1080p120): every
+  session CONFIGURED, every recording SUCCESS with file output, no camera
+  errors. Encoder-side (MediaExtractor) sustains ≈116 fps for 120 modes and
+  ≈227 fps for the 240 mode. Xiaomi limitation: CaptureResult callbacks are
+  throttled to ≈60 Hz regardless of stream rate, so per-frame timing must
+  come from video frames, not `onCaptureCompleted`. Full table + raw blocks:
+  `docs/device-probes/P1_HIGH_SPEED_VALIDATION.md`. Wireless-ADB shell lacks
+  INJECT_EVENTS/`pm grant`, so runs used a temporary auto-run harness
+  (reverted; final APK rebuilt from the manual-only tree, reinstalled and
+  launch-verified).
+- Recommendation (technical): proceed with rear 1920×1080 @ fixed 120fps
+  (reliable session, ≈116 fps sustained, max spatial detail); keep 720p240
+  as temporal benchmark; next prototype needs a frame-level timing path.
