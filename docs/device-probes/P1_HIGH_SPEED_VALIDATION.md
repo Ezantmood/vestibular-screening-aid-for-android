@@ -17,11 +17,11 @@ auto-start one mode, log report to logcat), fully reverted afterwards —
 
 ## Measured results (all sessions real constrained high-speed sessions)
 
-| Mode | Session | Recording | Encoder (MediaExtractor) | CaptureResult callbacks |
-|------|---------|-----------|--------------------------|-------------------------|
-| 0 BACK 1920×1080 `[120,120]` | CONFIGURED | SUCCESS + file | 1144 samples / 9.867 s → **115.9 fps** | 571 @ 58.0 Hz, median 16.639 ms |
-| 0 BACK 1280×720 `[120,120]` | CONFIGURED | SUCCESS + file | 1144 samples / 9.867 s → **115.9 fps** | 571 @ 58.0 Hz, median 16.639 ms |
-| 0 BACK 1280×720 `[240,240]` | CONFIGURED | SUCCESS + file | 2232 samples / 9.848 s → **226.7 fps** | 556 @ 56.6 Hz, median 16.663 ms |
+| Mode                          | Session    | Recording      | Encoder (MediaExtractor)               | CaptureResult callbacks         |
+| ----------------------------- | ---------- | -------------- | -------------------------------------- | ------------------------------- |
+| 0 BACK 1920×1080 `[120,120]`  | CONFIGURED | SUCCESS + file | 1144 samples / 9.867 s → **115.9 fps** | 571 @ 58.0 Hz, median 16.639 ms |
+| 0 BACK 1280×720 `[120,120]`   | CONFIGURED | SUCCESS + file | 1144 samples / 9.867 s → **115.9 fps** | 571 @ 58.0 Hz, median 16.639 ms |
+| 0 BACK 1280×720 `[240,240]`   | CONFIGURED | SUCCESS + file | 2232 samples / 9.848 s → **226.7 fps** | 556 @ 56.6 Hz, median 16.663 ms |
 | 1 FRONT 1920×1080 `[120,120]` | CONFIGURED | SUCCESS + file | 1152 samples / 9.875 s → **116.7 fps** | 575 @ 58.3 Hz, median 16.737 ms |
 
 No session failures, no camera errors, no disconnects; every run closed the
