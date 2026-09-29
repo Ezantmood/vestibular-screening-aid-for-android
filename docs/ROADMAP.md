@@ -4,7 +4,7 @@
 
 Expo TS scaffold, domain folder structure, HomeScreen boot check, lint/type tooling, docs. No clinical/native code.
 
-## Phase 1 — Camera2 capability probe (in progress as P0.1; device validation pending)
+## Phase 1 — Camera2 capability probe (done as P0.1; see docs/STATUS.md)
 
 On the Redmi Note 13 Pro 5G, probe Camera2: available resolutions, fps ranges (esp. ≥120 fps), front-camera limits, and whether Expo Go suffices. Output: short capability report + go/no-go for Dev Build. No tracking yet.
 
