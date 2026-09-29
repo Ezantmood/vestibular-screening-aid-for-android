@@ -81,7 +81,13 @@ class ExpoFramePipelineModule : Module() {
     private const val MIN_EYE_ROI_PX = 30
     private const val LARGE_GAP_FACTOR = 1.5
     private const val MAX_DECODED_FRAMES = 20_000
-    private const val FACE_TIMEOUT_SEC = 12L
+    private const val FACE_TIMEOUT_SEC = 8L
+    /**
+     * Bitmaps kept for eye-crop artifacts (only both-eyes-usable samples).
+     * All other sample bitmaps are recycled right after detection so
+     * 50–100-sample validation runs stay memory-safe (~8 MB per 1080p frame).
+     */
+    private const val MAX_CROP_BITMAPS = 8
   }
 
   @Suppress("TooGenericExceptionCaught", "LongMethod")
@@ -99,7 +105,10 @@ class ExpoFramePipelineModule : Module() {
       throw CodedException("ERR_NO_FILE", "Video file not found: $filePath.", null)
     }
     val warnings = mutableListOf<String>()
-    val faceCount = faceSampleCount.coerceIn(1, 25)
+    // P2 validation samples 50–100 evenly distributed decoded frames across
+    // the full ~10 s clip (offline only, never realtime); small counts stay
+    // supported for quick checks.
+    val faceCount = faceSampleCount.coerceIn(1, 120)
 
     // --- 1. Extractor scan: encoded/media timeline. ---
     val scan = scanVideoTrack(filePath)
@@ -1037,6 +1046,15 @@ class ExpoFramePipelineModule : Module() {
     if (samples.isEmpty()) {
       return FaceOut("FAILED", "No face samples decoded.", emptyList(), null, null)
     }
+    // Keep full-frame JPEG bytes only for the begin/middle/end artifact picks
+    // (faceSamples arrive in decode order, so positions 0/mid/last); drop the
+    // rest so 50–100-sample runs stay memory-safe.
+    val pickPos = setOf(0, samples.size / 2, samples.size - 1)
+    for ((idx, s) in samples.withIndex()) {
+      if (idx !in pickPos) {
+        s.jpegBytes = null
+      }
+    }
     val options = FaceDetectorOptions.Builder()
       .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
       .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
@@ -1065,6 +1083,7 @@ class ExpoFramePipelineModule : Module() {
     var status = "AVAILABLE"
     var detail: String? = null
     var notedRotation = false
+    var keptBitmaps = 0
     try {
       for (s in samples) {
         val bmp = s.bitmap
@@ -1161,6 +1180,12 @@ class ExpoFramePipelineModule : Module() {
                 null, null,
               ),
             )
+            // No crops needed from faceless samples — free the bitmap now.
+            try {
+              s.bitmap?.recycle()
+            } catch (_: Exception) {
+            }
+            s.bitmap = null
             continue
           }
           if (hitDeg != 0 && !notedRotation) {
@@ -1220,8 +1245,27 @@ class ExpoFramePipelineModule : Module() {
               left, right,
             ),
           )
+          // Keep the bitmap only when it can yield eye crops (both eyes
+          // usable, cap reached otherwise); free everything else now so
+          // 50–100-sample runs never hold ~100 live 1080p bitmaps.
+          val bothUsable = (left.map["usable"] as? Boolean) == true &&
+            (right.map["usable"] as? Boolean) == true
+          if (bothUsable && keptBitmaps < MAX_CROP_BITMAPS) {
+            keptBitmaps++
+          } else {
+            try {
+              s.bitmap?.recycle()
+            } catch (_: Exception) {
+            }
+            s.bitmap = null
+          }
         } catch (e: Exception) {
           warnings.add("Face detect failed f${s.frameIndex}: ${e.message}")
+          try {
+            s.bitmap?.recycle()
+          } catch (_: Exception) {
+          }
+          s.bitmap = null
           outs.add(
             FaceSampleOut(
               mapOf(

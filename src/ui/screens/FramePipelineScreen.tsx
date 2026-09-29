@@ -37,6 +37,9 @@ interface FixedMode {
 /** P2 validation window: approximately 10 seconds per mode. */
 const TEST_DURATION_SEC = 10;
 
+/** P2 validation ROI sample: 64 evenly distributed offline frames (50–100 target, never realtime). */
+const FACE_SAMPLE_COUNT = 64;
+
 /**
  * P2 mode order — architecture correction: FRONT 1920×1080 @ fixed 120fps is
  * the primary MVP eye-tracking candidate (user looks at the phone display
@@ -198,7 +201,7 @@ export default function FramePipelineScreen() {
       const analysis = await analyzeVideoFile({
         filePath: result.filePath,
         expectedFps: mode.fpsMax,
-        faceSampleCount: 9,
+        faceSampleCount: FACE_SAMPLE_COUNT,
         saveDebugFrames: true,
       });
       setPipeline(analysis);
@@ -221,7 +224,7 @@ export default function FramePipelineScreen() {
       const analysis = await analyzeVideoFile({
         filePath: capture.filePath,
         expectedFps: mode.fpsMax,
-        faceSampleCount: 9,
+        faceSampleCount: FACE_SAMPLE_COUNT,
         saveDebugFrames: true,
       });
       setPipeline(analysis);
@@ -328,7 +331,7 @@ export default function FramePipelineScreen() {
               <Text style={styles.note}>
                 {phase === 'recording'
                   ? `Recording ~${TEST_DURATION_SEC} s — look at the phone display…`
-                  : 'Decoding + analyzing (offline, may take ~1 min)…'}
+                  : 'Decoding + analyzing 64 offline ROI frames (may take ~1–3 min)…'}
               </Text>
               <Button title="Stop capture" onPress={() => void cancelHighSpeedTest()} />
             </View>

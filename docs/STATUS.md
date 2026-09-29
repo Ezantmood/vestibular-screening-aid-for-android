@@ -130,7 +130,7 @@ No tracking/recording was implemented (out of scope for P0.1).
   primary MVP eye-tracking candidate, rear modes are benchmarks —
   see `docs/DECISIONS.md` §12.)
 
-## P2 — High-speed frame decode + eye ROI feasibility (code-complete, on-device validation pending)
+## P2 — High-speed frame decode + eye ROI feasibility (COMPLETE 2026-09-29, verified on-device)
 
 - Architecture correction applied: FRONT 1920×1080 @ fixed 120fps is the
   primary MVP candidate (user looks at the display while the camera observes
@@ -154,23 +154,37 @@ No tracking/recording was implemented (out of scope for P0.1).
   pure logic, `framePipelineReport.ts` copyable report with separate
   `FRAME_PIPELINE_*` / `EYE_ROI_*` verdicts, `faceRoi.ts` isolated ROI
   interface (pupil stage reuses the decoder untouched). Debug UI
-  `FramePipelineScreen` (front default) wired into Home. No pupil/gaze/
+  `FramePipelineScreen` (front default, 64-frame validation ROI sample)
+  wired into Home. Validation sampling raised to 50–100 (native cap 120,
+  prompt bitmap recycling, 8 s detection timeout); screen analyzes 64
+  evenly spread offline frames. No pupil/gaze/
   stimulus/metric/diagnosis code (out of scope).
 
-## Verification (P2, 2026-09-29)
+## Verification (P2, 2026-09-29, on-device — Xiaomi 2312DRA50G / Android 13 / API 33)
 
 - `npm run check` (typecheck + lint) — pass. `npx prettier --check .` — pass.
-- Pure-logic execution checks (node, synthetic data) — pass: perfect 120fps →
-  120.00 fps/0 gaps; 1 dropped frame → 1 large gap; non-monotonic (2) +
-  duplicate-PTS (1) counted; MAD classify (candidate/low-motion/changing/
-  skipped) + longest-run correct; verdicts PASS/FAIL/UNKNOWN behave per bar.
+- Pure-logic execution checks (node, synthetic data) — pass (see prior entry).
 - `npx expo prebuild --platform android` — pass (all three native modules
   autolinked).
 - `:app:assembleDebug` BUILD SUCCESSFUL (JDK 21).
-- On-device validation — PENDING: the Xiaomi was unreachable over ADB this
-  session (no USB device, no wireless-debugging mDNS advertisement, prior
-  wireless IP not answering), so no numbers were captured or invented.
-  Procedure + report template ready in
-  `docs/device-probes/P2_FRAME_DECODE_EYE_ROI.md`: FRONT 1920×1080
-  `[120,120]` ~10 s self-test (look at display) + motion control, optional
-  rear 720p240 benchmark.
+- On-device validation — DONE (current wireless-ADB pairing
+  `192.168.1.189:43123`, `adb reverse` + Metro `:8081`; temp auto-run
+  harness reverted, final manual APK reinstalled + launch-verified). FRONT
+  1920×1080 `[120,120]`, 2× ~10 s clips (still self-test + motion control):
+  - Clip A (still): encoded 1178 / decoded 1178 / 9.849 s / **119.50 fps**;
+    PTS mean 8.368 / median 8.333 / max 8.500 ms; non-monotonic 0, dup-PTS 0,
+    large gaps 0. MAD median 1.39 (static content; 74% under the pre-device
+    1.5 candidate threshold — see noise-floor note). ROI 64 frames: face
+    89.1%, both-eyes 89.1%, eye boxes ~92–205 px.
+  - Clip B (motion): encoded 1176 / decoded 1176 / 9.832 s / **119.50 fps**;
+    identical PTS stats; 0/0/0 anomalies. MAD median 2.04, max 13.74
+    (motion-responsive — encoder not freezing). ROI: face 92.2%,
+    both-eyes 92.2%, eye boxes ~98–137 px.
+  - Threshold finding: static-scene MAD noise floor ≈1.1–1.5 sits inside the
+    pre-device ≤1.5 candidate band; zero exact-duplicate evidence (no 0.0
+    MAD) in ~2350 comparisons. Motion control is the authoritative freeze
+    check. Verdicts: **FRAME_PIPELINE_PASS**, **EYE_ROI_PASS**. Full tables:
+    `docs/device-probes/P2_FRAME_DECODE_EYE_ROI.md`. Recordings/frames/crops
+    remain on-device (app-private cache), never committed.
+- P2 COMPLETE. P3 (pupil centroid tracking) is technically unblocked but not
+  started.
