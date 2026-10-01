@@ -13,6 +13,8 @@ import {
 import type { FramePipelineReport } from '../../camera/framePipeline';
 import { analyzeVideoFile, isFramePipelineAvailable } from '../../camera/framePipeline';
 import { formatFramePipelineReport } from '../../camera/framePipelineReport';
+import type { FixedMode } from '../../camera/fixedModes';
+import { collectFixedModes } from '../../camera/fixedModes';
 import type { HighSpeedTestReport } from '../../camera/highSpeedCapture';
 import {
   cancelHighSpeedTest,
@@ -24,43 +26,11 @@ import { getCamera2Capabilities } from '../../camera/camera2Probe';
 type PermissionState = 'checking' | 'granted' | 'denied' | 'blocked' | 'unavailable';
 type Phase = 'idle' | 'loading-modes' | 'ready' | 'recording' | 'analyzing' | 'done' | 'error';
 
-interface FixedMode {
-  cameraId: string;
-  lensFacing: string;
-  width: number;
-  height: number;
-  fpsMin: number;
-  fpsMax: number;
-  label: string;
-}
-
 /** P2 validation window: approximately 10 seconds per mode. */
 const TEST_DURATION_SEC = 10;
 
 /** P2 validation ROI sample: 64 evenly distributed offline frames (50–100 target, never realtime). */
 const FACE_SAMPLE_COUNT = 64;
-
-/**
- * P2 mode order — architecture correction: FRONT 1920×1080 @ fixed 120fps is
- * the primary MVP eye-tracking candidate (user looks at the phone display
- * while the front camera observes the eyes). Rear 1080p120 / 720p240 remain
- * technical benchmark modes, not the default clinical-test camera.
- */
-function modePriority(mode: FixedMode): number {
-  if (mode.lensFacing === 'FRONT' && mode.width === 1920 && mode.fpsMax === 120) {
-    return 0;
-  }
-  if (mode.lensFacing === 'BACK' && mode.width === 1920 && mode.fpsMax === 120) {
-    return 1;
-  }
-  if (mode.fpsMax === 120) {
-    return 2;
-  }
-  if (mode.fpsMax === 240) {
-    return 3;
-  }
-  return 4;
-}
 
 async function requestCameraPermission(): Promise<PermissionState> {
   if (Platform.OS !== 'android') {
@@ -109,31 +79,7 @@ export default function FramePipelineScreen() {
     setErrorMessage(null);
     try {
       const cameras = await getCamera2Capabilities();
-      const found: FixedMode[] = [];
-      for (const camera of cameras) {
-        if (!camera.constrainedHighSpeedVideoSupported) {
-          continue;
-        }
-        for (const entry of camera.highSpeedVideoSizes) {
-          for (const range of entry.fpsRanges) {
-            if (range.min !== range.max) {
-              continue;
-            }
-            found.push({
-              cameraId: camera.cameraId,
-              lensFacing: camera.lensFacing,
-              width: entry.width,
-              height: entry.height,
-              fpsMin: range.min,
-              fpsMax: range.max,
-              label:
-                `Cam ${camera.cameraId} ${camera.lensFacing} ` +
-                `${entry.width}x${entry.height} [${range.min},${range.max}]`,
-            });
-          }
-        }
-      }
-      found.sort((a, b) => modePriority(a) - modePriority(b));
+      const found = collectFixedModes(cameras);
       setModes(found);
       setSelectedIndex(0);
       setPhase('ready');
@@ -400,6 +346,9 @@ const styles = StyleSheet.create({
   content: {
     alignItems: 'stretch',
     padding: 16,
+    // Clearance above the phone system navigation bar so no button ends up
+    // underneath it and untappable.
+    paddingBottom: 160,
   },
   error: {
     color: '#b00020',

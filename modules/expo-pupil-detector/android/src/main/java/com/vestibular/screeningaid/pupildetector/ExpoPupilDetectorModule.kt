@@ -1,0 +1,975 @@
+package com.vestibular.screeningaid.pupildetector
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.ImageFormat
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.YuvImage
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import expo.modules.kotlin.exception.CodedException
+import expo.modules.kotlin.modules.Module
+import expo.modules.kotlin.modules.ModuleDefinition
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sqrt
+
+/**
+ * P3 — single-frame pupil localization prototype (offline, post-recording).
+ *
+ * Pipeline (all on-device, from a P1 MP4 + P2 eye-ROI boxes — no new capture,
+ * no ML Kit here):
+ * 1. Parse the caller's ROI requests (frameIndex + frame-space eye box +
+ *    side + condition label, produced from the P2 `faceSamples` pass).
+ * 2. Replay the P2-style decode (MediaExtractor + MediaCodec, no surface, CPU
+ *    YUV Image) in one sequential pass. For requested frames only, copy the
+ *    exact Y-plane luminance (stride-aware, no JPEG round-trip in the
+ *    measurement path) and run the selected pupil detector immediately, so
+ *    only one frame is ever held in memory.
+ * 3. Report per-ROI `PupilDetectionResult` fields: frame/ROI/normalized
+ *    centroids (full float), candidate size, confidence, failure reason.
+ *    Failures carry null centroids — never fabricated positions.
+ * 4. Optional debug overlays (device-local cache `pupildebug/`, never git):
+ *    ROI crop + candidate bbox + centroid crosshair + confidence/failure
+ *    label, so false detections stay visually auditable.
+ *
+ * Detectors (both pure Android-SDK, no OpenCV, no ML model):
+ * - `percentile-dark`: light blur → 12th-percentile dark gate → connected
+ *   components → evidence scoring.
+ * - `contrast-normalized`: percentile contrast stretch → relative gate +
+ *   morphological open → same component machinery with shape-heavy weights.
+ *
+ * Coordinate semantics: ROI boxes arrive in ORIGINAL decoded-frame coords
+ * (P2 already maps its rotation fallback back), so centroid-in-frame is a
+ * plain translation and normalized coords divide by ROI size. Eye sides are
+ * image-space labels echoing the upstream ML Kit identity — front-camera
+ * mirroring is unresolved, never an anatomical claim.
+ *
+ * No clinical code: no gaze, degrees, stimuli, metrics, thresholds as
+ * clinical claims, or diagnosis. No temporal smoothing/tracking (P4).
+ */
+class ExpoPupilDetectorModule : Module() {
+
+  override fun definition() = ModuleDefinition {
+    Name("ExpoPupilDetector")
+
+    AsyncFunction("analyzeVideoPupils") { filePath: String, detectorId: String,
+      saveOverlays: Boolean, requestsJson: String ->
+      analyzeVideoPupils(filePath, detectorId, saveOverlays, requestsJson)
+    }
+  }
+
+  companion object {
+    /** Engineering feasibility gates (NOT clinical thresholds). */
+    const val MIN_PUPIL_CONFIDENCE = 0.35
+    const val AMBIGUITY_SCORE_MARGIN = 0.05
+    /** Ideal bbox fill ratio of a circle (pi/4); shape anchor. */
+    const val CIRCLE_FILL = Math.PI / 4.0
+    private const val MAX_DECODED_FRAMES = 20_000
+    /** Minimum ROI edge (px) the detectors accept; below → INVALID_GEOMETRY. */
+    private const val MIN_ROI_PX = 24
+  }
+
+  private data class RoiRequest(
+    val frameIndex: Int,
+    val ptsUs: Long?,
+    val eyeSide: String,
+    val roiX: Int,
+    val roiY: Int,
+    val roiWidth: Int,
+    val roiHeight: Int,
+    val condition: String,
+  )
+
+  private data class Comp(
+    var area: Int = 0,
+    var minX: Int = Int.MAX_VALUE,
+    var minY: Int = Int.MAX_VALUE,
+    var maxX: Int = Int.MIN_VALUE,
+    var maxY: Int = Int.MIN_VALUE,
+    var sumX: Long = 0,
+    var sumY: Long = 0,
+    var wSumX: Double = 0.0,
+    var wSumY: Double = 0.0,
+    var wTotal: Double = 0.0,
+    var meanIntensity: Double = 0.0,
+    var touchesBorder: Boolean = false,
+  )
+
+  private data class Outcome(
+    val success: Boolean,
+    val cxRoi: Double?,
+    val cyRoi: Double?,
+    val candW: Int?,
+    val candH: Int?,
+    val confidence: Double,
+    val failure: String?,
+  )
+
+  @Suppress("TooGenericExceptionCaught", "LongMethod")
+  private fun analyzeVideoPupils(
+    filePath: String,
+    detectorId: String,
+    saveOverlays: Boolean,
+    requestsJson: String,
+  ): Map<String, Any?> {
+    if (detectorId != "percentile-dark" && detectorId != "contrast-normalized") {
+      throw CodedException("ERR_BAD_DETECTOR", "Unknown pupil detector: $detectorId.", null)
+    }
+    val src = File(filePath)
+    if (!src.exists()) {
+      throw CodedException("ERR_NO_FILE", "Video file not found: $filePath.", null)
+    }
+    val warnings = mutableListOf<String>()
+    val requests = parseRequests(requestsJson, warnings)
+    if (requests.isEmpty()) {
+      return batchReport(filePath, detectorId, 0, -1, -1, emptyList(), emptyList(), warnings, null)
+    }
+    val byFrame = requests.groupBy { it.frameIndex }
+
+    // --- MediaCodec decode; detect on wanted frames as they arrive. ---
+    var frameWidth = -1
+    var frameHeight = -1
+    var decodedCount = 0
+    val results = mutableListOf<Map<String, Any?>>()
+    val overlayPaths = mutableListOf<String>()
+    var overlayDir: File? = null
+    var overlayStamp = 0L
+    if (saveOverlays) {
+      try {
+        overlayDir = File(appContext.reactContext?.cacheDir ?: appContext.cacheDirectory, "pupildebug")
+        overlayDir.mkdirs()
+        overlayStamp = System.currentTimeMillis()
+      } catch (_: Exception) {
+        warnings.add("Overlay dir unavailable; continuing without overlays.")
+        overlayDir = null
+      }
+    }
+    val extractor = MediaExtractor()
+    var codec: MediaCodec? = null
+    try {
+      extractor.setDataSource(filePath)
+      var track = -1
+      var format: MediaFormat? = null
+      var mime: String? = null
+      for (i in 0 until extractor.trackCount) {
+        val f = extractor.getTrackFormat(i)
+        val m = try {
+          f.getString(MediaFormat.KEY_MIME)
+        } catch (_: Exception) {
+          null
+        }
+        if (m != null && m.startsWith("video/")) {
+          track = i
+          format = f
+          mime = m
+          break
+        }
+      }
+      if (track < 0 || format == null || mime == null) {
+        val failed = requests.map { req ->
+          resultMap(req, detectorId, Outcome(false, null, null, null, null, 0.0, "INVALID_GEOMETRY"), null)
+        }
+        warnings.add("No video track for pupil decode.")
+        return batchReport(filePath, detectorId, 0, -1, -1, failed, emptyList(), warnings, null)
+      }
+      extractor.selectTrack(track)
+      extractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+      codec = MediaCodec.createDecoderByType(mime)
+      codec.configure(format, null, null, 0)
+      codec.start()
+      frameWidth = try {
+        format.getInteger(MediaFormat.KEY_WIDTH)
+      } catch (_: Exception) {
+        -1
+      }
+      frameHeight = try {
+        format.getInteger(MediaFormat.KEY_HEIGHT)
+      } catch (_: Exception) {
+        -1
+      }
+
+      var inputDone = false
+      var outputDone = false
+      var frameIndex = 0
+      val info = MediaCodec.BufferInfo()
+      val startMs = android.os.SystemClock.elapsedRealtime()
+      while (!outputDone) {
+        if (android.os.SystemClock.elapsedRealtime() - startMs > 180_000) {
+          warnings.add("Pupil decode wall-clock timeout; partial results.")
+          break
+        }
+        if (frameIndex > MAX_DECODED_FRAMES) {
+          warnings.add("Frame cap reached; partial results.")
+          break
+        }
+        if (!inputDone) {
+          val inIdx = try {
+            codec.dequeueInputBuffer(10_000)
+          } catch (_: Exception) {
+            -1
+          }
+          if (inIdx >= 0) {
+            val buf = try {
+              codec.getInputBuffer(inIdx)
+            } catch (_: Exception) {
+              null
+            }
+            if (buf == null) {
+              inputDone = true
+            } else {
+              val size = try {
+                extractor.readSampleData(buf, 0)
+              } catch (_: Exception) {
+                -1
+              }
+              if (size < 0) {
+                try {
+                  codec.queueInputBuffer(inIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                } catch (_: Exception) {
+                }
+                inputDone = true
+              } else {
+                val pts = try {
+                  extractor.sampleTime
+                } catch (_: Exception) {
+                  0L
+                }
+                try {
+                  codec.queueInputBuffer(inIdx, 0, size, pts, 0)
+                } catch (_: Exception) {
+                }
+                try {
+                  extractor.advance()
+                } catch (_: Exception) {
+                  inputDone = true
+                }
+              }
+            }
+          }
+        }
+        val outIdx = try {
+          codec.dequeueOutputBuffer(info, 10_000)
+        } catch (_: Exception) {
+          MediaCodec.INFO_TRY_AGAIN_LATER
+        }
+        when {
+          outIdx >= 0 -> {
+            if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+              outputDone = true
+              try {
+                codec.releaseOutputBuffer(outIdx, false)
+              } catch (_: Exception) {
+              }
+            } else if (info.size > 0) {
+              val wanted = byFrame[frameIndex]
+              if (wanted != null) {
+                var yCopy: ByteArray? = null
+                var w = frameWidth
+                var h = frameHeight
+                var overlayBmp: Bitmap? = null
+                try {
+                  val image = codec.getOutputImage(outIdx)
+                  if (image != null) {
+                    w = image.width
+                    h = image.height
+                    frameWidth = w
+                    frameHeight = h
+                    yCopy = copyYPlane(image)
+                    if (saveOverlays && overlayDir != null) {
+                      try {
+                        val nv = yuv420ToNv21(image)
+                        val jpeg = nv21ToJpeg(nv, w, h, 90)
+                        overlayBmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+                      } catch (e: Exception) {
+                        warnings.add("Overlay bitmap failed f$frameIndex: ${e.message}")
+                      }
+                    }
+                    image.close()
+                  } else {
+                    warnings.add("No CPU Image for wanted frame $frameIndex.")
+                  }
+                } catch (e: Exception) {
+                  warnings.add("Wanted-frame convert failed f$frameIndex: ${e.message}")
+                }
+                for (req in wanted) {
+                  val outcome = if (yCopy != null) {
+                    detectInFrame(yCopy, w, h, req, detectorId)
+                  } else {
+                    Outcome(false, null, null, null, null, 0.0, "INVALID_GEOMETRY")
+                  }
+                  var overlayPath: String? = null
+                  if (saveOverlays && overlayDir != null && geometryOk(req, w, h) && overlayBmp != null) {
+                    overlayPath = saveOverlay(overlayDir, overlayStamp, detectorId, req, outcome, overlayBmp, warnings)
+                    if (overlayPath != null) {
+                      overlayPaths.add(overlayPath)
+                    }
+                  }
+                  results.add(resultMap(req, detectorId, outcome, overlayPath))
+                }
+                try {
+                  overlayBmp?.recycle()
+                } catch (_: Exception) {
+                }
+              }
+              frameIndex++
+              decodedCount++
+              try {
+                codec.releaseOutputBuffer(outIdx, false)
+              } catch (_: Exception) {
+              }
+            } else {
+              try {
+                codec.releaseOutputBuffer(outIdx, false)
+              } catch (_: Exception) {
+              }
+            }
+          }
+          outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+            try {
+              val nf = codec.outputFormat
+              frameWidth = nf.getInteger(MediaFormat.KEY_WIDTH)
+              frameHeight = nf.getInteger(MediaFormat.KEY_HEIGHT)
+            } catch (_: Exception) {
+            }
+          }
+          outIdx == MediaCodec.INFO_TRY_AGAIN_LATER -> {
+            if (inputDone) {
+              warnings.add("Decoder drained with no EOS; partial results.")
+              outputDone = true
+            }
+          }
+          else -> {
+          }
+        }
+      }
+    } catch (e: Exception) {
+      warnings.add("Pupil decode error: ${e.message}")
+    } finally {
+      try {
+        codec?.stop()
+      } catch (_: Exception) {
+      }
+      try {
+        codec?.release()
+      } catch (_: Exception) {
+      }
+      try {
+        extractor.release()
+      } catch (_: Exception) {
+      }
+    }
+    // Requests for frames never decoded (beyond EOS) fail explicitly.
+    val seen = results.map { it["frameIndex"] as Int }.toSet()
+    for (req in requests) {
+      if (!seen.contains(req.frameIndex)) {
+        warnings.add("Frame ${req.frameIndex} never decoded; marked INVALID_GEOMETRY.")
+        results.add(resultMap(req, detectorId, Outcome(false, null, null, null, null, 0.0, "INVALID_GEOMETRY"), null))
+      }
+    }
+    val ordered = results.sortedWith(compareBy({ it["frameIndex"] as Int }, { it["eyeSide"] as String }))
+    return batchReport(filePath, detectorId, decodedCount, frameWidth, frameHeight, ordered, overlayPaths, warnings, null)
+  }
+
+  private fun geometryOk(req: RoiRequest, frameW: Int, frameH: Int): Boolean {
+    return req.roiWidth >= MIN_ROI_PX && req.roiHeight >= MIN_ROI_PX &&
+      req.roiX >= 0 && req.roiY >= 0 && req.roiX + req.roiWidth <= frameW && req.roiY + req.roiHeight <= frameH
+  }
+
+  // ---------- Request parsing ----------
+
+  @Suppress("TooGenericExceptionCaught")
+  private fun parseRequests(json: String, warnings: MutableList<String>): List<RoiRequest> {
+    val out = mutableListOf<RoiRequest>()
+    try {
+      val arr = org.json.JSONArray(json)
+      for (i in 0 until arr.length()) {
+        try {
+          val o = arr.getJSONObject(i)
+          out.add(
+            RoiRequest(
+              frameIndex = o.getInt("frameIndex"),
+              ptsUs = if (o.isNull("decodedPtsUs")) null else o.getLong("decodedPtsUs"),
+              eyeSide = o.optString("eyeSide", "left").takeIf { it == "right" } ?: "left",
+              roiX = o.getInt("roiX"),
+              roiY = o.getInt("roiY"),
+              roiWidth = o.getInt("roiWidth"),
+              roiHeight = o.getInt("roiHeight"),
+              condition = o.optString("condition", "unspecified"),
+            ),
+          )
+        } catch (e: Exception) {
+          warnings.add("Skipping malformed pupil request #$i: ${e.message}")
+        }
+      }
+    } catch (e: Exception) {
+      warnings.add("Pupil request parse failed: ${e.message}")
+    }
+    return out
+  }
+
+  // ---------- Report ----------
+
+  private fun resultMap(
+    req: RoiRequest,
+    detectorId: String,
+    outcome: Outcome,
+    overlayPath: String?,
+  ): Map<String, Any?> {
+    val cxRoi = outcome.cxRoi
+    val cyRoi = outcome.cyRoi
+    return mapOf(
+      "frameIndex" to req.frameIndex,
+      "decodedPtsUs" to req.ptsUs,
+      "eyeSide" to req.eyeSide,
+      "detectorId" to detectorId,
+      "roiX" to req.roiX,
+      "roiY" to req.roiY,
+      "roiWidth" to req.roiWidth,
+      "roiHeight" to req.roiHeight,
+      "centroidXInRoi" to cxRoi,
+      "centroidYInRoi" to cyRoi,
+      "centroidXInFrame" to if (cxRoi != null && cyRoi != null) req.roiX + cxRoi else null,
+      "centroidYInFrame" to if (cxRoi != null && cyRoi != null) req.roiY + cyRoi else null,
+      "normalizedX" to if (cxRoi != null) cxRoi / req.roiWidth.toDouble() else null,
+      "normalizedY" to if (cyRoi != null) cyRoi / req.roiHeight.toDouble() else null,
+      "candidateWidth" to outcome.candW,
+      "candidateHeight" to outcome.candH,
+      "confidence" to outcome.confidence,
+      "failureReason" to outcome.failure,
+      "condition" to req.condition,
+      "overlayPath" to overlayPath,
+    )
+  }
+
+  private fun batchReport(
+    filePath: String,
+    detectorId: String,
+    decodedCount: Int,
+    frameW: Int,
+    frameH: Int,
+    results: List<Map<String, Any?>>,
+    overlays: List<String>,
+    warnings: List<String>,
+    error: String?,
+  ): Map<String, Any?> = mapOf(
+    "filePath" to filePath,
+    "detectorId" to detectorId,
+    "decodedFrameCount" to decodedCount,
+    "frameWidth" to frameW,
+    "frameHeight" to frameH,
+    "results" to results,
+    "overlayPaths" to overlays,
+    "warnings" to warnings,
+    "error" to error,
+  )
+
+  // ---------- Y-plane helpers ----------
+
+  /** Exact Y (luminance) copy of a decoded frame, stride-aware. */
+  private fun copyYPlane(image: android.media.Image): ByteArray {
+    val w = image.width
+    val h = image.height
+    val yPlane = image.planes[0]
+    val buf = yPlane.buffer
+    val rowStride = yPlane.rowStride
+    val pixStride = yPlane.pixelStride
+    val out = ByteArray(w * h)
+    var pos = 0
+    for (y in 0 until h) {
+      for (x in 0 until w) {
+        out[pos++] = buf.get(y * rowStride + x * pixStride)
+      }
+    }
+    return out
+  }
+
+  private fun yuv420ToNv21(image: android.media.Image): ByteArray {
+    val w = image.width
+    val h = image.height
+    val yPlane = image.planes[0]
+    val uPlane = image.planes[1]
+    val vPlane = image.planes[2]
+    val yBuf = yPlane.buffer
+    val uBuf = uPlane.buffer
+    val vBuf = vPlane.buffer
+    val nv21 = ByteArray(w * h * 3 / 2)
+    var pos = 0
+    for (y in 0 until h) {
+      for (x in 0 until w) {
+        nv21[pos++] = yBuf.get(y * yPlane.rowStride + x * yPlane.pixelStride)
+      }
+    }
+    var uvPos = w * h
+    for (y in 0 until h / 2) {
+      for (x in 0 until w / 2) {
+        nv21[uvPos++] = vBuf.get(y * vPlane.rowStride + x * vPlane.pixelStride)
+        nv21[uvPos++] = uBuf.get(y * uPlane.rowStride + x * uPlane.pixelStride)
+      }
+    }
+    return nv21
+  }
+
+  private fun nv21ToJpeg(nv21: ByteArray, w: Int, h: Int, quality: Int): ByteArray {
+    val yuv = YuvImage(nv21, ImageFormat.NV21, w, h, null)
+    val out = ByteArrayOutputStream(w * h)
+    yuv.compressToJpeg(Rect(0, 0, w, h), quality, out)
+    return out.toByteArray()
+  }
+
+  // ---------- Detection entry ----------
+
+  private fun detectInFrame(
+    yPlane: ByteArray,
+    frameW: Int,
+    frameH: Int,
+    req: RoiRequest,
+    detectorId: String,
+  ): Outcome {
+    if (req.roiWidth < MIN_ROI_PX || req.roiHeight < MIN_ROI_PX || req.roiWidth <= 0 || req.roiHeight <= 0) {
+      return Outcome(false, null, null, null, null, 0.0, "INVALID_GEOMETRY")
+    }
+    if (req.roiX < 0 || req.roiY < 0 || req.roiX + req.roiWidth > frameW || req.roiY + req.roiHeight > frameH) {
+      return Outcome(false, null, null, null, null, 0.0, "INVALID_GEOMETRY")
+    }
+    val rw = req.roiWidth
+    val rh = req.roiHeight
+    val gray = DoubleArray(rw * rh)
+    for (y in 0 until rh) {
+      for (x in 0 until rw) {
+        gray[y * rw + x] = (yPlane[(req.roiY + y) * frameW + (req.roiX + x)].toInt() and 0xFF).toDouble()
+      }
+    }
+    return if (detectorId == "contrast-normalized") {
+      detectContrastNormalized(gray, rw, rh)
+    } else {
+      detectPercentileDark(gray, rw, rh)
+    }
+  }
+
+  // ---------- Shared CV primitives (mirror the TS domain logic) ----------
+
+  private fun boxBlur(src: DoubleArray, w: Int, h: Int, radius: Int): DoubleArray {
+    val tmp = DoubleArray(w * h)
+    val out = DoubleArray(w * h)
+    for (y in 0 until h) {
+      for (x in 0 until w) {
+        var sum = 0.0
+        var count = 0
+        for (k in -radius..radius) {
+          val xx = min(w - 1, max(0, x + k))
+          sum += src[y * w + xx]
+          count++
+        }
+        tmp[y * w + x] = sum / count
+      }
+    }
+    for (y in 0 until h) {
+      for (x in 0 until w) {
+        var sum = 0.0
+        var count = 0
+        for (k in -radius..radius) {
+          val yy = min(h - 1, max(0, y + k))
+          sum += tmp[yy * w + x]
+          count++
+        }
+        out[y * w + x] = sum / count
+      }
+    }
+    return out
+  }
+
+  private fun percentileValue(values: DoubleArray, q: Double): Double {
+    if (values.isEmpty()) {
+      return 0.0
+    }
+    val sorted = values.sorted()
+    val qc = min(1.0, max(0.0, q))
+    return sorted[min(sorted.size - 1, (qc * sorted.size).toInt())]
+  }
+
+  private fun findComps(mask: ByteArray, w: Int, h: Int): List<Comp> {
+    val labels = IntArray(w * h)
+    val parent = mutableListOf(0)
+    fun find(a: Int): Int {
+      var root = a
+      while (parent[root] != root) {
+        root = parent[root]
+      }
+      return root
+    }
+    var nextLabel = 1
+    for (y in 0 until h) {
+      for (x in 0 until w) {
+        val idx = y * w + x
+        if (mask[idx] == 0.toByte()) {
+          continue
+        }
+        val left = if (x > 0 && mask[idx - 1] != 0.toByte()) labels[idx - 1] else 0
+        val up = if (y > 0 && mask[idx - w] != 0.toByte()) labels[idx - w] else 0
+        when {
+          left == 0 && up == 0 -> {
+            parent.add(nextLabel)
+            parent[nextLabel] = nextLabel
+            labels[idx] = nextLabel
+            nextLabel++
+          }
+          left != 0 && up == 0 -> labels[idx] = find(left)
+          left == 0 && up != 0 -> labels[idx] = find(up)
+          else -> {
+            val rl = find(left)
+            val ru = find(up)
+            labels[idx] = rl
+            if (rl != ru) {
+              parent[ru] = rl
+            }
+          }
+        }
+      }
+    }
+    // NOTE: union-find without path compression on `parent` — `find` resolves
+    // chains at lookup, so multi-hop merges still group correctly.
+    val byRoot = mutableMapOf<Int, Comp>()
+    for (y in 0 until h) {
+      for (x in 0 until w) {
+        val idx = y * w + x
+        if (mask[idx] == 0.toByte()) {
+          continue
+        }
+        val root = find(labels[idx])
+        val e = byRoot.getOrPut(root) { Comp(minX = x, minY = y, maxX = x, maxY = y) }
+        e.area++
+        e.minX = min(e.minX, x)
+        e.minY = min(e.minY, y)
+        e.maxX = max(e.maxX, x)
+        e.maxY = max(e.maxY, y)
+        e.sumX += x
+        e.sumY += y
+        if (x == 0 || y == 0 || x == w - 1 || y == h - 1) {
+          e.touchesBorder = true
+        }
+      }
+    }
+    return byRoot.values.toList()
+  }
+
+  private data class Scored(val comp: Comp, val score: Double)
+
+  private fun clamp01(v: Double): Double = min(1.0, max(0.0, v))
+
+  private fun scoreComp(
+    c: Comp,
+    roiMean: Double,
+    roiW: Int,
+    roiH: Int,
+    surround: Double?,
+    wDark: Double,
+    wArea: Double,
+    wShape: Double,
+    wCenter: Double,
+    wContrast: Double,
+  ): Double {
+    val roiArea = max(1, roiW * roiH).toDouble()
+    val boxW = (c.maxX - c.minX + 1).toDouble()
+    val boxH = (c.maxY - c.minY + 1).toDouble()
+    val darkness = clamp01((roiMean - c.meanIntensity) / 128.0)
+    val areaFrac = c.area / roiArea
+    val areaPrior = if (areaFrac <= 0) 0.0 else clamp01(1.0 - abs(Math.log(areaFrac / 0.04)) / Math.log(20.0))
+    val fillRatio = c.area / max(1.0, boxW * boxH)
+    val aspect = max(boxW, boxH) / max(1.0, min(boxW, boxH))
+    val fillScore = clamp01(1.0 - abs(fillRatio - CIRCLE_FILL) / CIRCLE_FILL)
+    val aspectScore = clamp01(1.0 - (aspect - 1.0) / 1.5)
+    val shape = 0.6 * fillScore + 0.4 * aspectScore
+    val cx = c.sumX.toDouble() / max(1.0, c.area.toDouble())
+    val cy = c.sumY.toDouble() / max(1.0, c.area.toDouble())
+    val dx = (cx - roiW / 2.0) / (roiW / 2.0)
+    val dy = (cy - roiH / 2.0) / (roiH / 2.0)
+    val centrality = clamp01(1.0 - sqrt(dx * dx + dy * dy) / sqrt(2.0))
+    val borderPenalty = if (c.touchesBorder) 0.35 else 0.0
+    val contrast = if (surround == null) 0.5 else clamp01((surround - c.meanIntensity) / 100.0)
+    val wSum = wDark + wArea + wShape + wCenter + wContrast
+    return clamp01(
+      (wDark * darkness + wArea * areaPrior + wShape * shape + wCenter * centrality + wContrast * contrast) / max(1e-9, wSum) - borderPenalty,
+    )
+  }
+
+  private fun surroundMean(gray: DoubleArray, w: Int, h: Int, c: Comp, pad: Int): Double? {
+    val x0 = max(0, c.minX - pad)
+    val y0 = max(0, c.minY - pad)
+    val x1 = min(w - 1, c.maxX + pad)
+    val y1 = min(h - 1, c.maxY + pad)
+    var sum = 0.0
+    var count = 0
+    for (y in y0..y1) {
+      for (x in x0..x1) {
+        if (x in c.minX..c.maxX && y in c.minY..c.maxY) {
+          continue
+        }
+        sum += gray[y * w + x]
+        count++
+      }
+    }
+    return if (count > 0) sum / count else null
+  }
+
+  private fun filterAndWeigh(
+    raw: List<Comp>,
+    gray: DoubleArray,
+    smoothed: DoubleArray,
+    mask: ByteArray,
+    w: Int,
+    h: Int,
+    threshold: Double,
+  ): List<Comp> {
+    val roiArea = max(1, w * h).toDouble()
+    val out = mutableListOf<Comp>()
+    for (c in raw) {
+      val areaFrac = c.area / roiArea
+      if (areaFrac < 0.003 || areaFrac > 0.28) {
+        continue
+      }
+      val bw = c.maxX - c.minX + 1
+      val bh = c.maxY - c.minY + 1
+      if (bw < 6 || bh < 6) {
+        continue
+      }
+      if (max(bw, bh).toDouble() / max(1, min(bw, bh)).toDouble() > 2.5) {
+        continue
+      }
+      var sum = 0.0
+      var wTotal = 0.0
+      var wSumX = 0.0
+      var wSumY = 0.0
+      for (y in c.minY..c.maxY) {
+        for (x in c.minX..c.maxX) {
+          val idx = y * w + x
+          if (mask[idx] == 0.toByte()) {
+            continue
+          }
+          val v = gray[idx]
+          sum += v
+          val weight = max(0.0, threshold - v)
+          wTotal += weight
+          wSumX += x * weight
+          wSumY += y * weight
+        }
+      }
+      c.meanIntensity = if (c.area > 0) sum / c.area else threshold
+      c.wSumX = wSumX
+      c.wSumY = wSumY
+      c.wTotal = wTotal
+      out.add(c)
+    }
+    return out
+  }
+
+  private fun selectBest(
+    gray: DoubleArray,
+    comps: List<Comp>,
+    weights: DoubleArray,
+    maskFraction: Double,
+  ): Outcome {
+    if (comps.isEmpty()) {
+      return noCandidate(gray, maskFraction)
+    }
+    val roiMean = gray.average()
+    val scored = comps.map { c ->
+      Scored(c, scoreComp(c, roiMean, lastW, lastH, surroundMean(gray, lastW, lastH, c, 6),
+        weights[0], weights[1], weights[2], weights[3], weights[4]))
+    }.sortedByDescending { it.score }
+    val best = scored[0]
+    val runnerUp = if (scored.size > 1) scored[1] else null
+    if (runnerUp != null && best.score - runnerUp.score < AMBIGUITY_SCORE_MARGIN && runnerUp.score >= MIN_PUPIL_CONFIDENCE) {
+      return Outcome(false, null, null, null, null, best.score, "AMBIGUOUS_CANDIDATES")
+    }
+    if (best.score < MIN_PUPIL_CONFIDENCE) {
+      return Outcome(false, null, null, null, null, best.score, "LOW_CONFIDENCE")
+    }
+    val c = best.comp
+    val cx = if (c.wTotal > 0) c.wSumX / c.wTotal else c.sumX.toDouble() / max(1.0, c.area.toDouble())
+    val cy = if (c.wTotal > 0) c.wSumY / c.wTotal else c.sumY.toDouble() / max(1.0, c.area.toDouble())
+    return Outcome(true, cx, cy, c.maxX - c.minX + 1, c.maxY - c.minY + 1, best.score, null)
+  }
+
+  // ROI dims for the in-flight detection (single-threaded module call).
+  private var lastW: Int = 0
+  private var lastH: Int = 0
+
+  private fun noCandidate(gray: DoubleArray, maskFraction: Double): Outcome {
+    val roiMean = gray.average()
+    if (maskFraction > 0.4 || roiMean < 60.0) {
+      return Outcome(false, null, null, null, null, 0.0, "EYE_CLOSED_OR_OCCLUDED")
+    }
+    return Outcome(false, null, null, null, null, 0.0, "NO_PUPIL_CANDIDATE")
+  }
+
+  private fun detectPercentileDark(gray: DoubleArray, w: Int, h: Int): Outcome {
+    lastW = w
+    lastH = h
+    val smoothed = boxBlur(gray, w, h, 1)
+    val rawThreshold = percentileValue(smoothed, 0.12)
+    val threshold = min(110.0, max(25.0, rawThreshold))
+    val mask = ByteArray(w * h)
+    var dark = 0
+    for (i in mask.indices) {
+      if (smoothed[i] < threshold) {
+        mask[i] = 1
+        dark++
+      }
+    }
+    val comps = filterAndWeigh(findComps(mask, w, h), gray, smoothed, mask, w, h, threshold)
+    return selectBest(gray, comps, doubleArrayOf(2.0, 2.0, 2.0, 1.0, 1.0), dark.toDouble() / (w * h).toDouble())
+  }
+
+  private fun detectContrastNormalized(gray: DoubleArray, w: Int, h: Int): Outcome {
+    lastW = w
+    lastH = h
+    val smoothed = boxBlur(gray, w, h, 1)
+    val lo = percentileValue(smoothed, 0.02)
+    val hi = percentileValue(smoothed, 0.98)
+    if (hi - lo < 8.0) {
+      return Outcome(false, null, null, null, null, 0.0, "NO_PUPIL_CANDIDATE")
+    }
+    val n = w * h
+    val stretched = DoubleArray(n)
+    for (i in 0 until n) {
+      stretched[i] = min(255.0, max(0.0, ((smoothed[i] - lo) / (hi - lo)) * 255.0))
+    }
+    val absCut = min(110.0, max(25.0, percentileValue(stretched, 0.12)))
+    val mask = ByteArray(n)
+    var dark = 0
+    for (i in 0 until n) {
+      if (stretched[i] < absCut) {
+        mask[i] = 1
+        dark++
+      }
+    }
+    val opened = binaryOpen(mask, w, h)
+    val comps = filterAndWeigh(findComps(opened, w, h), gray, smoothed, opened, w, h, absCut)
+    return selectBest(gray, comps, doubleArrayOf(1.0, 2.0, 3.0, 1.0, 2.0), dark.toDouble() / n.toDouble())
+  }
+
+  private fun binaryOpen(mask: ByteArray, w: Int, h: Int): ByteArray {
+    val eroded = ByteArray(w * h)
+    for (y in 0 until h) {
+      for (x in 0 until w) {
+        var all = true
+        for (ky in -1..1) {
+          for (kx in -1..1) {
+            val xx = min(w - 1, max(0, x + kx))
+            val yy = min(h - 1, max(0, y + ky))
+            if (mask[yy * w + xx] == 0.toByte()) {
+              all = false
+              break
+            }
+          }
+          if (!all) {
+            break
+          }
+        }
+        eroded[y * w + x] = if (all) 1 else 0
+      }
+    }
+    val out = ByteArray(w * h)
+    for (y in 0 until h) {
+      for (x in 0 until w) {
+        var any = false
+        for (ky in -1..1) {
+          for (kx in -1..1) {
+            val xx = min(w - 1, max(0, x + kx))
+            val yy = min(h - 1, max(0, y + ky))
+            if (eroded[yy * w + xx] != 0.toByte()) {
+              any = true
+              break
+            }
+          }
+          if (any) {
+            break
+          }
+        }
+        out[y * w + x] = if (any) 1 else 0
+      }
+    }
+    return out
+  }
+
+  // ---------- Debug overlays (device-local only) ----------
+
+  @Suppress("TooGenericExceptionCaught")
+  private fun saveOverlay(
+    dir: File,
+    stamp: Long,
+    detectorId: String,
+    req: RoiRequest,
+    outcome: Outcome,
+    frameBmp: Bitmap,
+    warnings: MutableList<String>,
+  ): String? {
+    try {
+      val cx = req.roiX.coerceIn(0, frameBmp.width - 1)
+      val cy = req.roiY.coerceIn(0, frameBmp.height - 1)
+      val cw = req.roiWidth.coerceIn(1, frameBmp.width - cx)
+      val ch = req.roiHeight.coerceIn(1, frameBmp.height - cy)
+      val crop = Bitmap.createBitmap(frameBmp, cx, cy, cw, ch)
+      val marked = crop.copy(Bitmap.Config.ARGB_8888, true)
+      val canvas = Canvas(marked)
+      val label = if (outcome.success) {
+        "conf=${String.format("%.2f", outcome.confidence)}"
+      } else {
+        outcome.failure ?: "FAIL"
+      }
+      if (outcome.success && outcome.cxRoi != null && outcome.cyRoi != null &&
+        outcome.candW != null && outcome.candH != null
+      ) {
+        val boxPaint = Paint().apply {
+          color = Color.YELLOW
+          style = Paint.Style.STROKE
+          strokeWidth = max(2f, cw / 75f)
+        }
+        val left = (outcome.cxRoi - outcome.candW / 2.0).toFloat()
+        val top = (outcome.cyRoi - outcome.candH / 2.0).toFloat()
+        canvas.drawRect(left, top, left + outcome.candW.toFloat(), top + outcome.candH.toFloat(), boxPaint)
+        val cross = Paint().apply {
+          color = Color.RED
+          style = Paint.Style.STROKE
+          strokeWidth = max(2f, cw / 75f)
+        }
+        val px = outcome.cxRoi.toFloat()
+        val py = outcome.cyRoi.toFloat()
+        val r = max(4f, cw / 20f)
+        canvas.drawCircle(px, py, r, cross)
+        canvas.drawLine(px - r * 2, py, px + r * 2, py, cross)
+        canvas.drawLine(px, py - r * 2, px, py + r * 2, cross)
+      }
+      val textPaint = Paint().apply {
+        color = Color.WHITE
+        textSize = max(14f, ch / 12f)
+        setShadowLayer(4f, 0f, 0f, Color.BLACK)
+      }
+      canvas.drawText("$detectorId $label", 8f, max(16f, ch / 11f), textPaint)
+      val detShort = if (detectorId == "percentile-dark") "perc" else "norm"
+      val out = File(dir, "p3_${stamp}_${detShort}_${req.eyeSide}_f${req.frameIndex}.jpg")
+      FileOutputStream(out).use { marked.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+      try {
+        crop.recycle()
+      } catch (_: Exception) {
+      }
+      try {
+        marked.recycle()
+      } catch (_: Exception) {
+      }
+      return out.absolutePath
+    } catch (e: Exception) {
+      warnings.add("Overlay save failed f${req.frameIndex}${req.eyeSide}: ${e.message}")
+      return null
+    }
+  }
+}

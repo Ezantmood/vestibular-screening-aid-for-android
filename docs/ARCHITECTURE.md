@@ -38,10 +38,15 @@ src/camera/framePipeline.ts + videoTimeline.ts + frameChange.ts + framePipelineR
      (FRONT 1080p120 default, rear = benchmark).
 src/eyetracking/faceRoi.ts (isolated ROI interface; ML Kit boxes are feasibility
   only, never pupil tracking)
-  └─ P2: face/eye ROI consumer of decoded frames. Pupil centroid tracking
-     (next milestone, e.g. OpenCV/custom CV) consumes the same decoder output
-     behind its own interface — no decode rewrite.
-      Phase 2+: capture/frames behind `CameraService` (see docs/ROADMAP.md).
+  └─ P2: face/eye ROI consumer of decoded frames.
+src/eyetracking/pupil/ (pupilTypes + coordinates + detectors + pupilReport,
+  pure + execution-tested; two candidates behind one detector interface)
+src/camera/pupilDetector.ts ──optional──▶ ExpoPupilDetector (Kotlin, Android-only)
+  └─ P3: single-frame pupil localization reusing the P2 decode pattern
+     (exact Y-plane pixels, no ML Kit/OpenCV here); one PupilDetectionResult
+     per eye slot, failures carry null centroids. Debug UI
+     `PupilValidationScreen` (FRONT 1080p120 default, both detectors).
+     Phase 2+: capture/frames behind `CameraService` (see docs/ROADMAP.md).
 ```
 
 See `docs/PROJECT_SPEC.md` for scope, `docs/ROADMAP.md` for phase order.

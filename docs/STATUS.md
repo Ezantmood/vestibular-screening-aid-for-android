@@ -188,3 +188,59 @@ No tracking/recording was implemented (out of scope for P0.1).
     remain on-device (app-private cache), never committed.
 - P2 COMPLETE. P3 (pupil centroid tracking) is technically unblocked but not
   started.
+
+## P3 — Pupil detection + centroid prototype (COMPLETE, verified on-device)
+
+- New Android-only module `modules/expo-pupil-detector` (Kotlin, autolinked,
+  dependency-free: no OpenCV, no ML Kit, no ML model). One offline call
+  `analyzeVideoPupils(filePath, detectorId, saveOverlays, requestsJson)`
+  replays the P2-style MediaExtractor + MediaCodec decode in a single
+  sequential pass, copies exact Y-plane luminance for requested frames only
+  (no JPEG round-trip in the measurement path), and localizes the pupil per
+  eye ROI immediately (one frame held at a time). Debug overlays (ROI crop +
+  candidate box + centroid crosshair + confidence/failure label) go to
+  device-local cache `pupildebug/` — never git.
+- Two lightweight candidates behind one detector interface:
+  `percentile-dark` (blur → 12th-percentile dark gate → components → evidence
+  scoring) and `contrast-normalized` (percentile contrast stretch → gate +
+  morphological open → same machinery, shape-heavy weights). Scoring evidence:
+  darkness, area prior, bbox-fill/aspect ellipse proxy, centrality, border
+  contact penalty, surround contrast. Explicit failures (`NO_FACE`,
+  `NO_EYE_ROI`, `EYE_CLOSED_OR_OCCLUDED`, `NO_PUPIL_CANDIDATE`,
+  `AMBIGUOUS_CANDIDATES`, `LOW_CONFIDENCE`, `INVALID_GEOMETRY`) always carry
+  null centroids — never fabricated. A background-subtraction variant was
+  dropped during synthetic checks (it cancels large uniform pupils).
+- TS domain `src/eyetracking/pupil/` (`pupilTypes`, `coordinates`,
+  `detectors`, `pupilReport`): explicit frame/ROI/normalized semantics, full
+  float precision, image-space side labels (mirroring unresolved, documented).
+  37/37 synthetic logic checks pass (centroid, transforms, scoring, failures,
+  rotation mapping, verdict gates). Orchestration (`src/camera/pupilDetector.ts`)
+  yields one result per sampled eye slot (upstream misses → TS-side
+  `NO_FACE`/`NO_EYE_ROI`). Debug UI `PupilValidationScreen` (FRONT 1080p120
+  default, both detectors, manual visual-audit toggle) wired into Home.
+  Shared `src/camera/fixedModes.ts` extracted (behavior-identical); all debug
+  screens gained 160 px bottom clearance (system nav bar covered buttons).
+
+## Verification (P3, on-device — Xiaomi 2312DRA50G / Android 13 / API 33)
+
+- `npm run check` (typecheck + lint) — pass. `npx prettier --check .` — pass.
+- Synthetic logic checks (node, compiled tsc output) — 37/37 pass.
+- `npx expo prebuild --platform android` — pass (all four native modules
+  autolinked).
+- `:app:assembleDebug` BUILD SUCCESSFUL (JDK 21).
+- On-device validation — DONE (FRONT 1920×1080 `[120,120]`, 7 × ~10 s clips:
+  center/left/right/up/down/blink/head-move; temp auto-run harness reverted,
+  final manual APK rebuilt + launch-verified). 80 eye slots per condition per
+  detector (40 frames × 2 sides), 560 per detector: **percentile-dark
+  330/560 = 58.9%**, **contrast-normalized 334/560 = 59.6%**; core poses
+  (center/left/right/down) 71–88% per condition; `up` ~40–44%, `blink`
+  15–20%, `head-move` ~34–36% — all failing honestly (lid occlusion, closed
+  eyes, motion blur). Per-side coverage is balanced (L ≈ R within 2.5pp).
+  Visual audit of 16 representative overlays: every success crosshair falls
+  on the pupil, every failure is marker-free. Verdict: **PUPIL_DETECTION_PASS**
+  (feasibility, not validated gaze accuracy — no ground truth yet). Baseline:
+  `percentile-dark` (simpler, fewer ambiguous outcomes). Full tables:
+  `docs/device-probes/P3_PUPIL_DETECTION.md`. Recordings/frames/crops stay
+  on-device (app-private cache), never committed.
+- P3 COMPLETE. P4 (tracking continuity / confidence / robustness) is
+  technically unblocked but not started.

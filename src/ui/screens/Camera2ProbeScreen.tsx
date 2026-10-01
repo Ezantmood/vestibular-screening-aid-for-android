@@ -175,6 +175,9 @@ const styles = StyleSheet.create({
   content: {
     alignItems: 'stretch',
     padding: 16,
+    // Clearance above the phone system navigation bar so no button ends up
+    // underneath it and untappable.
+    paddingBottom: 160,
   },
   error: {
     color: '#b00020',

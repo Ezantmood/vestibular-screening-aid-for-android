@@ -1,0 +1,24 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.vestibular.screeningaid.pupildetector'
+version = '0.1.0'
+
+android {
+  namespace "com.vestibular.screeningaid.pupildetector"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // P3 pupil prototype: intentionally dependency-free (no OpenCV, no ML Kit).
+  // ML Kit stays in expo-frame-pipeline (face/eye ROI only); this module
+  // consumes P2 ROI boxes + decoded Y-plane pixels with small custom CV.
+}
