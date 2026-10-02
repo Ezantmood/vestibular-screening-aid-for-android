@@ -16,3 +16,9 @@ android {
     abortOnError false
   }
 }
+
+dependencies {
+  // P3.5 framing sampler only (lightweight ~2 Hz face/eye boxes over preview
+  // snapshots). Never pupil tracking, never 120fps detection.
+  implementation 'com.google.mlkit:face-detection:16.1.7'
+}

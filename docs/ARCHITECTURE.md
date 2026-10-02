@@ -36,6 +36,19 @@ src/camera/framePipeline.ts + videoTimeline.ts + frameChange.ts + framePipelineR
      CPU YUV Image); encoded/media PTS timeline (never sensor exposure);
      downsampled-Y MAD duplicate candidates; debug UI `FramePipelineScreen`
      (FRONT 1080p120 default, rear = benchmark).
+src/camera/livePreview.ts + previewTransform.ts ──optional──▶ ExpoCamera2HighSpeed
+  (same Kotlin module, additive P3.5 API) + ExpoCamera2HighSpeedPreview view
+  └─ P3.5: ONE constrained high-speed session (preview TextureView Surface +
+     idle MediaRecorder Surface, 1920×1080 fixed [120,120]); open/preview →
+     recorder.start() (no session change) → stop/re-prepare → preview
+     resumes. `cameraOwner` keeps preview XOR one-shot capture. Debug UI
+     `LivePreviewValidationScreen` (READY-gated 10 s record + P2-decode
+     regression panel + transform audit).
+src/eyetracking/framing.ts (pure classification + stabilization, UX gates
+  only — never pupil tracking, never consumed by analysis coordinates)
+  └─ P3.5: NO_FACE / FACE_PARTIAL / TOO_CLOSE / TOO_FAR / OFF_CENTER /
+     EYES_NOT_VISIBLE / READY over DISPLAY view fractions from a ~2 Hz
+     ML Kit snapshot pass.
 src/eyetracking/faceRoi.ts (isolated ROI interface; ML Kit boxes are feasibility
   only, never pupil tracking)
   └─ P2: face/eye ROI consumer of decoded frames.

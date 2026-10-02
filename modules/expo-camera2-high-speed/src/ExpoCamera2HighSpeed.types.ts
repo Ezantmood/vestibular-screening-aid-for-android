@@ -20,7 +20,88 @@ export type HighSpeedSessionState = 'CONFIGURED' | 'CONFIGURE_FAILED' | 'CAMERA_
 
 export type HighSpeedRecordingStatus = 'SUCCESS' | 'FAILED' | 'CANCELLED';
 
-/** Raw report returned by the native module after each test. */
+/** P3.5 live-preview session state (module-owned camera, JS-driven). */
+export type LivePreviewState = 'IDLE' | 'PREVIEW' | 'RECORDING';
+
+/** Report returned by `openPreviewCamera` (preview burst running, idle recorder). */
+export interface OpenPreviewReport {
+  sessionState: HighSpeedSessionState;
+  previewActive: boolean;
+  cameraId: string;
+  lensFacing: string;
+  width: number;
+  height: number;
+  fpsMin: number;
+  fpsMax: number;
+  sessionEvents: string[];
+  error: string | null;
+}
+
+/** Report returned by `startPreviewRecording` (blocks until stop). */
+export interface PreviewRecordingReport extends OpenPreviewReport {
+  previewResumed: boolean;
+  manualStop: boolean;
+  recordingStatus: HighSpeedRecordingStatus;
+  filePath: string | null;
+  fileSizeBytes: number | null;
+  extractorSampleCount: number | null;
+  extractorDurationUs: number | null;
+}
+
+/** Snapshot of `getPreviewState` (pollable; no events stream). */
+export interface PreviewStateSnapshot {
+  state: LivePreviewState;
+  previewActive: boolean;
+  recording: boolean;
+  cameraId?: string;
+  lensFacing?: string;
+  width?: number;
+  height?: number;
+  fpsMin?: number;
+  fpsMax?: number;
+  previewSurfaceValid?: boolean;
+  owner?: string | null;
+  sessionEvents?: string[];
+}
+
+/** One lightweight native framing observation (DISPLAY view fractions). */
+export interface NativeFramingSample {
+  faceFound: boolean;
+  faceLeft: number | null;
+  faceTop: number | null;
+  faceRight: number | null;
+  faceBottom: number | null;
+  leftEyeLandmark: boolean;
+  rightEyeLandmark: boolean;
+  leftEyeOpenProb: number | null;
+  rightEyeOpenProb: number | null;
+  bitmapWidth: number;
+  bitmapHeight: number;
+}
+
+/** Native preview-surface lifecycle event. */
+export interface PreviewStatusEvent {
+  status: string;
+  viewWidth: number;
+  viewHeight: number;
+}
+
+/** TextureView CONTENT -> DISPLAY correction audit (not decoded-frame sampling). */
+export interface PreviewTransformInfo {
+  viewWidth: number;
+  viewHeight: number;
+  bufferWidth: number;
+  bufferHeight: number;
+  displayRotation: number;
+  sensorOrientation: number;
+  frontFacing: boolean;
+  matrixConvention: 'textureContentToDisplay';
+  mirrorPreview: boolean;
+  extraRotationDeg: number;
+  matrix: number[] | null;
+}
+
+/** Raw report returned by the native module after each one-shot test. */
 export interface HighSpeedTestReport {
   deviceModel: string;
   androidRelease: string;

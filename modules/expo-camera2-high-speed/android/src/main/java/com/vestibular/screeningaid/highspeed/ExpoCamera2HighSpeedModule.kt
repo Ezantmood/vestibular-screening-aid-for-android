@@ -18,8 +18,10 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Range
+import android.view.Surface
 import androidx.core.content.ContextCompat
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
@@ -57,6 +59,11 @@ class ExpoCamera2HighSpeedModule : Module() {
   private val cancelRequested = AtomicBoolean(false)
   private val activeTest = AtomicReference<ActiveTest?>(null)
 
+  // P3.5 — single camera ownership across one-shot tests and live preview.
+  // Values: null (free) | "oneshot" | "preview".
+  private val cameraOwner = AtomicReference<String?>(null)
+  private val previewState = AtomicReference<PreviewSession?>(null)
+
   override fun definition() = ModuleDefinition {
     Name("ExpoCamera2HighSpeed")
 
@@ -71,10 +78,98 @@ class ExpoCamera2HighSpeedModule : Module() {
       true
     }
 
+    // --- P3.5 live preview (additive; the one-shot path above is untouched).
+    View(ExpoHighSpeedPreviewView::class) {
+      Name("ExpoCamera2HighSpeedPreview")
+      Prop("bufferWidth") { view: ExpoHighSpeedPreviewView, value: Int ->
+        view.bufferWidth = value
+      }
+      Prop("bufferHeight") { view: ExpoHighSpeedPreviewView, value: Int ->
+        view.bufferHeight = value
+      }
+      Prop("mirrorPreview") { view: ExpoHighSpeedPreviewView, value: Boolean ->
+        view.mirrorPreview = value
+      }
+      Prop("extraRotationDeg") { view: ExpoHighSpeedPreviewView, value: Int ->
+        view.extraRotationDeg = value
+      }
+      Prop("sensorOrientation") { view: ExpoHighSpeedPreviewView, value: Int ->
+        view.sensorOrientation = value
+      }
+      Events("onPreviewStatus", "onFramingSample")
+      OnViewDestroys { view ->
+        view.release()
+      }
+    }
+
+    AsyncFunction("openPreviewCamera") { cameraId: String, width: Int, height: Int,
+      fpsMin: Int, fpsMax: Int ->
+      openPreviewCamera(cameraId, width, height, fpsMin, fpsMax)
+    }
+
+    AsyncFunction("startPreviewRecording") { durationSec: Double ->
+      startPreviewRecording(durationSec)
+    }
+
+    AsyncFunction("stopPreviewRecording") {
+      stopPreviewRecording()
+    }
+
+    AsyncFunction("closePreviewCamera") {
+      closePreviewCamera()
+    }
+
+    AsyncFunction("getPreviewState") {
+      getPreviewState()
+    }
+
+    AsyncFunction("startFraming") { intervalMs: Int ->
+      val view = PreviewViewRegistry.current()
+      if (view == null) {
+        throw CodedException(
+          "ERR_NO_PREVIEW_VIEW",
+          "No preview view is mounted; mount ExpoCamera2HighSpeedPreview first.",
+          null,
+        )
+      }
+      view.startFraming(intervalMs)
+      true
+    }
+
+    AsyncFunction("stopFraming") {
+      PreviewViewRegistry.current()?.stopFraming()
+      true
+    }
+
+    AsyncFunction("getPreviewTransformInfo") {
+      PreviewViewRegistry.current()?.transformInfo()
+        ?: throw CodedException(
+          "ERR_NO_PREVIEW_VIEW",
+          "No preview view is mounted; mount ExpoCamera2HighSpeedPreview first.",
+          null,
+        )
+    }
+
     OnDestroy {
       try {
         cancelRequested.set(true)
         activeTest.get()?.forceClose()
+      } catch (_: Exception) {
+      }
+      try {
+        forceClosePreview("moduleDestroyed")
+      } catch (_: Exception) {
+      }
+      PreviewSessionHost.onSurfaceLost = null
+    }
+  }
+
+  init {
+    // Surface-destroy safety net (view unmount without JS close): runs on
+    // whatever thread the view died on; force-close is best-effort + synced.
+    PreviewSessionHost.onSurfaceLost = {
+      try {
+        forceClosePreview("surfaceLost")
       } catch (_: Exception) {
       }
     }
@@ -146,6 +241,14 @@ class ExpoCamera2HighSpeedModule : Module() {
       throw CodedException(
         "ERR_INVALID_DURATION",
         "durationSec must be within (0, 30]; got $durationSec.",
+        null,
+      )
+    }
+    // P3.5 single-owner guard: never steal the camera from live preview.
+    if (!cameraOwner.compareAndSet(null, "oneshot")) {
+      throw CodedException(
+        "ERR_CAMERA_BUSY",
+        "Camera is owned by '${cameraOwner.get()}'; close live preview first.",
         null,
       )
     }
@@ -461,6 +564,7 @@ class ExpoCamera2HighSpeedModule : Module() {
       } catch (_: Exception) {
       }
       activeTest.compareAndSet(test, null)
+      cameraOwner.compareAndSet("oneshot", null)
       try {
         bgThread.quitSafely()
         bgThread.join(2000)
@@ -491,6 +595,671 @@ class ExpoCamera2HighSpeedModule : Module() {
       file?.takeIf { it.exists() }?.absolutePath,
       file?.takeIf { it.exists() }?.length(),
       extractorSamples, extractorDurationUs, failure,
+    )
+  }
+
+  // =====================================================================
+  // P3.5 — live preview + high-speed recording in ONE constrained session.
+  //
+  // Architecture: front camera -> [preview Surface (TextureView) +
+  // MediaRecorder Surface] in a single CameraConstrainedHighSpeedCaptureSession
+  // (1920x1080 fixed [120,120]). The recorder surface joins the session at
+  // open time (prepared but idle) so `startPreviewRecording()` is only
+  // `recorder.start()` — the visible preview never drops when recording
+  // starts. After stop, the recorder is re-prepared and the session is
+  // recreated around the SAME preview surface, so preview resumes for the
+  // next take. Recording integrity (~120 fps encoded) outranks preview
+  // refresh rate: the TextureView drops to display vsync on its own.
+  //
+  // The one-shot `startHighSpeedTest` path above is untouched; `cameraOwner`
+  // guarantees preview XOR one-shot camera ownership.
+  // =====================================================================
+
+  /** Live-preview session handles (closed via closePreviewCamera / finally). */
+  private class PreviewSession {
+    @Volatile var camera: CameraDevice? = null
+    @Volatile var session: CameraConstrainedHighSpeedCaptureSession? = null
+    @Volatile var recorder: MediaRecorder? = null
+    @Volatile var pendingFile: File? = null
+    @Volatile var previewSurface: Surface? = null
+    @Volatile var cameraThread: HandlerThread? = null
+    @Volatile var bgHandler: Handler? = null
+    @Volatile var recording: Boolean = false
+    val stopRequested = AtomicBoolean(false)
+    var cameraId: String = ""
+    var lensFacing: String = ""
+    var width: Int = 0
+    var height: Int = 0
+    var fpsMin: Int = 0
+    var fpsMax: Int = 0
+    val events = Collections.synchronizedList(mutableListOf<String>())
+  }
+
+  private val previewLock = Any()
+
+  private fun previewEvent(s: PreviewSession, label: String) {
+    val ms = SystemClock.elapsedRealtimeNanos() / 1_000_000L
+    s.events.add("$label @${ms}ms")
+  }
+
+  private fun requirePreviewContext(): Context {
+    val context = appContext.reactContext
+      ?: throw CodedException(
+        "ERR_NO_CONTEXT",
+        "React context is not available; run inside a Development Build.",
+        null,
+      )
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) !=
+      PackageManager.PERMISSION_GRANTED
+    ) {
+      throw CodedException(
+        "ERR_NO_PERMISSION",
+        "CAMERA permission is not granted; request it from the app UI first.",
+        null,
+      )
+    }
+    return context
+  }
+
+  private fun preparePendingRecorder(
+    context: Context,
+    width: Int,
+    height: Int,
+    fpsMax: Int,
+    tag: String,
+  ): Pair<MediaRecorder, File> {
+    val dir = File(context.cacheDir, "highspeed").apply { mkdirs() }
+    val file = File(dir, "preview_${tag}_${width}x${height}_${fpsMax}fps_${System.currentTimeMillis()}.mp4")
+    val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      MediaRecorder(context)
+    } else {
+      @Suppress("DEPRECATION")
+      MediaRecorder()
+    }
+    try {
+      recorder.setVideoSource(MediaRecorder.VideoSource.SURFACE)
+      recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+      recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+      recorder.setVideoSize(width, height)
+      recorder.setVideoFrameRate(fpsMax)
+      recorder.setVideoEncodingBitRate(bitrateFor(width, height))
+      recorder.setOutputFile(file.absolutePath)
+      recorder.prepare()
+    } catch (e: Exception) {
+      try {
+        recorder.release()
+      } catch (_: Exception) {
+      }
+      throw CodedException(
+        "ERR_RECORDER_SETUP",
+        "Preview MediaRecorder setup failed for ${width}x$height @ $fpsMax fps: ${e.message}",
+        e,
+      )
+    }
+    return Pair(recorder, file)
+  }
+
+  private fun openCameraBlocking(
+    manager: CameraManager,
+    cameraId: String,
+    handler: Handler,
+    onEvent: (String) -> Unit,
+  ): CameraDevice {
+    val latch = CountDownLatch(1)
+    val opened = AtomicReference<CameraDevice?>(null)
+    val error = AtomicReference<String?>(null)
+    try {
+      manager.openCamera(
+        cameraId,
+        object : CameraDevice.StateCallback() {
+          override fun onOpened(camera: CameraDevice) {
+            opened.set(camera)
+            latch.countDown()
+          }
+
+          override fun onDisconnected(camera: CameraDevice) {
+            onEvent("cameraDisconnected")
+            latch.countDown()
+          }
+
+          override fun onError(camera: CameraDevice, errorCode: Int) {
+            error.set("onError code=$errorCode")
+            latch.countDown()
+          }
+        },
+        handler,
+      )
+    } catch (e: CameraAccessException) {
+      throw CodedException(
+        "ERR_CAMERA_OPEN",
+        "openCamera($cameraId) failed: ${e.message} (reason=${e.reason})",
+        e,
+      )
+    } catch (e: SecurityException) {
+      throw CodedException(
+        "ERR_CAMERA_OPEN",
+        "openCamera($cameraId) denied (security): ${e.message}",
+        e,
+      )
+    }
+    if (!latch.await(10, TimeUnit.SECONDS) || opened.get() == null) {
+      throw CodedException(
+        "ERR_CAMERA_OPEN",
+        "Camera $cameraId could not be opened: ${error.get() ?: "timeout waiting for onOpened"}.",
+        null,
+      )
+    }
+    return opened.get()!!
+  }
+
+  private fun createHighSpeedSessionBlocking(
+    camera: CameraDevice,
+    surfaces: List<Surface>,
+    handler: Handler,
+    onEvent: (String) -> Unit,
+  ): CameraConstrainedHighSpeedCaptureSession {
+    val latch = CountDownLatch(1)
+    val sessionRef = AtomicReference<CameraConstrainedHighSpeedCaptureSession?>(null)
+    val error = AtomicReference<String?>(null)
+    try {
+      camera.createConstrainedHighSpeedCaptureSession(
+        surfaces,
+        object : CameraCaptureSession.StateCallback() {
+          override fun onConfigured(captureSession: CameraCaptureSession) {
+            sessionRef.set(captureSession as CameraConstrainedHighSpeedCaptureSession)
+            latch.countDown()
+          }
+
+          override fun onConfigureFailed(captureSession: CameraCaptureSession) {
+            error.set("onConfigureFailed")
+            latch.countDown()
+          }
+
+          override fun onClosed(captureSession: CameraCaptureSession) {
+            onEvent("sessionClosed")
+          }
+        },
+        handler,
+      )
+    } catch (e: CameraAccessException) {
+      throw CodedException(
+        "ERR_SESSION_CREATE",
+        "createConstrainedHighSpeedCaptureSession failed: ${e.message} (reason=${e.reason})",
+        e,
+      )
+    }
+    if (!latch.await(10, TimeUnit.SECONDS) || sessionRef.get() == null) {
+      throw CodedException(
+        "ERR_SESSION_CREATE",
+        "High-speed preview session failed: ${error.get() ?: "timeout waiting for onConfigured"}.",
+        null,
+      )
+    }
+    return sessionRef.get()!!
+  }
+
+  private fun buildHighSpeedRequestList(
+    session: CameraConstrainedHighSpeedCaptureSession,
+    camera: CameraDevice,
+    targets: List<Surface>,
+    fpsMin: Int,
+    fpsMax: Int,
+  ): List<CaptureRequest> {
+    try {
+      val builder = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+      for (t in targets) {
+        builder.addTarget(t)
+      }
+      builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(fpsMin, fpsMax))
+      builder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+      return session.createHighSpeedRequestList(builder.build())
+    } catch (e: Exception) {
+      throw CodedException(
+        "ERR_REQUEST_LIST",
+        "createHighSpeedRequestList failed: ${e.message}.",
+        e,
+      )
+    }
+  }
+
+  @Suppress("TooGenericExceptionCaught")
+  private fun configurePreviewView(
+    context: Context,
+    width: Int,
+    height: Int,
+    characteristics: CameraCharacteristics,
+  ) {
+    val view = PreviewViewRegistry.current()
+      ?: throw CodedException("ERR_NO_PREVIEW_VIEW", "The live preview view was unmounted.", null)
+    val orientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+    val isFrontFacing =
+      characteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+    val ready = CountDownLatch(1)
+    val failure = AtomicReference<Exception?>(null)
+    val configure = Runnable {
+      try {
+        view.configureCamera(width, height, orientation, isFrontFacing)
+      } catch (e: Exception) {
+        failure.set(e)
+      } finally {
+        ready.countDown()
+      }
+    }
+    if (Looper.myLooper() == context.mainLooper) {
+      configure.run()
+    } else {
+      Handler(context.mainLooper).post(configure)
+    }
+    if (!ready.await(5, TimeUnit.SECONDS)) {
+      throw CodedException("ERR_PREVIEW_SETUP", "Timed out configuring preview geometry.", null)
+    }
+    failure.get()?.let { error ->
+      throw CodedException("ERR_PREVIEW_SETUP", "Cannot configure preview: ${error.message}", error)
+    }
+  }
+
+  @Suppress("TooGenericExceptionCaught")
+  private fun openPreviewCamera(
+    cameraId: String,
+    width: Int,
+    height: Int,
+    fpsMin: Int,
+    fpsMax: Int,
+  ): Map<String, Any?> {
+    if (width <= 0 || height <= 0 || fpsMin <= 0 || fpsMax <= 0 || fpsMin > fpsMax) {
+      throw CodedException(
+        "ERR_INVALID_MODE",
+        "Invalid mode ${width}x$height [$fpsMin, $fpsMax]: use an exact Camera2-advertised size + FPS range.",
+        null,
+      )
+    }
+    val context = requirePreviewContext()
+    val manager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+      ?: throw CodedException(
+        "ERR_CAMERA2_UNAVAILABLE",
+        "CameraManager is not available on this device.",
+        null,
+      )
+    val characteristics = try {
+      manager.getCameraCharacteristics(cameraId)
+    } catch (e: Exception) {
+      throw CodedException(
+        "ERR_UNKNOWN_CAMERA",
+        "Cannot read characteristics for camera $cameraId: ${e.message}",
+        e,
+      )
+    }
+    validateHighSpeedMode(characteristics, cameraId, width, height, fpsMin, fpsMax)
+    val lensFacing = lensFacingString(characteristics)
+
+    // Wait for the mounted preview view (surface created on the UI thread).
+    val previewSurface = PreviewSurfaceRegistry.await(8000)
+      ?: throw CodedException(
+        "ERR_NO_PREVIEW_SURFACE",
+        "No live preview surface is ready; mount ExpoCamera2HighSpeedPreview and retry.",
+        null,
+      )
+
+    if (!cameraOwner.compareAndSet(null, "preview")) {
+      throw CodedException(
+        "ERR_CAMERA_BUSY",
+        "Camera is owned by '${cameraOwner.get()}'; close it first.",
+        null,
+      )
+    }
+    if (previewState.get() != null) {
+      cameraOwner.compareAndSet("preview", null)
+      throw CodedException(
+        "ERR_PREVIEW_OPEN",
+        "Live preview is already open; close it before reopening.",
+        null,
+      )
+    }
+
+    val s = PreviewSession().apply {
+      this.cameraId = cameraId
+      this.lensFacing = lensFacing
+      this.width = width
+      this.height = height
+      this.fpsMin = fpsMin
+      this.fpsMax = fpsMax
+      this.previewSurface = previewSurface
+    }
+    previewEvent(s, "openPreview cam=$cameraId ${width}x$height [$fpsMin,$fpsMax]")
+    val bgThread = HandlerThread("ExpoCamera2Preview").also { it.start() }
+    s.cameraThread = bgThread
+    val bgHandler = Handler(bgThread.looper)
+    s.bgHandler = bgHandler
+    try {
+      // Surface content orientation and AUTO mirroring depend on the actual
+      // camera. Apply its metadata on the UI thread before session creation.
+      configurePreviewView(context, width, height, characteristics)
+      val (recorder, pendingFile) = preparePendingRecorder(context, width, height, fpsMax, cameraId)
+      s.recorder = recorder
+      s.pendingFile = pendingFile
+      previewEvent(s, "recorderPreparedPending")
+      val camera = openCameraBlocking(manager, cameraId, bgHandler) { label ->
+        previewEvent(s, label)
+      }
+      s.camera = camera
+      previewEvent(s, "cameraOpened")
+      val session = createHighSpeedSessionBlocking(
+        camera, listOf(previewSurface, recorder.surface), bgHandler,
+      ) { label -> previewEvent(s, label) }
+      s.session = session
+      previewEvent(s, "sessionConfigured preview+recorder")
+      val requests = buildHighSpeedRequestList(
+        session, camera, listOf(previewSurface, recorder.surface), fpsMin, fpsMax,
+      )
+      session.setRepeatingBurst(requests, null, bgHandler)
+      previewEvent(s, "previewBurstStarted")
+      previewState.set(s)
+      // SurfaceView/TextureView buffers must match the HS size, else the
+      // session would not have configured — reaching here means both outputs
+      // satisfied the device's high-speed requirements.
+      return mapOf(
+        "sessionState" to "CONFIGURED",
+        "previewActive" to true,
+        "cameraId" to cameraId,
+        "lensFacing" to lensFacing,
+        "width" to width,
+        "height" to height,
+        "fpsMin" to fpsMin,
+        "fpsMax" to fpsMax,
+        "sessionEvents" to s.events.toList(),
+        "error" to null,
+      )
+    } catch (e: Exception) {
+      teardownPreviewSession(s)
+      previewState.compareAndSet(s, null)
+      cameraOwner.compareAndSet("preview", null)
+      if (e is CodedException) {
+        throw e
+      }
+      throw CodedException("ERR_PREVIEW_OPEN", "openPreviewCamera failed: ${e.message}", e)
+    }
+  }
+
+  /** Release camera/session/recorder/thread handles (idempotent, synced). */
+  private fun teardownPreviewSession(s: PreviewSession) {
+    synchronized(previewLock) {
+      try {
+        s.session?.stopRepeating()
+      } catch (_: Exception) {
+      }
+      try {
+        s.session?.close()
+      } catch (_: Exception) {
+      }
+      s.session = null
+      try {
+        s.camera?.close()
+      } catch (_: Exception) {
+      }
+      s.camera = null
+      try {
+        s.recorder?.stop()
+      } catch (_: Exception) {
+      }
+      try {
+        s.recorder?.reset()
+      } catch (_: Exception) {
+      }
+      try {
+        s.recorder?.release()
+      } catch (_: Exception) {
+      }
+      s.recorder = null
+      try {
+        s.cameraThread?.quitSafely()
+      } catch (_: Exception) {
+      }
+      s.cameraThread = null
+      s.bgHandler = null
+      s.recording = false
+    }
+  }
+
+  /** Force-close from JS, surface-loss, or module destroy (best-effort). */
+  private fun forceClosePreview(reason: String) {
+    val s = previewState.getAndSet(null) ?: run {
+      cameraOwner.compareAndSet("preview", null)
+      return
+    }
+    try {
+      previewEvent(s, "forceClose:$reason")
+    } catch (_: Exception) {
+    }
+    teardownPreviewSession(s)
+    try {
+      s.pendingFile?.takeIf { it.exists() }?.delete()
+    } catch (_: Exception) {
+    }
+    s.pendingFile = null
+    cameraOwner.compareAndSet("preview", null)
+  }
+
+  @Suppress("TooGenericExceptionCaught")
+  private fun startPreviewRecording(durationSec: Double): Map<String, Any?> {
+    if (durationSec.isNaN() || durationSec <= 0.0 || durationSec > 30.0) {
+      throw CodedException(
+        "ERR_INVALID_DURATION",
+        "durationSec must be within (0, 30]; got $durationSec.",
+        null,
+      )
+    }
+    val s = previewState.get()
+      ?: throw CodedException(
+        "ERR_NO_PREVIEW",
+        "Live preview is not open; call openPreviewCamera first.",
+        null,
+      )
+    synchronized(previewLock) {
+      if (s.recording) {
+        throw CodedException("ERR_ALREADY_RECORDING", "A preview recording is already running.", null)
+      }
+      if (s.session == null || s.camera == null || s.recorder == null) {
+        throw CodedException("ERR_NO_PREVIEW", "Live preview session is not usable; reopen it.", null)
+      }
+      s.recording = true
+    }
+    s.stopRequested.set(false)
+    val recorder = s.recorder!!
+    try {
+      recorder.start()
+    } catch (e: Exception) {
+      s.recording = false
+      throw CodedException("ERR_RECORDER_START", "MediaRecorder.start() failed: ${e.message}", e)
+    }
+    val recordStartNs = SystemClock.elapsedRealtimeNanos()
+    previewEvent(s, "recorderStarted")
+    val deadlineNs = recordStartNs + (durationSec * 1_000_000_000L).toLong()
+    while (SystemClock.elapsedRealtimeNanos() < deadlineNs) {
+      if (s.stopRequested.get() || previewState.get() !== s) {
+        break
+      }
+      try {
+        Thread.sleep(100)
+      } catch (_: InterruptedException) {
+        break
+      }
+    }
+    val manual = s.stopRequested.get()
+    previewEvent(s, if (manual) "manualStopRequested" else "recordWindowElapsed")
+
+    // Finalize on the calling (background) thread while holding the session:
+    // stop the burst, close the session, stop the recorder, then rebuild an
+    // idle preview session around the SAME preview surface for the next take.
+    var recordingStatus = "FAILED"
+    var failure: String? = null
+    var outFile: File? = null
+    var previewResumed = false
+    synchronized(previewLock) {
+      try {
+        try {
+          s.session?.stopRepeating()
+        } catch (_: Exception) {
+        }
+        try {
+          s.session?.close()
+        } catch (_: Exception) {
+        }
+        s.session = null
+        try {
+          recorder.stop()
+          recordingStatus = "SUCCESS"
+          previewEvent(s, "recorderStopped")
+        } catch (e: RuntimeException) {
+          recordingStatus = "FAILED"
+          failure = "MediaRecorder.stop() failed (no usable frames?): ${e.message}."
+          previewEvent(s, "recorderStopFailed")
+        }
+        outFile = s.pendingFile?.takeIf { it.exists() }
+        s.pendingFile = null
+        try {
+          recorder.reset()
+        } catch (_: Exception) {
+        }
+        try {
+          recorder.release()
+        } catch (_: Exception) {
+        }
+        s.recorder = null
+        s.recording = false
+
+        // Rebuild idle preview (new pending recorder + new session). The
+        // preview surface survives; a brief reconfigure flicker is expected,
+        // not a black preview.
+        try {
+          val context = requirePreviewContext()
+          val surface = PreviewSurfaceRegistry.current()
+          if (surface == null || previewState.get() !== s) {
+            failure = (failure?.plus(" ") ?: "") + "Preview surface gone; reopen preview."
+            previewEvent(s, "previewResumeNoSurface")
+          } else {
+            val (nextRecorder, nextFile) = preparePendingRecorder(
+              context, s.width, s.height, s.fpsMax, s.cameraId,
+            )
+            val camera = s.camera
+            val handler = s.bgHandler
+            if (camera == null || handler == null) {
+              try {
+                nextRecorder.release()
+              } catch (_: Exception) {
+              }
+              failure = (failure?.plus(" ") ?: "") + "Camera handle lost; reopen preview."
+              previewEvent(s, "previewResumeNoCamera")
+            } else {
+              val session = createHighSpeedSessionBlocking(
+                camera, listOf(surface, nextRecorder.surface), handler,
+              ) { label -> previewEvent(s, label) }
+              val requests = buildHighSpeedRequestList(
+                session, camera, listOf(surface, nextRecorder.surface), s.fpsMin, s.fpsMax,
+              )
+              session.setRepeatingBurst(requests, null, handler)
+              s.session = session
+              s.recorder = nextRecorder
+              s.pendingFile = nextFile
+              s.previewSurface = surface
+              previewResumed = true
+              previewEvent(s, "previewResumed")
+            }
+          }
+        } catch (e: Exception) {
+          failure = (failure?.plus(" ") ?: "") + "Preview resume failed: ${e.message}."
+          previewEvent(s, "previewResumeFailed")
+          teardownPreviewSession(s)
+          previewState.compareAndSet(s, null)
+          cameraOwner.compareAndSet("preview", null)
+        }
+      } catch (e: Exception) {
+        if (failure == null) {
+          failure = "Preview recording finalize failed: ${e.message}."
+        }
+      }
+    }
+
+    var extractorSamples: Int? = null
+    var extractorDurationUs: Long? = null
+    if (outFile != null && recordingStatus == "SUCCESS") {
+      try {
+        val (count, durationUs) = inspectOutputFile(outFile!!.absolutePath)
+        extractorSamples = count
+        extractorDurationUs = durationUs
+        previewEvent(s, "extractorChecked samples=$count")
+      } catch (_: Exception) {
+        previewEvent(s, "extractorFailed")
+      }
+    }
+    return mapOf(
+      "sessionState" to "CONFIGURED",
+      "previewActive" to (previewState.get() === s && s.session != null),
+      "previewResumed" to previewResumed,
+      "manualStop" to manual,
+      "cameraId" to s.cameraId,
+      "lensFacing" to s.lensFacing,
+      "width" to s.width,
+      "height" to s.height,
+      "fpsMin" to s.fpsMin,
+      "fpsMax" to s.fpsMax,
+      "sessionEvents" to s.events.toList(),
+      "recordingStatus" to recordingStatus,
+      "filePath" to outFile?.absolutePath,
+      "fileSizeBytes" to outFile?.length(),
+      "extractorSampleCount" to extractorSamples,
+      "extractorDurationUs" to extractorDurationUs,
+      "error" to failure,
+    )
+  }
+
+  private fun stopPreviewRecording(): Map<String, Any?> {
+    val s = previewState.get()
+      ?: throw CodedException(
+        "ERR_NO_PREVIEW",
+        "Live preview is not open; nothing to stop.",
+        null,
+      )
+    if (!s.recording) {
+      return mapOf("recording" to false, "stopRequested" to false)
+    }
+    s.stopRequested.set(true)
+    return mapOf("recording" to true, "stopRequested" to true)
+  }
+
+  private fun closePreviewCamera(): Boolean {
+    PreviewViewRegistry.current()?.stopFraming()
+    forceClosePreview("jsClose")
+    return true
+  }
+
+  private fun getPreviewState(): Map<String, Any?> {
+    val s = previewState.get()
+    if (s == null) {
+      return mapOf(
+        "state" to "IDLE",
+        "previewActive" to false,
+        "recording" to false,
+        "owner" to cameraOwner.get(),
+      )
+    }
+    val surfaceValid = try {
+      PreviewSurfaceRegistry.current()?.isValid == true
+    } catch (_: Exception) {
+      false
+    }
+    return mapOf(
+      "state" to if (s.recording) "RECORDING" else "PREVIEW",
+      "previewActive" to (s.session != null),
+      "recording" to s.recording,
+      "cameraId" to s.cameraId,
+      "lensFacing" to s.lensFacing,
+      "width" to s.width,
+      "height" to s.height,
+      "fpsMin" to s.fpsMin,
+      "fpsMax" to s.fpsMax,
+      "previewSurfaceValid" to surfaceValid,
+      "owner" to cameraOwner.get(),
+      "sessionEvents" to s.events.toList(),
     )
   }
 

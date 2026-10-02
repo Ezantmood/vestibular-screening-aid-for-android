@@ -4,6 +4,7 @@ import { APP_NAME, APP_TAGLINE, MVP_TESTS } from '../../config/constants';
 import Camera2ProbeScreen from './Camera2ProbeScreen';
 import FramePipelineScreen from './FramePipelineScreen';
 import HighSpeedTestScreen from './HighSpeedTestScreen';
+import LivePreviewValidationScreen from './LivePreviewValidationScreen';
 import PupilValidationScreen from './PupilValidationScreen';
 
 export default function HomeScreen() {
@@ -11,6 +12,7 @@ export default function HomeScreen() {
   const [showHighSpeed, setShowHighSpeed] = useState(false);
   const [showPipeline, setShowPipeline] = useState(false);
   const [showPupil, setShowPupil] = useState(false);
+  const [showLivePreview, setShowLivePreview] = useState(false);
 
   if (showProbe) {
     return (
@@ -48,6 +50,15 @@ export default function HomeScreen() {
     );
   }
 
+  if (showLivePreview) {
+    return (
+      <View style={styles.probeWrapper}>
+        <Button title="Back" onPress={() => setShowLivePreview(false)} />
+        <LivePreviewValidationScreen />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container} testID="home-screen">
       <Text style={styles.title}>{APP_NAME}</Text>
@@ -58,6 +69,7 @@ export default function HomeScreen() {
       <Button title="High-speed capture validation (P1)" onPress={() => setShowHighSpeed(true)} />
       <Button title="Frame decode + eye ROI (P2)" onPress={() => setShowPipeline(true)} />
       <Button title="Pupil detection prototype (P3)" onPress={() => setShowPupil(true)} />
+      <Button title="Live preview + framing (P3.5)" onPress={() => setShowLivePreview(true)} />
     </View>
   );
 }

@@ -244,3 +244,82 @@ No tracking/recording was implemented (out of scope for P0.1).
   on-device (app-private cache), never committed.
 - P3 COMPLETE. P4 (tracking continuity / confidence / robustness) is
   technically unblocked but not started.
+
+## P3.5 — Live front-camera preview + framing guidance (COMPLETE, validated on-device 2026-10-02)
+
+- Same `expo-camera2-high-speed` Kotlin module, additive only (P1 one-shot
+  path untouched; `cameraOwner` enforces preview XOR one-shot). New native
+  view `ExpoCamera2HighSpeedPreview` (TextureView): owns the preview Surface
+  (default buffer 1920×1080 so it satisfies HS requirements); module runs ONE
+  constrained session [preview + idle recorder] at fixed [120,120];
+  `recorder.start()` begins a take with no session change (preview never
+  drops); stop re-prepares + recreates the session around the same preview
+  surface. Surface-destroy / unmount / module-destroy all force-close (no
+  camera leaks). Framing sampler: ~2 Hz ML Kit FAST face pass on downscaled
+  transformed-DISPLAY `getBitmap()` snapshots (never P3 pupil code, never
+  120fps); boxes emitted directly as DISPLAY view fractions. Transform =
+  centered TextureView CONTENT → DISPLAY cover correction over the
+  platform-oriented/mirrored surface (front mirror preserved exactly once);
+  TS `buildTextureViewMatrix` lockstep, `buildPreviewMatrix` is the
+  DISPLAY → ANALYSIS audit mapping only. Framing states + 3-sample
+  stabilizer in `src/eyetracking/framing.ts` (UX gates only). Debug UI
+  `LivePreviewValidationScreen` (Home entry): open → live preview → guide →
+  READY-gated 10 s record (logged override available) → auto P2-decode
+  regression panel + transform audit. Full results + three verdicts:
+  `docs/device-probes/P3_5_LIVE_PREVIEW.md`.
+
+## Verification (P3.5, on-device — Xiaomi 2312DRA50G / Android 13 / API 33)
+
+- `npm run check` (typecheck + lint) — pass. `npx prettier --check .` — pass.
+- Synthetic logic checks (node, compiled tsc output) — pass
+  (`scripts/p35LogicCheck.ts`: matrix math, cover/centering/aspect,
+  rotation/mirror order, classification priority, eye-visibility rules,
+  stabilizer debouncing).
+- `npx expo prebuild --platform android` — pass (view autolinked from the
+  same module; no config change needed).
+- `:app:assembleDebug` BUILD SUCCESSFUL (JDK 21).
+- Validation found + fixed 4 P3.5 bugs (JS view-manager arity, missing view
+  style → no surface, transform-before-layout → letterbox bars, DISPLAY →
+  BUFFER inverse replaced by CONTENT → DISPLAY correction); rebuilt +
+  reinstalled + re-validated (see device doc + alignment-fix section below).
+- On-device 2026-10-02, FRONT 1920×1080 `[120,120]`, 2× ~10 s takes (no app
+  restart between; unmount → re-enter → reopen verified): preview visible,
+  upright, fills box, natural mirror, persists through recording; all
+  framing states triggered, READY practical, stabilizer flicker-free.
+  - Take #1: encoded 1202 / decoded 1202 (1:1) / 10.050 s / **119.50 fps**;
+    median 8.333 / p95 8.478 ms; 0/0/0 anomalies (matches P2 baseline).
+  - Take #2: encoded 1198 / decoded 1198 (1:1) / 10.083 s / **118.71 fps**;
+    median 8.333 / p95 8.478 ms; 0/0 non-monotonic/dup, 3 isolated large
+    gaps (25/25/42 ms, ~8 frames, investigated: no freeze — sharp moving
+    frames, 1:1 decode, ordinary encoder jitter, not a blocker).
+  - Verdicts: **LIVE_PREVIEW_PASS**, **FRAMING_GUIDANCE_PASS**,
+    **HIGH_SPEED_REGRESSION_PASS**. Recordings/frames/screenshots stayed
+    local, never committed.
+- P3.5 COMPLETE. P4 (tracking continuity / confidence / robustness) is
+  technically unblocked but not started.
+
+## P3.5 preview alignment fix (2026-10-02)
+
+- Replaced the incorrectly applied DISPLAY → BUFFER inverse with a centered
+  TextureView CONTENT → DISPLAY correction. Android already sensor-orients
+  and front-mirrors preview surfaces; FRONT keeps that mirror exactly once.
+  Rear preview stays unmirrored; live Camera2 metadata supplies orientation
+  and lens facing. Recording/decoded analysis pixels are unaffected.
+- Native child uses Android layout; RN preview fills its container absolutely;
+  surface resize restores the high-speed buffer dimensions. Framing reads
+  transformed DISPLAY snapshots directly, with one bounded in-flight pass and
+  complete bitmap recycling. Opening/closing clears stale overlay state.
+- `npm run check`, `npx prettier --check .` — pass.
+- P3.5 logic checks — 52/52 pass, including 480 camera/view/rotation/mirror
+  configurations testing coverage, centering, aspect, and Android matrix order.
+- `:app:assembleDebug` (JDK 21, arm64) — BUILD SUCCESSFUL.
+- APK installation + final manual app launch — pass on Xiaomi 2312DRA50G.
+  Native geometry/session smoke — pass on FRONT 1920×1080 `[120,120]`:
+  TextureView 1124×1320 px matches RN 374.667×440 dp at density 3;
+  centered, all four display corners covered; native/TS matrix max error
+  0.0000272. Both first open and reopen configure successfully; closing
+  releases the session/owner. Framing delivered 7 DISPLAY samples
+  (480×563 px, 2 face detections). Temporary JS auto-open harness restored
+  byte-for-byte before final manual launch; no camera pixels exported.
+- Manual visual/selfie-direction, READY guidance, and recording-regression
+  verdicts remain pending; numeric geometry smoke is not those verdicts.
