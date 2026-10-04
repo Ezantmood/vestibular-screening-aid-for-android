@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Button,
   Linking,
   PermissionsAndroid,
   Platform,
@@ -13,50 +12,24 @@ import {
 import { computeFrameTimingStats, formatValidationReport } from '../../camera/frameTiming';
 import type { FrameTimingStats } from '../../camera/frameTiming';
 import type { HighSpeedTestReport } from '../../camera/highSpeedCapture';
-import {
-  cancelHighSpeedTest,
-  isHighSpeedCaptureAvailable,
-  startHighSpeedTest,
-} from '../../camera/highSpeedCapture';
+import { cancelHighSpeedTest, isHighSpeedCaptureAvailable } from '../../camera/highSpeedCapture';
+import type { FixedMode } from '../../camera/fixedModes';
+import { collectFixedModes } from '../../camera/fixedModes';
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
+import CameraCapturePanel from '../components/CameraCapturePanel';
+import {
+  CameraButton as Button,
+  CameraDetails,
+  CameraProgress,
+  CameraSummary,
+} from '../components/CameraUI';
+import { CaptureCancelled, usePreviewCapture } from '../hooks/usePreviewCapture';
 
 type PermissionState = 'checking' | 'granted' | 'denied' | 'blocked' | 'unavailable';
 type TestPhase = 'idle' | 'loading-modes' | 'ready' | 'running' | 'done' | 'error';
 
-interface HighSpeedMode {
-  cameraId: string;
-  lensFacing: string;
-  width: number;
-  height: number;
-  fpsMin: number;
-  fpsMax: number;
-  label: string;
-}
-
-/** P1 validation window: approximately 10 seconds per mode. */
+type HighSpeedMode = FixedMode;
 const TEST_DURATION_SEC = 10;
-
-/**
- * P2 architecture correction: FRONT 1920×1080 @ fixed 120fps is the primary
- * MVP eye-tracking candidate (user looks at the display); rear modes are
- * technical benchmarks. This only ORDERS actually-advertised fixed modes —
- * capability detection itself comes from Camera2, never from this list.
- */
-function modePriority(mode: HighSpeedMode): number {
-  if (mode.lensFacing === 'FRONT' && mode.width === 1920 && mode.fpsMax === 120) {
-    return 0;
-  }
-  if (mode.lensFacing === 'BACK' && mode.width === 1920 && mode.fpsMax === 120) {
-    return 1;
-  }
-  if (mode.width === 1280 && mode.height === 720 && mode.fpsMax === 120) {
-    return 2;
-  }
-  if (mode.width === 1280 && mode.height === 720 && mode.fpsMax === 240) {
-    return 3;
-  }
-  return 4;
-}
 
 async function requestCameraPermission(): Promise<PermissionState> {
   if (Platform.OS !== 'android') {
@@ -71,11 +44,11 @@ async function requestCameraPermission(): Promise<PermissionState> {
     return 'granted';
   }
   const result = await PermissionsAndroid.request(permission, {
-    title: 'Camera access for high-speed test',
+    title: 'Cho phép dùng camera',
     message:
-      'P1 opens the physical camera to validate one advertised high-speed mode (~10 s recording). No other permission is requested.',
-    buttonPositive: 'Allow',
-    buttonNegative: 'Deny',
+      'App cần camera để xem trước và ghi video kiểm tra mắt. Video được lưu trên điện thoại, không ghi âm.',
+    buttonPositive: 'Cho phép',
+    buttonNegative: 'Để sau',
   });
   if (result === PermissionsAndroid.RESULTS.GRANTED) {
     return 'granted';
@@ -90,6 +63,9 @@ async function requestCameraPermission(): Promise<PermissionState> {
 // pick a Camera2-advertised fixed high-speed mode, record ~10 s, report
 // session state + frame-timing statistics + recording status.
 export default function HighSpeedTestScreen() {
+  const camera = usePreviewCapture();
+  const runInProgress = useRef(false);
+  const screenMounted = useRef(true);
   const [permission, setPermission] = useState<PermissionState>('checking');
   const [phase, setPhase] = useState<TestPhase>('idle');
   const [modes, setModes] = useState<HighSpeedMode[]>([]);
@@ -103,47 +79,12 @@ export default function HighSpeedTestScreen() {
     setErrorMessage(null);
     try {
       const cameras = await getCamera2Capabilities();
-      const found: HighSpeedMode[] = [];
-      for (const camera of cameras) {
-        if (!camera.constrainedHighSpeedVideoSupported) {
-          continue;
-        }
-        for (const entry of camera.highSpeedVideoSizes) {
-          for (const range of entry.fpsRanges) {
-            // Fixed ranges only: high-speed capture needs an exact
-            // advertised [fps, fps] range — never derive one from [min, max].
-            if (range.min !== range.max) {
-              continue;
-            }
-            found.push({
-              cameraId: camera.cameraId,
-              lensFacing: camera.lensFacing,
-              width: entry.width,
-              height: entry.height,
-              fpsMin: range.min,
-              fpsMax: range.max,
-              label:
-                `Cam ${camera.cameraId} ${camera.lensFacing} ` +
-                `${entry.width}x${entry.height} [${range.min},${range.max}]`,
-            });
-          }
-        }
-      }
-      found.sort((a, b) => {
-        const priority = modePriority(a) - modePriority(b);
-        if (priority !== 0) {
-          return priority;
-        }
-        if (a.lensFacing !== b.lensFacing) {
-          return a.lensFacing === 'BACK' ? -1 : 1;
-        }
-        return b.width * b.height - a.width * a.height;
-      });
+      const found = collectFixedModes(cameras);
       setModes(found);
       setSelectedIndex(0);
       setPhase('ready');
       if (found.length === 0) {
-        setErrorMessage('No fixed high-speed modes advertised by Camera2 on this device.');
+        setErrorMessage('Thiết bị chưa cung cấp chế độ camera tốc độ cao cố định.');
       }
     } catch (e) {
       setErrorMessage(e instanceof Error ? e.message : String(e));
@@ -153,6 +94,7 @@ export default function HighSpeedTestScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    screenMounted.current = true;
     (async () => {
       const state = await requestCameraPermission();
       if (cancelled) {
@@ -165,6 +107,7 @@ export default function HighSpeedTestScreen() {
     })();
     return () => {
       cancelled = true;
+      screenMounted.current = false;
       void cancelHighSpeedTest();
     };
   }, [loadModes]);
@@ -179,23 +122,20 @@ export default function HighSpeedTestScreen() {
   }
 
   async function runTest() {
+    if (runInProgress.current) return;
     const mode = modes[selectedIndex];
     if (!mode) {
       return;
     }
+    runInProgress.current = true;
     setPhase('running');
     setReport(null);
     setStats(null);
     setErrorMessage(null);
     try {
-      const result = await startHighSpeedTest({
-        cameraId: mode.cameraId,
-        width: mode.width,
-        height: mode.height,
-        fpsMin: mode.fpsMin,
-        fpsMax: mode.fpsMax,
-        durationSec: TEST_DURATION_SEC,
-      });
+      const result = await camera.capture(mode, TEST_DURATION_SEC);
+      await camera.close();
+      if (!screenMounted.current) return;
       setReport(result);
       try {
         setStats(computeFrameTimingStats(result.sensorTimestampsNs, mode.fpsMax));
@@ -209,16 +149,16 @@ export default function HighSpeedTestScreen() {
       }
       setPhase('done');
     } catch (e) {
-      setErrorMessage(e instanceof Error ? e.message : String(e));
-      setPhase('error');
+      if (!screenMounted.current) return;
+      setErrorMessage(
+        e instanceof CaptureCancelled ? null : e instanceof Error ? e.message : String(e),
+      );
+      setPhase(e instanceof CaptureCancelled ? 'ready' : 'error');
+    } finally {
+      runInProgress.current = false;
     }
   }
 
-  async function stopTest() {
-    await cancelHighSpeedTest();
-  }
-
-  const selectedMode = modes[selectedIndex] ?? null;
   const reportText =
     report !== null && stats !== null
       ? formatValidationReport({
@@ -247,24 +187,23 @@ export default function HighSpeedTestScreen() {
       contentContainerStyle={styles.content}
       testID="high-speed-test-screen"
     >
-      <Text style={styles.title}>High-Speed Capture Validation (P1)</Text>
+      <Text style={styles.title}>Kiểm tra ghi hình</Text>
       <Text style={styles.note}>
-        Development Build on Android only. Modes come from live Camera2 data; only exact advertised
-        fixed ranges are offered. Records ~{TEST_DURATION_SEC} s per test.
+        Xem camera trực tiếp, đếm ngược 3 giây, rồi quay video 10 giây để kiểm tra chất lượng ghi
+        hình.
       </Text>
 
-      {permission === 'checking' && <Text style={styles.note}>Checking camera permission…</Text>}
+      {permission === 'checking' && <CameraProgress title="Đang kiểm tra quyền camera…" />}
 
       {permission === 'unavailable' && (
         <Text style={styles.error} testID="high-speed-unavailable">
-          High-speed capture is unavailable here (needs an Expo Development Build on Android with
-          the P1 native module). No camera was opened.
+          Cần bản Android có chức năng camera và phân tích này. Hãy cài bản app mới nhất.
         </Text>
       )}
 
       {permission === 'denied' && (
         <View>
-          <Text style={styles.error}>Camera permission denied — the test cannot run.</Text>
+          <Text style={styles.error}>Cần quyền camera để xem trước và ghi hình.</Text>
           <Button title="Request camera permission" onPress={askPermission} />
         </View>
       )}
@@ -272,7 +211,7 @@ export default function HighSpeedTestScreen() {
       {permission === 'blocked' && (
         <View>
           <Text style={styles.error}>
-            Camera permission permanently denied. Enable it in system Settings, then retry.
+            Quyền camera đang tắt. Mở cài đặt, cho phép camera rồi kiểm tra lại.
           </Text>
           <Button title="Open Settings" onPress={() => void Linking.openSettings()} />
           <Button title="Retry permission check" onPress={askPermission} />
@@ -280,37 +219,38 @@ export default function HighSpeedTestScreen() {
       )}
 
       {permission === 'granted' && (phase === 'loading-modes' || phase === 'idle') && (
-        <Text style={styles.note}>Enumerating Camera2 high-speed modes…</Text>
+        <Text style={styles.note}>Đang đọc chế độ camera của thiết bị…</Text>
       )}
+
+      {permission === 'granted' && phase === 'ready' && modes.length === 0 && (
+        <CameraSummary
+          title="Chưa tìm thấy chế độ ghi hình"
+          detail={errorMessage ?? 'Thiết bị chưa cung cấp chế độ phù hợp.'}
+        />
+      )}
+      {permission === 'granted' &&
+        (phase === 'error' || (phase === 'ready' && modes.length === 0)) && (
+          <Button
+            title="Tải lại chế độ camera"
+            tone="secondary"
+            onPress={() => void loadModes()}
+            disabled={camera.stage !== 'closed'}
+          />
+        )}
 
       {permission === 'granted' && modes.length > 0 && (
         <View>
-          <Text style={styles.sectionTitle}>Mode (Camera2-advertised fixed ranges only)</Text>
-          {modes.map((mode, index) => (
-            <View key={mode.label} style={styles.modeRow}>
-              <Button
-                title={`${index === selectedIndex ? '● ' : ''}${mode.label}`}
-                onPress={() => setSelectedIndex(index)}
-                disabled={phase === 'running'}
-              />
-            </View>
-          ))}
-          {selectedMode !== null && (
-            <Text style={styles.line}>
-              Selected: camera {selectedMode.cameraId} ({selectedMode.lensFacing}),{' '}
-              {selectedMode.width}x{selectedMode.height}, exact range [{selectedMode.fpsMin},
-              {selectedMode.fpsMax}]
-            </Text>
-          )}
-          {phase !== 'running' ? (
-            <Button
-              title={`Start ${TEST_DURATION_SEC}s test`}
-              onPress={runTest}
-              disabled={phase === 'loading-modes'}
-            />
-          ) : (
-            <Button title="Stop test" onPress={stopTest} />
-          )}
+          <CameraCapturePanel
+            camera={camera}
+            modes={modes}
+            selectedIndex={selectedIndex}
+            onSelect={setSelectedIndex}
+            onCapture={runTest}
+            busy={phase === 'running'}
+            phase={phase}
+            requireFace={false}
+            instruction={'Căn mặt trước khi quay. Video được lưu trên điện thoại.'}
+          />
         </View>
       )}
 
@@ -320,33 +260,51 @@ export default function HighSpeedTestScreen() {
         </Text>
       )}
 
-      {reportText !== null && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Validation report (long-press to copy)</Text>
-          <Text style={styles.mono} selectable testID="high-speed-report">
-            {reportText}
-          </Text>
-        </View>
+      {report && (
+        <CameraSummary
+          title={
+            report.recordingStatus === 'SUCCESS'
+              ? 'Đã lưu video kiểm tra'
+              : 'Ghi hình chưa hoàn tất'
+          }
+          detail={
+            'Số khung hình video: ' +
+            (report.extractorSampleCount ?? 'chưa có') +
+            '. Đếm theo video đã mã hóa; nhịp callback camera được báo riêng trong chi tiết.'
+          }
+        />
       )}
-
-      {report !== null && stats === null && phase === 'done' && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Raw native report (no timing stats)</Text>
-          <Text style={styles.mono} selectable>
-            {JSON.stringify(report, null, 2)}
-          </Text>
-        </View>
-      )}
-
       {report !== null && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Session events (raw)</Text>
-          {report.sessionEvents.map((event, index) => (
-            <Text key={`${index}-${event}`} style={styles.mono}>
-              {event}
-            </Text>
-          ))}
-        </View>
+        <CameraDetails>
+          {reportText !== null && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Validation report (long-press to copy)</Text>
+              <Text style={styles.mono} selectable testID="high-speed-report">
+                {reportText}
+              </Text>
+            </View>
+          )}
+
+          {report !== null && stats === null && phase === 'done' && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Raw native report (no timing stats)</Text>
+              <Text style={styles.mono} selectable>
+                {JSON.stringify(report, null, 2)}
+              </Text>
+            </View>
+          )}
+
+          {report !== null && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Session events (raw)</Text>
+              {report.sessionEvents.map((event, index) => (
+                <Text key={`${index}-${event}`} style={styles.mono}>
+                  {event}
+                </Text>
+              ))}
+            </View>
+          )}
+        </CameraDetails>
       )}
     </ScrollView>
   );
@@ -386,12 +344,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   note: {
-    fontSize: 12,
-    marginBottom: 8,
-    opacity: 0.7,
+    fontSize: 14,
+    marginBottom: 12,
+    color: '#526A78',
+    lineHeight: 21,
   },
   root: {
     flex: 1,
+    backgroundColor: '#F4F8FA',
     width: '100%',
   },
   sectionTitle: {
@@ -400,8 +360,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   title: {
-    fontSize: 18,
+    color: '#142D3D',
+    fontSize: 25,
     fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: 8,
   },
 });

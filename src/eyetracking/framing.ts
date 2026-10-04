@@ -120,19 +120,19 @@ export function eyesVisibleForFraming(obs: FramingObservation): boolean {
 export function framingHint(state: FramingState): string {
   switch (state) {
     case 'NO_FACE':
-      return 'No face visible — look at the phone';
+      return 'Đưa khuôn mặt vào khung và nhìn vào màn hình';
     case 'FACE_PARTIAL':
-      return 'Face partly out of frame — move back / centre';
+      return 'Lùi nhẹ để toàn bộ khuôn mặt nằm trong khung';
     case 'TOO_CLOSE':
-      return 'Too close — move the phone back';
+      return 'Đưa điện thoại ra xa một chút';
     case 'TOO_FAR':
-      return 'Too far — move the phone closer';
+      return 'Đưa điện thoại lại gần một chút';
     case 'OFF_CENTER':
-      return 'Centre your face in the guide';
+      return 'Đưa khuôn mặt về giữa hai đường căn';
     case 'EYES_NOT_VISIBLE':
-      return 'Both eyes must be visible — open eyes, face the phone';
+      return 'Mở cả hai mắt và nhìn thẳng vào màn hình';
     case 'READY':
-      return 'Ready — you can start the test';
+      return 'Đã sẵn sàng — có thể bắt đầu quay';
   }
 }
 

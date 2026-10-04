@@ -24,6 +24,7 @@ import android.util.Range
 import android.view.Surface
 import androidx.core.content.ContextCompat
 import expo.modules.kotlin.exception.CodedException
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
@@ -67,6 +68,11 @@ class ExpoCamera2HighSpeedModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("ExpoCamera2HighSpeed")
 
+    // Use the main queue so a clock sample is never blocked behind recording.
+    AsyncFunction("getMonotonicTimeUs") {
+      SystemClock.elapsedRealtimeNanos() / 1000.0
+    }.runOnQueue(Queues.MAIN)
+
     AsyncFunction("startHighSpeedTest") { cameraId: String, width: Int, height: Int,
       fpsMin: Int, fpsMax: Int, durationSec: Double ->
       runHighSpeedTest(cameraId, width, height, fpsMin, fpsMax, durationSec)
@@ -76,6 +82,17 @@ class ExpoCamera2HighSpeedModule : Module() {
       cancelRequested.set(true)
       activeTest.get()?.requestCancel()
       true
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("saveStimulusTimeline") { json: String ->
+      if (json.length > 16_000_000) throw CodedException("ERR_TIMELINE_SIZE", "Timeline too large", null)
+      org.json.JSONObject(json) // reject malformed metadata before writing
+      val root = appContext.reactContext?.cacheDir
+        ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
+      val dir = File(root, "stimulus").apply { mkdirs() }
+      val file = File(dir, "timeline_${SystemClock.elapsedRealtimeNanos()}.json")
+      file.writeText(json)
+      file.absolutePath
     }
 
     // --- P3.5 live preview (additive; the one-shot path above is untouched).
@@ -113,7 +130,7 @@ class ExpoCamera2HighSpeedModule : Module() {
 
     AsyncFunction("stopPreviewRecording") {
       stopPreviewRecording()
-    }
+    }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("closePreviewCamera") {
       closePreviewCamera()
@@ -626,6 +643,10 @@ class ExpoCamera2HighSpeedModule : Module() {
     @Volatile var bgHandler: Handler? = null
     @Volatile var recording: Boolean = false
     val stopRequested = AtomicBoolean(false)
+    val timingLock = Any()
+    @Volatile var collectTiming = false
+    val frameNumbers = mutableListOf<Long>()
+    val sensorTimestampsNs = mutableListOf<Long>()
     var cameraId: String = ""
     var lensFacing: String = ""
     var width: Int = 0
@@ -636,6 +657,21 @@ class ExpoCamera2HighSpeedModule : Module() {
   }
 
   private val previewLock = Any()
+
+  // CaptureResult callbacks are batched by the HAL; these are callback
+  // timings, not the encoded video's per-frame clock (P1 contract).
+  private fun previewCaptureCallback(s: PreviewSession) = object : CameraCaptureSession.CaptureCallback() {
+    override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+      synchronized(s.timingLock) {
+        if (s.collectTiming) {
+          result.get(CaptureResult.SENSOR_TIMESTAMP)?.let { timestamp ->
+            s.frameNumbers.add(result.frameNumber)
+            s.sensorTimestampsNs.add(timestamp)
+          }
+        }
+      }
+    }
+  }
 
   private fun previewEvent(s: PreviewSession, label: String) {
     val ms = SystemClock.elapsedRealtimeNanos() / 1_000_000L
@@ -951,7 +987,7 @@ class ExpoCamera2HighSpeedModule : Module() {
       val requests = buildHighSpeedRequestList(
         session, camera, listOf(previewSurface, recorder.surface), fpsMin, fpsMax,
       )
-      session.setRepeatingBurst(requests, null, bgHandler)
+      session.setRepeatingBurst(requests, previewCaptureCallback(s), bgHandler)
       previewEvent(s, "previewBurstStarted")
       previewState.set(s)
       // SurfaceView/TextureView buffers must match the HS size, else the
@@ -1064,6 +1100,11 @@ class ExpoCamera2HighSpeedModule : Module() {
       s.recording = true
     }
     s.stopRequested.set(false)
+    synchronized(s.timingLock) {
+      s.collectTiming = false
+      s.frameNumbers.clear()
+      s.sensorTimestampsNs.clear()
+    }
     val recorder = s.recorder!!
     try {
       recorder.start()
@@ -1072,6 +1113,7 @@ class ExpoCamera2HighSpeedModule : Module() {
       throw CodedException("ERR_RECORDER_START", "MediaRecorder.start() failed: ${e.message}", e)
     }
     val recordStartNs = SystemClock.elapsedRealtimeNanos()
+    s.collectTiming = true
     previewEvent(s, "recorderStarted")
     val deadlineNs = recordStartNs + (durationSec * 1_000_000_000L).toLong()
     while (SystemClock.elapsedRealtimeNanos() < deadlineNs) {
@@ -1084,6 +1126,8 @@ class ExpoCamera2HighSpeedModule : Module() {
         break
       }
     }
+    val recordEndNs = SystemClock.elapsedRealtimeNanos()
+    synchronized(s.timingLock) { s.collectTiming = false }
     val manual = s.stopRequested.get()
     previewEvent(s, if (manual) "manualStopRequested" else "recordWindowElapsed")
 
@@ -1156,7 +1200,7 @@ class ExpoCamera2HighSpeedModule : Module() {
               val requests = buildHighSpeedRequestList(
                 session, camera, listOf(surface, nextRecorder.surface), s.fpsMin, s.fpsMax,
               )
-              session.setRepeatingBurst(requests, null, handler)
+              session.setRepeatingBurst(requests, previewCaptureCallback(s), handler)
               s.session = session
               s.recorder = nextRecorder
               s.pendingFile = nextFile
@@ -1194,6 +1238,13 @@ class ExpoCamera2HighSpeedModule : Module() {
     return mapOf(
       "sessionState" to "CONFIGURED",
       "previewActive" to (previewState.get() === s && s.session != null),
+      "deviceModel" to Build.MODEL,
+      "androidRelease" to Build.VERSION.RELEASE,
+      "apiLevel" to Build.VERSION.SDK_INT,
+      "testStartNs" to recordStartNs,
+      "testEndNs" to recordEndNs,
+      "frameNumbers" to synchronized(s.timingLock) { s.frameNumbers.toList() },
+      "sensorTimestampsNs" to synchronized(s.timingLock) { s.sensorTimestampsNs.toList() },
       "previewResumed" to previewResumed,
       "manualStop" to manual,
       "cameraId" to s.cameraId,

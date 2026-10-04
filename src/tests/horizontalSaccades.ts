@@ -1,3 +1,4 @@
-// MVP stub. Stimulus + scoring logic comes in Phase 1+. Do not implement yet.
+import { defaultStimulus } from './stimulus/engine';
+
 export const HORIZONTAL_SACCADES_ID = 'horizontal-saccades' as const;
-export {};
+export const createStimulus = () => defaultStimulus(HORIZONTAL_SACCADES_ID);

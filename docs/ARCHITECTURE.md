@@ -57,9 +57,48 @@ src/eyetracking/pupil/ (pupilTypes + coordinates + detectors + pupilReport,
 src/camera/pupilDetector.ts ──optional──▶ ExpoPupilDetector (Kotlin, Android-only)
   └─ P3: single-frame pupil localization reusing the P2 decode pattern
      (exact Y-plane pixels, no ML Kit/OpenCV here); one PupilDetectionResult
+     per eye slot, failures carry null centroids. P4 adds hinted second-pass
+     entry `analyzeVideoPupilsWithPrior` (same decode, prior-constrained
+     candidates + relaxed gate, `p4r_` overlays); requests without priors
+     behave exactly like P3. Debug UIs `PupilValidationScreen` (FRONT
+     1080p120 default, both detectors) and `TrackingValidationScreen`
+     (P4: dense tracking over every decoded frame, 120 ROI keyframes).
+src/eyetracking/tracking/ (pupilTracker + twoPassTracking + trackingReport,
+  roiPropagation + denseTrackAnalysis, pure + execution-tested; per-eye
+  PTS-based state machine)
+  └─ P4: TRACKED / LOW_CONFIDENCE / TEMPORARILY_LOST / BLINK_OR_OCCLUDED /
+     REACQUIRING / LOST over decoded PTS (never assumed frame interval);
+     tracked == accepted raw (raw sequence preserved for P7), predictions
+     exposed separately, missing stays missing. Full-rate tracks via ROI
+     propagation: 120 ML Kit keyframes interpolated to every decoded frame
+     (strict bracketing — blinks/occlusions/ROI loss are never interpolated
+     across); targeted overlay batches for audit frames only. Never
+     consumes gaze, degrees, stimuli, or clinical logic.
+src/camera/pupilDetector.ts ──optional──▶ ExpoPupilDetector (Kotlin, Android-only)
+  └─ P3: single-frame pupil localization reusing the P2 decode pattern
+     (exact Y-plane pixels, no ML Kit/OpenCV here); one PupilDetectionResult
      per eye slot, failures carry null centroids. Debug UI
      `PupilValidationScreen` (FRONT 1080p120 default, both detectors).
      Phase 2+: capture/frames behind `CameraService` (see docs/ROADMAP.md).
 ```
 
 See `docs/PROJECT_SPEC.md` for scope, `docs/ROADMAP.md` for phase order.
+
+Camera test UI shares `src/ui/components/Camera{UI,ModePicker,CapturePanel,ImageGallery}`
+and `src/ui/hooks/usePreviewCapture`: preview → cancellable countdown → record/stop →
+local result, with camera release on unmount/background. Native calls remain behind
+`src/camera/livePreview.ts`; P1–P4 consume the saved preview-session file through their
+existing analysis seams. CaptureResult callback timing and encoded-video timing stay
+separate. Regression evidence: `docs/device-probes/CAMERA_UX_REGRESSION.md`.
+
+P4 robustness uses PTS interpolation and ROI-relative priors to tolerate head
+translation/scale changes. Explicit blink/upstream loss/ambiguity cannot be
+rescued; stale predictions are cleared, confidence decays to zero, and report
+checks require tracked coordinates to equal the actual accepted measurement.
+Current device evidence and limits: `docs/device-probes/P4_TRACKING.md`.
+
+Stimulus Engine: `src/tests/stimulus/{engine,synchronization,sessionAnalysis}`
+owns deterministic Pursuit/Saccade trajectories, committed-target history,
+clock bridges and PTS joins. `StimulusScreen` renders and records via the
+existing camera seam; native clock samples and JSON cache writes are additive
+module methods. Contracts: `docs/STIMULUS_ENGINE.md`.

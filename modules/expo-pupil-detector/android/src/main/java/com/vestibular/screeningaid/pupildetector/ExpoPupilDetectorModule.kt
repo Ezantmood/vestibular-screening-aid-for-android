@@ -54,7 +54,11 @@ import kotlin.math.sqrt
  * mirroring is unresolved, never an anatomical claim.
  *
  * No clinical code: no gaze, degrees, stimuli, metrics, thresholds as
- * clinical claims, or diagnosis. No temporal smoothing/tracking (P4).
+ * clinical claims, or diagnosis. No TS-side temporal smoothing/tracking here
+ * (P4 tracker lives in `src/eyetracking/tracking/`); this module only offers
+ * an additive hinted second-pass entry (`analyzeVideoPupilsWithPrior`) where
+ * a motion-model prior constrains the candidate set with a relaxed gate.
+ * Requests without prior fields behave exactly like the P3 path.
  */
 class ExpoPupilDetectorModule : Module() {
 
@@ -65,11 +69,18 @@ class ExpoPupilDetectorModule : Module() {
       saveOverlays: Boolean, requestsJson: String ->
       analyzeVideoPupils(filePath, detectorId, saveOverlays, requestsJson)
     }
+
+    AsyncFunction("analyzeVideoPupilsWithPrior") { filePath: String, detectorId: String,
+      saveOverlays: Boolean, requestsJson: String ->
+      analyzeVideoPupils(filePath, detectorId, saveOverlays, requestsJson, "p4r")
+    }
   }
 
   companion object {
     /** Engineering feasibility gates (NOT clinical thresholds). */
     const val MIN_PUPIL_CONFIDENCE = 0.35
+    /** Relaxed gate for the P4 hinted second pass (prior-constrained only). */
+    const val RELAXED_PUPIL_CONFIDENCE = 0.25
     const val AMBIGUITY_SCORE_MARGIN = 0.05
     /** Ideal bbox fill ratio of a circle (pi/4); shape anchor. */
     const val CIRCLE_FILL = Math.PI / 4.0
@@ -87,7 +98,14 @@ class ExpoPupilDetectorModule : Module() {
     val roiWidth: Int,
     val roiHeight: Int,
     val condition: String,
-  )
+    /** P4 hinted second pass: prior centroid in ROI px + search radius px. */
+    val priorXInRoi: Double?,
+    val priorYInRoi: Double?,
+    val searchRadiusPx: Double?,
+  ) {
+    fun hasPrior(): Boolean =
+      priorXInRoi != null && priorYInRoi != null && searchRadiusPx != null && searchRadiusPx > 0.0
+  }
 
   private data class Comp(
     var area: Int = 0,
@@ -120,6 +138,7 @@ class ExpoPupilDetectorModule : Module() {
     detectorId: String,
     saveOverlays: Boolean,
     requestsJson: String,
+    overlayPrefix: String = "p3",
   ): Map<String, Any?> {
     if (detectorId != "percentile-dark" && detectorId != "contrast-normalized") {
       throw CodedException("ERR_BAD_DETECTOR", "Unknown pupil detector: $detectorId.", null)
@@ -302,13 +321,13 @@ class ExpoPupilDetectorModule : Module() {
                 }
                 for (req in wanted) {
                   val outcome = if (yCopy != null) {
-                    detectInFrame(yCopy, w, h, req, detectorId)
+                    detectForRequest(yCopy, w, h, req, detectorId)
                   } else {
                     Outcome(false, null, null, null, null, 0.0, "INVALID_GEOMETRY")
                   }
                   var overlayPath: String? = null
                   if (saveOverlays && overlayDir != null && geometryOk(req, w, h) && overlayBmp != null) {
-                    overlayPath = saveOverlay(overlayDir, overlayStamp, detectorId, req, outcome, overlayBmp, warnings)
+                    overlayPath = saveOverlay(overlayDir, overlayStamp, detectorId, req, outcome, overlayBmp, warnings, overlayPrefix)
                     if (overlayPath != null) {
                       overlayPaths.add(overlayPath)
                     }
@@ -404,6 +423,9 @@ class ExpoPupilDetectorModule : Module() {
               roiWidth = o.getInt("roiWidth"),
               roiHeight = o.getInt("roiHeight"),
               condition = o.optString("condition", "unspecified"),
+              priorXInRoi = if (o.isNull("priorXInRoi")) null else o.optDouble("priorXInRoi"),
+              priorYInRoi = if (o.isNull("priorYInRoi")) null else o.optDouble("priorYInRoi"),
+              searchRadiusPx = if (o.isNull("searchRadiusPx")) null else o.optDouble("searchRadiusPx"),
             ),
           )
         } catch (e: Exception) {
@@ -526,6 +548,121 @@ class ExpoPupilDetectorModule : Module() {
   }
 
   // ---------- Detection entry ----------
+
+  /**
+   * P4 routing: requests carrying a valid prior use the hinted second-pass
+   * path (prior-constrained candidates, relaxed gate); all other requests
+   * use the untouched P3 single-frame path.
+   */
+  private fun detectForRequest(
+    yPlane: ByteArray,
+    frameW: Int,
+    frameH: Int,
+    req: RoiRequest,
+    detectorId: String,
+  ): Outcome {
+    if (req.hasPrior()) {
+      val hinted = detectWithPrior(
+        yPlane, frameW, frameH, req,
+        req.priorXInRoi as Double, req.priorYInRoi as Double,
+        req.searchRadiusPx as Double, detectorId,
+      )
+      if (hinted != null) {
+        return hinted
+      }
+    }
+    return detectInFrame(yPlane, frameW, frameH, req, detectorId)
+  }
+
+  /**
+   * P4 hinted rescue: same gate machinery as the base detector, but only
+   * components near the motion-model prior are scored, with a relaxed
+   * confidence gate. Returns null when the hint is unusable (caller falls
+   * back to the standard path); NO_PUPIL_CANDIDATE when nothing pupil-like
+   * sits near the prior (never a far-field false lock).
+   */
+  private fun detectWithPrior(
+    yPlane: ByteArray,
+    frameW: Int,
+    frameH: Int,
+    req: RoiRequest,
+    priorX: Double,
+    priorY: Double,
+    radiusPx: Double,
+    detectorId: String,
+  ): Outcome? {
+    if (req.roiWidth < MIN_ROI_PX || req.roiHeight < MIN_ROI_PX || req.roiWidth <= 0 || req.roiHeight <= 0) {
+      return null
+    }
+    if (req.roiX < 0 || req.roiY < 0 || req.roiX + req.roiWidth > frameW || req.roiY + req.roiHeight > frameH) {
+      return null
+    }
+    val rw = req.roiWidth
+    val rh = req.roiHeight
+    if (priorX < 0 || priorY < 0 || priorX > rw || priorY > rh) {
+      return null
+    }
+    val gray = DoubleArray(rw * rh)
+    for (y in 0 until rh) {
+      for (x in 0 until rw) {
+        gray[y * rw + x] = (yPlane[(req.roiY + y) * frameW + (req.roiX + x)].toInt() and 0xFF).toDouble()
+      }
+    }
+    lastW = rw
+    lastH = rh
+    val smoothed = boxBlur(gray, rw, rh, 1)
+    val mask: ByteArray
+    val threshold: Double
+    val weights: DoubleArray
+    val darkFrac: Double
+    if (detectorId == "contrast-normalized") {
+      val lo = percentileValue(smoothed, 0.02)
+      val hi = percentileValue(smoothed, 0.98)
+      if (hi - lo < 8.0) {
+        return Outcome(false, null, null, null, null, 0.0, "NO_PUPIL_CANDIDATE")
+      }
+      val n = rw * rh
+      val stretched = DoubleArray(n)
+      for (i in 0 until n) {
+        stretched[i] = min(255.0, max(0.0, ((smoothed[i] - lo) / (hi - lo)) * 255.0))
+      }
+      threshold = min(110.0, max(25.0, percentileValue(stretched, 0.12)))
+      val raw = ByteArray(n)
+      var dark = 0
+      for (i in 0 until n) {
+        if (stretched[i] < threshold) {
+          raw[i] = 1
+          dark++
+        }
+      }
+      darkFrac = dark.toDouble() / n.toDouble()
+      mask = binaryOpen(raw, rw, rh)
+      weights = doubleArrayOf(1.0, 2.0, 3.0, 1.0, 2.0)
+    } else {
+      val rawThreshold = percentileValue(smoothed, 0.12)
+      threshold = min(110.0, max(25.0, rawThreshold))
+      mask = ByteArray(rw * rh)
+      var dark = 0
+      for (i in mask.indices) {
+        if (smoothed[i] < threshold) {
+          mask[i] = 1
+          dark++
+        }
+      }
+      darkFrac = dark.toDouble() / (rw * rh).toDouble()
+      weights = doubleArrayOf(2.0, 2.0, 2.0, 1.0, 1.0)
+    }
+    val comps = filterAndWeigh(findComps(mask, rw, rh), gray, smoothed, mask, rw, rh, threshold)
+    val near = comps.filter { c ->
+      val cx = c.sumX.toDouble() / max(1.0, c.area.toDouble())
+      val cy = c.sumY.toDouble() / max(1.0, c.area.toDouble())
+      Math.hypot(cx - priorX, cy - priorY) <= radiusPx
+    }
+    if (near.isEmpty()) {
+      return Outcome(false, null, null, null, null, 0.0, "NO_PUPIL_CANDIDATE")
+    }
+    return selectBest(gray, near, weights, darkFrac, RELAXED_PUPIL_CONFIDENCE)
+  }
 
   private fun detectInFrame(
     yPlane: ByteArray,
@@ -776,6 +913,7 @@ class ExpoPupilDetectorModule : Module() {
     comps: List<Comp>,
     weights: DoubleArray,
     maskFraction: Double,
+    minConfidence: Double = MIN_PUPIL_CONFIDENCE,
   ): Outcome {
     if (comps.isEmpty()) {
       return noCandidate(gray, maskFraction)
@@ -787,10 +925,10 @@ class ExpoPupilDetectorModule : Module() {
     }.sortedByDescending { it.score }
     val best = scored[0]
     val runnerUp = if (scored.size > 1) scored[1] else null
-    if (runnerUp != null && best.score - runnerUp.score < AMBIGUITY_SCORE_MARGIN && runnerUp.score >= MIN_PUPIL_CONFIDENCE) {
+    if (runnerUp != null && best.score - runnerUp.score < AMBIGUITY_SCORE_MARGIN && runnerUp.score >= minConfidence) {
       return Outcome(false, null, null, null, null, best.score, "AMBIGUOUS_CANDIDATES")
     }
-    if (best.score < MIN_PUPIL_CONFIDENCE) {
+    if (best.score < minConfidence) {
       return Outcome(false, null, null, null, null, best.score, "LOW_CONFIDENCE")
     }
     val c = best.comp
@@ -912,6 +1050,7 @@ class ExpoPupilDetectorModule : Module() {
     outcome: Outcome,
     frameBmp: Bitmap,
     warnings: MutableList<String>,
+    overlayPrefix: String = "p3",
   ): String? {
     try {
       val cx = req.roiX.coerceIn(0, frameBmp.width - 1)
@@ -956,7 +1095,7 @@ class ExpoPupilDetectorModule : Module() {
       }
       canvas.drawText("$detectorId $label", 8f, max(16f, ch / 11f), textPaint)
       val detShort = if (detectorId == "percentile-dark") "perc" else "norm"
-      val out = File(dir, "p3_${stamp}_${detShort}_${req.eyeSide}_f${req.frameIndex}.jpg")
+      val out = File(dir, "${overlayPrefix}_${stamp}_${detShort}_${req.eyeSide}_f${req.frameIndex}.jpg")
       FileOutputStream(out).use { marked.compress(Bitmap.CompressFormat.JPEG, 85, it) }
       try {
         crop.recycle()

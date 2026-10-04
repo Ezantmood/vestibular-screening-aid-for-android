@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Button,
   Linking,
   PermissionsAndroid,
   Platform,
@@ -15,12 +14,19 @@ import { analyzeVideoFile, isFramePipelineAvailable } from '../../camera/framePi
 import type { FixedMode } from '../../camera/fixedModes';
 import { collectFixedModes } from '../../camera/fixedModes';
 import type { HighSpeedTestReport } from '../../camera/highSpeedCapture';
-import {
-  cancelHighSpeedTest,
-  isHighSpeedCaptureAvailable,
-  startHighSpeedTest,
-} from '../../camera/highSpeedCapture';
+import { cancelHighSpeedTest, isHighSpeedCaptureAvailable } from '../../camera/highSpeedCapture';
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
+import CameraImageGallery from '../components/CameraImageGallery';
+import CameraCapturePanel from '../components/CameraCapturePanel';
+import {
+  CameraButton as Button,
+  CameraConditions,
+  CameraDetails,
+  CameraProgress,
+  CameraSummary,
+  cameraConditionHint,
+} from '../components/CameraUI';
+import { CaptureCancelled, usePreviewCapture } from '../hooks/usePreviewCapture';
 import type { PupilBatchReport } from '../../camera/pupilDetector';
 import { isPupilDetectorAvailable, runPupilBatch } from '../../camera/pupilDetector';
 import type { PupilDetectionResult, PupilDetectorId } from '../../eyetracking/pupil/pupilTypes';
@@ -66,11 +72,11 @@ async function requestCameraPermission(): Promise<PermissionState> {
     return 'granted';
   }
   const result = await PermissionsAndroid.request(permission, {
-    title: 'Camera access for pupil-detection test',
+    title: 'Cho phép dùng camera',
     message:
-      'P3 records ~10 s with the front camera under one gaze condition, then decodes offline and localizes pupils. No other permission is requested.',
-    buttonPositive: 'Allow',
-    buttonNegative: 'Deny',
+      'App cần camera để xem trước và ghi video kiểm tra mắt. Video được lưu trên điện thoại, không ghi âm.',
+    buttonPositive: 'Cho phép',
+    buttonNegative: 'Để sau',
   });
   if (result === PermissionsAndroid.RESULTS.GRANTED) {
     return 'granted';
@@ -93,10 +99,14 @@ interface DetectorRun {
 // detectors → per-detector coverage/confidence/failure statistics. No gaze
 // estimation, no clinical metrics: centroid movement is never interpreted.
 export default function PupilValidationScreen() {
+  const camera = usePreviewCapture();
+  const runInProgress = useRef(false);
+  const screenMounted = useRef(true);
   const [permission, setPermission] = useState<PermissionState>('checking');
   const [phase, setPhase] = useState<Phase>('idle');
   const [modes, setModes] = useState<FixedMode[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [capturedCondition, setCapturedCondition] = useState<Condition>('center');
   const [condition, setCondition] = useState<Condition>('center');
   const [capture, setCapture] = useState<HighSpeedTestReport | null>(null);
   const [pipeline, setPipeline] = useState<FramePipelineReport | null>(null);
@@ -114,7 +124,7 @@ export default function PupilValidationScreen() {
       setSelectedIndex(0);
       setPhase('ready');
       if (found.length === 0) {
-        setErrorMessage('No fixed high-speed modes advertised by Camera2 on this device.');
+        setErrorMessage('Thiết bị chưa cung cấp chế độ camera tốc độ cao cố định.');
       }
     } catch (e) {
       setErrorMessage(e instanceof Error ? e.message : String(e));
@@ -124,6 +134,7 @@ export default function PupilValidationScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    screenMounted.current = true;
     (async () => {
       const state = await requestCameraPermission();
       if (cancelled) {
@@ -136,6 +147,7 @@ export default function PupilValidationScreen() {
     })();
     return () => {
       cancelled = true;
+      screenMounted.current = false;
       void cancelHighSpeedTest();
     };
   }, [loadModes]);
@@ -150,10 +162,13 @@ export default function PupilValidationScreen() {
   }
 
   async function runRecordAnalyzeDetect() {
+    if (runInProgress.current) return;
     const mode = modes[selectedIndex];
     if (!mode) {
       return;
     }
+    runInProgress.current = true;
+    setCapturedCondition(condition);
     setPhase('recording');
     setCapture(null);
     setPipeline(null);
@@ -161,20 +176,16 @@ export default function PupilValidationScreen() {
     setAuditPassed(false);
     setErrorMessage(null);
     try {
-      const result = await startHighSpeedTest({
-        cameraId: mode.cameraId,
-        width: mode.width,
-        height: mode.height,
-        fpsMin: mode.fpsMin,
-        fpsMax: mode.fpsMax,
-        durationSec: TEST_DURATION_SEC,
-      });
+      const result = await camera.capture(mode, TEST_DURATION_SEC);
+      await camera.close();
+      if (!screenMounted.current) return;
       setCapture(result);
       if (!result.filePath) {
-        setErrorMessage('Recording produced no file; cannot decode.');
+        setErrorMessage('Không lưu được video. Hãy mở lại camera và quay lại.');
         setPhase('error');
         return;
       }
+      if (!screenMounted.current) return;
       setPhase('analyzing');
       const analysis = await analyzeVideoFile({
         filePath: result.filePath,
@@ -182,7 +193,9 @@ export default function PupilValidationScreen() {
         faceSampleCount: PUPIL_SAMPLE_COUNT,
         saveDebugFrames: false,
       });
+      if (!screenMounted.current) return;
       setPipeline(analysis);
+      if (!screenMounted.current) return;
       setPhase('detecting');
       const completed: DetectorRun[] = [];
       for (const detectorId of DETECTORS) {
@@ -193,30 +206,35 @@ export default function PupilValidationScreen() {
           saveOverlays: true,
           condition,
         });
+        if (!screenMounted.current) return;
         completed.push({ detectorId, results, batch: report });
       }
       setRuns(completed);
       setPhase('done');
     } catch (e) {
-      setErrorMessage(e instanceof Error ? e.message : String(e));
-      setPhase('error');
+      if (!screenMounted.current) return;
+      setErrorMessage(
+        e instanceof CaptureCancelled ? null : e instanceof Error ? e.message : String(e),
+      );
+      setPhase(e instanceof CaptureCancelled ? 'ready' : 'error');
+    } finally {
+      runInProgress.current = false;
     }
   }
 
-  const selectedMode = modes[selectedIndex] ?? null;
   const busy = phase === 'recording' || phase === 'analyzing' || phase === 'detecting';
 
   function reportFor(run: DetectorRun): string {
     const byKey = new Map<string, string>();
     for (const r of run.results) {
-      byKey.set(`${r.frameIndex}:${r.eyeSide}`, condition);
+      byKey.set(`${r.frameIndex}:${r.eyeSide}`, capturedCondition);
     }
     const stats = aggregatePupilStats(run.results, byKey);
     const verdict = pupilDetectionVerdict({ stats, visualAuditPassed: auditPassed });
     return formatPupilReport({
       stats,
       verdict,
-      captureLabel: `${selectedMode?.width}x${selectedMode?.height} [${selectedMode?.fpsMin},${selectedMode?.fpsMax}] condition=${condition}`,
+      captureLabel: `${capture?.width}x${capture?.height} [${capture?.fpsMin},${capture?.fpsMax}] condition=${capturedCondition}`,
     });
   }
 
@@ -226,25 +244,22 @@ export default function PupilValidationScreen() {
       contentContainerStyle={styles.content}
       testID="pupil-validation-screen"
     >
-      <Text style={styles.title}>Pupil Detection Prototype (P3)</Text>
+      <Text style={styles.title}>Kiểm tra đồng tử</Text>
       <Text style={styles.note}>
-        Development Build on Android only. FRONT 1080p120 default. The P2 decoder + ML Kit eye ROI
-        are reused untouched; pupil centroids are single-frame feasibility only — never gaze angle,
-        never clinical metrics. Debug overlays stay in device-local cache and are never committed.
+        Chọn hướng nhìn, căn mặt rồi quay 10 giây. App sẽ kiểm tra đồng tử trong video.
       </Text>
 
-      {permission === 'checking' && <Text style={styles.note}>Checking camera permission…</Text>}
+      {permission === 'checking' && <CameraProgress title="Đang kiểm tra quyền camera…" />}
 
       {permission === 'unavailable' && (
         <Text style={styles.error} testID="pupil-validation-unavailable">
-          Pupil validation is unavailable here (needs an Expo Development Build on Android with the
-          P1 + P2 + pupil native modules). No camera was opened.
+          Cần bản Android có chức năng camera và phân tích này. Hãy cài bản app mới nhất.
         </Text>
       )}
 
       {permission === 'denied' && (
         <View>
-          <Text style={styles.error}>Camera permission denied — the test cannot run.</Text>
+          <Text style={styles.error}>Cần quyền camera để xem trước và ghi hình.</Text>
           <Button title="Request camera permission" onPress={askPermission} />
         </View>
       )}
@@ -252,7 +267,7 @@ export default function PupilValidationScreen() {
       {permission === 'blocked' && (
         <View>
           <Text style={styles.error}>
-            Camera permission permanently denied. Enable it in system Settings, then retry.
+            Quyền camera đang tắt. Mở cài đặt, cho phép camera rồi kiểm tra lại.
           </Text>
           <Button title="Open Settings" onPress={() => void Linking.openSettings()} />
           <Button title="Retry permission check" onPress={askPermission} />
@@ -260,52 +275,45 @@ export default function PupilValidationScreen() {
       )}
 
       {permission === 'granted' && (phase === 'loading-modes' || phase === 'idle') && (
-        <Text style={styles.note}>Enumerating Camera2 high-speed modes…</Text>
+        <Text style={styles.note}>Đang đọc chế độ camera của thiết bị…</Text>
       )}
+
+      {permission === 'granted' && phase === 'ready' && modes.length === 0 && (
+        <CameraSummary
+          title="Chưa tìm thấy chế độ ghi hình"
+          detail={errorMessage ?? 'Thiết bị chưa cung cấp chế độ phù hợp.'}
+        />
+      )}
+      {permission === 'granted' &&
+        (phase === 'error' || (phase === 'ready' && modes.length === 0)) && (
+          <Button
+            title="Tải lại chế độ camera"
+            tone="secondary"
+            onPress={() => void loadModes()}
+            disabled={camera.stage !== 'closed'}
+          />
+        )}
 
       {permission === 'granted' && modes.length > 0 && (
         <View>
-          <Text style={styles.sectionTitle}>Mode (FRONT 1080p120 default)</Text>
-          {modes.map((mode, index) => (
-            <View key={mode.label} style={styles.modeRow}>
-              <Button
-                title={`${index === selectedIndex ? '● ' : ''}${mode.label}`}
-                onPress={() => setSelectedIndex(index)}
-                disabled={busy}
-              />
-            </View>
-          ))}
-          <Text style={styles.sectionTitle}>Gaze condition (perform during capture)</Text>
-          <View style={styles.conditionRow}>
-            {CONDITIONS.map((c) => (
-              <View key={c} style={styles.conditionButton}>
-                <Button
-                  title={`${c === condition ? '● ' : ''}${c}`}
-                  onPress={() => setCondition(c)}
-                  disabled={busy}
-                />
-              </View>
-            ))}
-          </View>
-          {!busy ? (
-            <View style={styles.buttonGap}>
-              <Button
-                title={`Record ${TEST_DURATION_SEC}s (${condition}) + detect pupils`}
-                onPress={runRecordAnalyzeDetect}
-              />
-            </View>
-          ) : (
-            <View>
-              <Text style={styles.note}>
-                {phase === 'recording'
-                  ? `Recording ~${TEST_DURATION_SEC} s — ${condition} gaze, look at the phone display…`
-                  : phase === 'analyzing'
-                    ? 'Decoding + ML Kit eye ROI (P2 pass)…'
-                    : 'Localizing pupils with both candidate detectors…'}
-              </Text>
-              <Button title="Stop capture" onPress={() => void cancelHighSpeedTest()} />
-            </View>
-          )}
+          <Text style={styles.sectionTitle}>Bài thực hiện trong lúc quay</Text>
+          <CameraConditions
+            values={CONDITIONS}
+            selected={condition}
+            onSelect={setCondition}
+            disabled={busy || camera.stage === 'countdown' || camera.stage === 'recording'}
+          />
+          <CameraCapturePanel
+            camera={camera}
+            modes={modes}
+            selectedIndex={selectedIndex}
+            onSelect={setSelectedIndex}
+            onCapture={runRecordAnalyzeDetect}
+            busy={busy}
+            phase={phase}
+            requireFace={true}
+            instruction={cameraConditionHint(condition)}
+          />
         </View>
       )}
 
@@ -315,61 +323,80 @@ export default function PupilValidationScreen() {
         </Text>
       )}
 
-      {capture !== null && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Capture (P1 module)</Text>
-          <Text style={styles.mono}>File: {capture.filePath ?? '(none)'}</Text>
-        </View>
-      )}
-
-      {pipeline !== null && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Eye ROI input (P2 pass)</Text>
-          <Text style={styles.mono}>
-            Face samples: {pipeline.faceSamples.length} rate={pipeline.faceDetectionRate ?? '?'}{' '}
-            both-eyes={pipeline.bothEyesUsableRate ?? '?'}
-          </Text>
-        </View>
-      )}
-
       {runs.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Visual audit (required for PASS)</Text>
-          <Text style={styles.note}>
-            Inspect the overlay JPEGs in the device-local cache (`pupildebug/`): the red crosshair
-            must visibly fall on the pupil in representative successful samples. Toggle only after
-            auditing — never before.
-          </Text>
-          <Button
-            title={
-              auditPassed ? '● Overlays audited: centroids on pupils' : 'Mark overlays audited'
-            }
-            onPress={() => setAuditPassed((v) => !v)}
-          />
-        </View>
+        <CameraSummary
+          title="Đã phân tích đồng tử"
+          detail="Xem kết quả từng phương pháp và ảnh kiểm tra bên dưới. Kết quả này chưa phải đánh giá lâm sàng."
+        />
       )}
-
       {runs.map((run) => (
-        <View key={run.detectorId} style={styles.card}>
-          <Text style={styles.sectionTitle}>P3 report — {run.detectorId} (long-press to copy)</Text>
-          <Text style={styles.mono} selectable testID={`pupil-report-${run.detectorId}`}>
-            {reportFor(run)}
-          </Text>
-          <Text style={styles.mono}>
-            Overlays: {run.batch?.overlayPaths.length ?? 0} warnings:{' '}
-            {(run.batch?.warnings.length ?? 0) > 0
-              ? (run.batch?.warnings.slice(0, 3).join(' | ') ?? '')
-              : '(none)'}
-          </Text>
-          {run.results.slice(0, 10).map((r) => (
-            <Text key={`${run.detectorId}-${r.frameIndex}-${r.eyeSide}`} style={styles.mono}>
-              f{r.frameIndex} {r.eyeSide} n=({r.normalizedX?.toFixed(3) ?? '?'},
-              {r.normalizedY?.toFixed(3) ?? '?'}) conf={r.confidence.toFixed(2)}{' '}
-              {r.failureReason ?? 'OK'}
-            </Text>
-          ))}
-        </View>
+        <CameraImageGallery
+          key={run.detectorId}
+          paths={run.batch?.overlayPaths ?? []}
+          title={'Ảnh kiểm tra · ' + run.detectorId}
+        />
       ))}
+      {(capture !== null || runs.length > 0) && (
+        <CameraDetails>
+          {capture !== null && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Capture (P1 module)</Text>
+              <Text style={styles.mono}>File: {capture.filePath ?? '(none)'}</Text>
+            </View>
+          )}
+
+          {pipeline !== null && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Eye ROI input (P2 pass)</Text>
+              <Text style={styles.mono}>
+                Face samples: {pipeline.faceSamples.length} rate={pipeline.faceDetectionRate ?? '?'}{' '}
+                both-eyes={pipeline.bothEyesUsableRate ?? '?'}
+              </Text>
+            </View>
+          )}
+
+          {runs.length > 0 && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Visual audit (required for PASS)</Text>
+              <Text style={styles.note}>
+                Inspect the overlay JPEGs in the device-local cache (`pupildebug/`): the red
+                crosshair must visibly fall on the pupil in representative successful samples.
+                Toggle only after auditing — never before.
+              </Text>
+              <Button
+                title={
+                  auditPassed ? '✓ Đã kiểm tra vị trí đồng tử trên ảnh' : 'Xác nhận đã kiểm tra ảnh'
+                }
+                onPress={() => setAuditPassed((v) => !v)}
+              />
+            </View>
+          )}
+
+          {runs.map((run) => (
+            <View key={run.detectorId} style={styles.card}>
+              <Text style={styles.sectionTitle}>
+                P3 report — {run.detectorId} (long-press to copy)
+              </Text>
+              <Text style={styles.mono} selectable testID={`pupil-report-${run.detectorId}`}>
+                {reportFor(run)}
+              </Text>
+              <Text style={styles.mono}>
+                Overlays: {run.batch?.overlayPaths.length ?? 0} warnings:{' '}
+                {(run.batch?.warnings.length ?? 0) > 0
+                  ? (run.batch?.warnings.slice(0, 3).join(' | ') ?? '')
+                  : '(none)'}
+              </Text>
+              {run.results.slice(0, 10).map((r) => (
+                <Text key={`${run.detectorId}-${r.frameIndex}-${r.eyeSide}`} style={styles.mono}>
+                  f{r.frameIndex} {r.eyeSide} n=({r.normalizedX?.toFixed(3) ?? '?'},
+                  {r.normalizedY?.toFixed(3) ?? '?'}) conf={r.confidence.toFixed(2)}{' '}
+                  {r.failureReason ?? 'OK'}
+                </Text>
+              ))}
+            </View>
+          ))}
+        </CameraDetails>
+      )}
     </ScrollView>
   );
 }
@@ -414,12 +441,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   note: {
-    fontSize: 12,
-    marginBottom: 8,
-    opacity: 0.7,
+    fontSize: 14,
+    marginBottom: 12,
+    color: '#526A78',
+    lineHeight: 21,
   },
   root: {
     flex: 1,
+    backgroundColor: '#F4F8FA',
     width: '100%',
   },
   sectionTitle: {
@@ -428,8 +457,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   title: {
-    fontSize: 18,
+    color: '#142D3D',
+    fontSize: 25,
     fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: 8,
   },
 });

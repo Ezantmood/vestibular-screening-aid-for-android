@@ -1,3 +1,4 @@
-// MVP stub. Stimulus + scoring logic comes in Phase 1+. Do not implement yet.
+import { defaultStimulus } from './stimulus/engine';
+
 export const SMOOTH_PURSUIT_ID = 'smooth-pursuit' as const;
-export {};
+export const createStimulus = () => defaultStimulus(SMOOTH_PURSUIT_ID);

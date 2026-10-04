@@ -39,6 +39,14 @@ export interface OpenPreviewReport {
 
 /** Report returned by `startPreviewRecording` (blocks until stop). */
 export interface PreviewRecordingReport extends OpenPreviewReport {
+  deviceModel: string;
+  androidRelease: string;
+  apiLevel: number;
+  testStartNs: number;
+  testEndNs: number;
+  /** Batched Camera2 callback timing, not encoded-frame timing. */
+  frameNumbers: number[];
+  sensorTimestampsNs: number[];
   previewResumed: boolean;
   manualStop: boolean;
   recordingStatus: HighSpeedRecordingStatus;

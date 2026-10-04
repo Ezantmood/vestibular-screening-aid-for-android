@@ -24,7 +24,8 @@
     "lint": "eslint .",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
-    "check": "npm run typecheck && npm run lint"
+    "check": "npm run typecheck && npm run lint",
+    "test": "node scripts/runLogicChecks.mjs"
   },
   "private": true
 }

@@ -24,6 +24,13 @@ export interface PupilRoiRequest {
   roiHeight: number;
   /** Free-form test-condition label echoed into the report. */
   condition: string;
+  /**
+   * P4 hinted second pass (all optional; absent = standard P3 path):
+   * prior centroid in ROI px + search radius in ROI px.
+   */
+  priorXInRoi?: number | null;
+  priorYInRoi?: number | null;
+  searchRadiusPx?: number | null;
 }
 
 export interface PupilResultOut {

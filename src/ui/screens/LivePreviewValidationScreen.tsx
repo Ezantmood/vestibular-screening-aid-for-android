@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Button,
+  AppState,
   Linking,
   PermissionsAndroid,
   Platform,
@@ -43,6 +43,13 @@ import { analyzeVideoFile, isFramePipelineAvailable } from '../../camera/framePi
 import type { FramingObservation, FramingState } from '../../eyetracking/framing';
 import { FramingStabilizer, classifyFramingState, framingHint } from '../../eyetracking/framing';
 import LiveCameraPreviewView from '../components/LiveCameraPreviewView';
+import CameraModePicker from '../components/CameraModePicker';
+import {
+  CameraButton as Button,
+  CameraDetails,
+  CameraProgress,
+  CameraSummary,
+} from '../components/CameraUI';
 
 type PermissionState = 'checking' | 'granted' | 'denied' | 'blocked' | 'unavailable';
 type Phase =
@@ -50,6 +57,7 @@ type Phase =
   | 'loading-modes'
   | 'ready'
   | 'opening'
+  | 'closing'
   | 'previewing'
   | 'recording'
   | 'analyzing'
@@ -88,11 +96,11 @@ async function requestCameraPermission(): Promise<PermissionState> {
     return 'granted';
   }
   const result = await PermissionsAndroid.request(permission, {
-    title: 'Camera access for live-preview test',
+    title: 'Cho phép dùng camera',
     message:
-      'P3.5 opens the front camera with a live preview, records ~10 s of high-speed video, then decodes it offline. No other permission is requested.',
-    buttonPositive: 'Allow',
-    buttonNegative: 'Deny',
+      'App cần camera để xem trước và ghi video kiểm tra mắt. Video được lưu trên điện thoại, không ghi âm.',
+    buttonPositive: 'Cho phép',
+    buttonNegative: 'Để sau',
   });
   if (result === PermissionsAndroid.RESULTS.GRANTED) {
     return 'granted';
@@ -129,6 +137,7 @@ export default function LivePreviewValidationScreen() {
   const [viewSize, setViewSize] = useState({ width: 0, height: 0 });
   const [surfaceStatus, setSurfaceStatus] = useState<string>('unknown');
   const [recordElapsed, setRecordElapsed] = useState(0);
+  const [stopping, setStopping] = useState(false);
   const [recordReport, setRecordReport] = useState<PreviewRecordingReport | null>(null);
   const [decodeReport, setDecodeReport] = useState<FramePipelineReport | null>(null);
   const [transformInfo, setTransformInfo] = useState<PreviewTransformInfo | null>(null);
@@ -137,6 +146,34 @@ export default function LivePreviewValidationScreen() {
   const stabilizer = useRef(new FramingStabilizer(3));
   const recordStartedAt = useRef(0);
   const busyRef = useRef(false);
+  const screenMounted = useRef(true);
+  const sessionVersion = useRef(0);
+  const previewOwned = useRef(false);
+
+  const releasePreview = useCallback(async () => {
+    sessionVersion.current += 1;
+    previewOwned.current = false;
+    if (screenMounted.current) setPhase('closing');
+    await stopPreviewRecording();
+    await stopFraming();
+    await closePreviewCamera();
+    if (screenMounted.current) {
+      setFaceBox(null);
+      setTransformInfo(null);
+      stabilizer.current.reset();
+      setFraming('NO_FACE');
+      setPhase('ready');
+    }
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' && (previewOwned.current || busyRef.current)) {
+        void releasePreview();
+      }
+    });
+    return () => subscription.remove();
+  }, [releasePreview]);
 
   const loadModes = useCallback(async () => {
     setPhase('loading-modes');
@@ -148,7 +185,7 @@ export default function LivePreviewValidationScreen() {
       setSelectedIndex(0);
       setPhase('ready');
       if (found.length === 0) {
-        setErrorMessage('No fixed high-speed modes advertised by Camera2 on this device.');
+        setErrorMessage('Thiết bị chưa cung cấp chế độ camera tốc độ cao cố định.');
       }
     } catch (e) {
       setErrorMessage(e instanceof Error ? e.message : String(e));
@@ -158,6 +195,7 @@ export default function LivePreviewValidationScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    screenMounted.current = true;
     (async () => {
       const state = await requestCameraPermission();
       if (cancelled) {
@@ -170,12 +208,10 @@ export default function LivePreviewValidationScreen() {
     })();
     return () => {
       cancelled = true;
-      void (async () => {
-        await stopFraming().catch(() => false);
-        await closePreviewCamera().catch(() => false);
-      })();
+      screenMounted.current = false;
+      if (previewOwned.current || busyRef.current) void releasePreview();
     };
-  }, [loadModes]);
+  }, [loadModes, releasePreview]);
 
   // Recording elapsed ticker (display only; start time set in the handler).
   useEffect(() => {
@@ -217,10 +253,13 @@ export default function LivePreviewValidationScreen() {
   }
 
   async function openPreview() {
+    if (busyRef.current) return;
     const mode = modes[selectedIndex];
     if (!mode) {
       return;
     }
+    busyRef.current = true;
+    const version = ++sessionVersion.current;
     setPhase('opening');
     setErrorMessage(null);
     setRecordReport(null);
@@ -232,27 +271,29 @@ export default function LivePreviewValidationScreen() {
     setFraming('NO_FACE');
     try {
       await openPreviewCamera(mode.cameraId, mode.width, mode.height, mode.fpsMin, mode.fpsMax);
-      await startFraming(FRAMING_INTERVAL_MS);
+      if (!screenMounted.current || version !== sessionVersion.current) {
+        await closePreviewCamera();
+        return;
+      }
+      previewOwned.current = true;
+      if (mode.lensFacing === 'FRONT') await startFraming(FRAMING_INTERVAL_MS);
       try {
         setTransformInfo(await getPreviewTransformInfo());
       } catch {
         setTransformInfo(null);
       }
-      setPhase('previewing');
+      if (screenMounted.current && version === sessionVersion.current) setPhase('previewing');
     } catch (e) {
+      if (!screenMounted.current || version !== sessionVersion.current) return;
       setErrorMessage(e instanceof Error ? e.message : String(e));
       setPhase('error');
+    } finally {
+      busyRef.current = false;
     }
   }
 
   async function closePreview() {
-    await stopFraming().catch(() => false);
-    await closePreviewCamera().catch(() => false);
-    setFaceBox(null);
-    setTransformInfo(null);
-    stabilizer.current.reset();
-    setFraming('NO_FACE');
-    setPhase(modes.length > 0 ? 'ready' : 'idle');
+    await releasePreview();
   }
 
   async function runRecording(bypassGate: boolean) {
@@ -260,20 +301,26 @@ export default function LivePreviewValidationScreen() {
       return;
     }
     const mode = modes[selectedIndex];
-    if (!mode || phase !== 'previewing') {
+    if (!mode || (phase !== 'previewing' && phase !== 'done')) {
       return;
     }
     busyRef.current = true;
+    const version = sessionVersion.current;
     setPhase('recording');
     setErrorMessage(null);
     setRecordReport(null);
     setDecodeReport(null);
     setGateBypassed(bypassGate);
     setRecordElapsed(0);
+    setStopping(false);
     recordStartedAt.current = Date.now();
     try {
       const report = await startPreviewRecording(TEST_DURATION_SEC);
+      if (!screenMounted.current || version !== sessionVersion.current) return;
       setRecordReport(report);
+      if (report.recordingStatus !== 'SUCCESS' || !report.filePath) {
+        throw new Error(report.error ?? 'Không lưu được video. Hãy mở lại camera và quay lại.');
+      }
       setPhase('analyzing');
       // P2-decode regression on the preview-session file (offline, same as P2).
       if (report.filePath && isFramePipelineAvailable()) {
@@ -284,15 +331,19 @@ export default function LivePreviewValidationScreen() {
             faceSampleCount: 9,
             saveDebugFrames: false,
           });
-          setDecodeReport(decoded);
+          if (screenMounted.current && version === sessionVersion.current) setDecodeReport(decoded);
         } catch (e) {
+          if (!screenMounted.current || version !== sessionVersion.current) return;
           setErrorMessage(
             `Recording finished but offline decode failed: ${e instanceof Error ? e.message : String(e)}`,
           );
         }
       }
-      setPhase('done');
+      if (!screenMounted.current || version !== sessionVersion.current) return;
+      if (report.previewActive) setPhase('done');
+      else await releasePreview();
     } catch (e) {
+      if (!screenMounted.current || version !== sessionVersion.current) return;
       setErrorMessage(e instanceof Error ? e.message : String(e));
       setPhase('error');
     } finally {
@@ -301,7 +352,11 @@ export default function LivePreviewValidationScreen() {
   }
 
   async function stopRecording() {
-    await stopPreviewRecording();
+    setStopping(true);
+    if (!(await stopPreviewRecording())) {
+      setStopping(false);
+      setErrorMessage('Chưa gửi được lệnh dừng. Hãy thử lại.');
+    }
   }
 
   const selectedMode = modes[selectedIndex] ?? null;
@@ -338,29 +393,28 @@ export default function LivePreviewValidationScreen() {
       contentContainerStyle={styles.content}
       testID="live-preview-screen"
     >
-      <Text style={styles.title}>Live Preview + Framing (P3.5)</Text>
+      <Text style={styles.title}>Xem camera & căn mặt</Text>
       <Text style={styles.note}>
-        Development Build on Android only. Open the front camera, frame your face with the guide,
-        wait for READY, then record ~{TEST_DURATION_SEC} s without losing the preview.
+        Mở camera, đưa khuôn mặt vào giữa khung. Khi đã sẵn sàng, quay {TEST_DURATION_SEC} giây để
+        kiểm tra.
       </Text>
 
-      {permission === 'checking' && <Text style={styles.note}>Checking camera permission…</Text>}
+      {permission === 'checking' && <Text style={styles.note}>Đang kiểm tra quyền camera…</Text>}
       {permission === 'unavailable' && (
         <Text style={styles.error} testID="live-preview-unavailable">
-          Live preview is unavailable here (needs an Expo Development Build on Android with the P3.5
-          native module). No camera was opened.
+          Cần bản Android có chức năng camera này. Hãy cài bản app mới nhất.
         </Text>
       )}
       {permission === 'denied' && (
         <View>
-          <Text style={styles.error}>Camera permission denied — the test cannot run.</Text>
+          <Text style={styles.error}>Cần cho phép camera để xem trước và ghi hình.</Text>
           <Button title="Request camera permission" onPress={askPermission} />
         </View>
       )}
       {permission === 'blocked' && (
         <View>
           <Text style={styles.error}>
-            Camera permission permanently denied. Enable it in system Settings, then retry.
+            Quyền camera đang tắt. Mở cài đặt, cho phép camera rồi kiểm tra lại.
           </Text>
           <Button title="Open Settings" onPress={() => void Linking.openSettings()} />
           <Button title="Retry permission check" onPress={askPermission} />
@@ -368,20 +422,22 @@ export default function LivePreviewValidationScreen() {
       )}
 
       {permission === 'granted' && (phase === 'loading-modes' || phase === 'idle') && (
-        <Text style={styles.note}>Enumerating Camera2 high-speed modes…</Text>
+        <Text style={styles.note}>Đang đọc chế độ camera…</Text>
       )}
+      {phase === 'closing' && <CameraProgress title="Đang đóng camera…" />}
+      {permission === 'granted' &&
+        modes.length === 0 &&
+        (phase === 'ready' || phase === 'error') && (
+          <Button title="Tải lại chế độ camera" tone="secondary" onPress={() => void loadModes()} />
+        )}
 
       {permission === 'granted' && modes.length > 0 && (phase === 'ready' || phase === 'error') && (
         <View>
-          <Text style={styles.sectionTitle}>Mode (Camera2-advertised fixed ranges only)</Text>
-          {modes.slice(0, 4).map((mode, index) => (
-            <View key={mode.label} style={styles.modeRow}>
-              <Button
-                title={`${index === selectedIndex ? '● ' : ''}${mode.label}`}
-                onPress={() => setSelectedIndex(index)}
-              />
-            </View>
-          ))}
+          <CameraModePicker
+            modes={modes}
+            selectedIndex={selectedIndex}
+            onSelect={setSelectedIndex}
+          />
           <Button title="Open live preview" onPress={openPreview} />
         </View>
       )}
@@ -448,77 +504,108 @@ export default function LivePreviewValidationScreen() {
           </View>
 
           <Text style={styles.hint} testID="framing-hint">
-            {framingHint(framing)}
+            {selectedMode?.lensFacing === 'FRONT'
+              ? framingHint(framing)
+              : 'Hướng camera sau vào đối tượng cần quay.'}
           </Text>
-          <Text style={styles.note} testID="preview-surface-status">
-            surface: {surfaceStatus}
-          </Text>
-          {phase === 'opening' && <Text style={styles.note}>Opening camera + preview…</Text>}
+
+          {phase === 'opening' && <Text style={styles.note}>Đang mở camera…</Text>}
 
           {(phase === 'previewing' || phase === 'done') && (
             <View style={styles.buttonRow}>
               <Button
-                title={`Start ${TEST_DURATION_SEC}s recording`}
+                title={`Quay ${TEST_DURATION_SEC} giây`}
                 onPress={() => void runRecording(false)}
-                disabled={phase !== 'previewing' || framing !== 'READY'}
+                disabled={selectedMode?.lensFacing === 'FRONT' && framing !== 'READY'}
               />
               <Button title="Close preview" onPress={() => void closePreview()} />
             </View>
           )}
-          {phase === 'previewing' && framing !== 'READY' && (
+          {(phase === 'previewing' || phase === 'done') &&
+            selectedMode?.lensFacing === 'FRONT' &&
+            framing !== 'READY' && (
+              <CameraDetails title="Tùy chọn kiểm tra">
+                <Button
+                  title="Quay kiểm tra không chờ căn mặt"
+                  tone="secondary"
+                  onPress={() => void runRecording(true)}
+                />
+              </CameraDetails>
+            )}
+          {phase === 'recording' && (
             <Button
-              title="Record without READY gate (logged override)"
-              onPress={() => void runRecording(true)}
+              title={stopping ? 'Đang lưu video…' : 'Dừng và lưu video'}
+              tone="danger"
+              disabled={stopping}
+              onPress={stopRecording}
             />
           )}
-          {phase === 'recording' && <Button title="Stop recording" onPress={stopRecording} />}
           {phase === 'analyzing' && (
-            <Text style={styles.note}>Recording finished — running offline decode check…</Text>
+            <Text style={styles.note}>Video đã lưu. Đang kiểm tra khung hình…</Text>
           )}
         </View>
       )}
 
-      {(phase === 'error' || phase === 'done') && errorMessage !== null && (
+      {errorMessage !== null && (
         <Text style={styles.error} testID="live-preview-error">
           {errorMessage}
         </Text>
       )}
 
-      {regressionText !== null && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Capture regression (preview session file)</Text>
-          <Text style={styles.mono} selectable testID="live-preview-regression">
-            {regressionText}
-          </Text>
-        </View>
+      {recordReport && (
+        <CameraSummary
+          title={
+            recordReport.recordingStatus === 'SUCCESS' ? 'Đã lưu video' : 'Chưa lưu được video'
+          }
+          detail={
+            recordReport.recordingStatus !== 'SUCCESS'
+              ? 'Không tạo được video. Mở lại camera và thử lại.'
+              : recordReport.manualStop
+                ? 'Đã dừng sớm và lưu video trên điện thoại.'
+                : 'Video đã quay xong và được lưu trên điện thoại.'
+          }
+        />
       )}
-
-      {recordReport !== null && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Preview session events (raw)</Text>
-          {recordReport.sessionEvents.map((event, index) => (
-            <Text key={`${index}-${event}`} style={styles.mono}>
-              {event}
+      <CameraDetails>
+        <Text style={styles.note} testID="preview-surface-status">
+          surface: {surfaceStatus}
+        </Text>
+        {regressionText !== null && (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Capture regression (preview session file)</Text>
+            <Text style={styles.mono} selectable testID="live-preview-regression">
+              {regressionText}
             </Text>
-          ))}
-        </View>
-      )}
+          </View>
+        )}
 
-      {transformInfo !== null && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Preview transform audit (display-only)</Text>
-          <Text style={styles.mono} selectable testID="preview-transform-info">
-            {JSON.stringify(transformInfo, null, 2)}
-          </Text>
-        </View>
-      )}
+        {recordReport !== null && (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Preview session events (raw)</Text>
+            {recordReport.sessionEvents.map((event, index) => (
+              <Text key={`${index}-${event}`} style={styles.mono}>
+                {event}
+              </Text>
+            ))}
+          </View>
+        )}
+
+        {transformInfo !== null && (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Preview transform audit (display-only)</Text>
+            <Text style={styles.mono} selectable testID="preview-transform-info">
+              {JSON.stringify(transformInfo, null, 2)}
+            </Text>
+          </View>
+        )}
+      </CameraDetails>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   buttonRow: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 8,
     justifyContent: 'space-between',
     marginTop: 8,
@@ -581,7 +668,8 @@ const styles = StyleSheet.create({
   note: {
     fontSize: 12,
     marginBottom: 8,
-    opacity: 0.7,
+    color: '#526A78',
+    lineHeight: 21,
   },
   previewBox: {
     backgroundColor: '#000',
@@ -607,6 +695,7 @@ const styles = StyleSheet.create({
   },
   root: {
     flex: 1,
+    backgroundColor: '#F4F8FA',
     width: '100%',
   },
   sectionTitle: {
@@ -629,7 +718,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   title: {
-    fontSize: 18,
+    color: '#142D3D',
+    fontSize: 25,
     fontWeight: '700',
     marginBottom: 4,
   },

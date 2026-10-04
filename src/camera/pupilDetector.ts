@@ -41,6 +41,12 @@ interface ExpoPupilDetectorNativeModule {
     saveOverlays: boolean,
     requestsJson: string,
   ): Promise<PupilBatchReport>;
+  analyzeVideoPupilsWithPrior?(
+    filePath: string,
+    detectorId: string,
+    saveOverlays: boolean,
+    requestsJson: string,
+  ): Promise<PupilBatchReport>;
 }
 
 const nativeModule =
@@ -48,6 +54,10 @@ const nativeModule =
 
 export function isPupilDetectorAvailable(): boolean {
   return nativeModule !== null && typeof nativeModule?.analyzeVideoPupils === 'function';
+}
+
+export function isHintedPupilDetectorAvailable(): boolean {
+  return nativeModule !== null && typeof nativeModule?.analyzeVideoPupilsWithPrior === 'function';
 }
 
 export interface PupilBatchOptions {
@@ -111,6 +121,32 @@ function toFailureReason(raw: string | null): PupilFailureReason | null {
     return null;
   }
   return VALID_FAILURES.has(raw) ? (raw as PupilFailureReason) : 'INVALID_GEOMETRY';
+}
+
+export function toPupilDetectionResults(
+  report: PupilBatchReport,
+  detectorId: PupilDetectorId,
+): PupilDetectionResult[] {
+  return report.results.map((r) => ({
+    frameIndex: r.frameIndex,
+    decodedPtsUs: r.decodedPtsUs,
+    eyeSide: r.eyeSide,
+    detectorId,
+    roiX: r.roiX,
+    roiY: r.roiY,
+    roiWidth: r.roiWidth,
+    roiHeight: r.roiHeight,
+    centroidXInRoi: r.centroidXInRoi,
+    centroidYInRoi: r.centroidYInRoi,
+    centroidXInFrame: r.centroidXInFrame,
+    centroidYInFrame: r.centroidYInFrame,
+    normalizedX: r.normalizedX,
+    normalizedY: r.normalizedY,
+    candidateWidth: r.candidateWidth,
+    candidateHeight: r.candidateHeight,
+    confidence: r.confidence,
+    failureReason: toFailureReason(r.failureReason),
+  }));
 }
 
 /**
@@ -184,4 +220,133 @@ export async function runPupilBatch(args: {
     failureReason: toFailureReason(r.failureReason),
   }));
   return { results: [...upstream, ...native], report };
+}
+
+export interface DensePupilRoi {
+  frameIndex: number;
+  decodedPtsUs: number | null;
+  eyeSide: EyeSide;
+  roiX: number;
+  roiY: number;
+  roiWidth: number;
+  roiHeight: number;
+  condition: string;
+  missingReason: PupilFailureReason | null;
+}
+
+/**
+ * P4 dense batch over propagated (keyframe + interpolated) ROIs. Slots
+ * with `missingReason` become explicit TS-side failures (same honesty rule
+ * as the sparse path); only boxed slots reach native code. Used for
+ * full-rate tracks and for targeted overlay batches alike.
+ */
+export async function runDensePupilBatch(args: {
+  filePath: string;
+  detectorId: PupilDetectorId;
+  saveOverlays?: boolean;
+  rois: DensePupilRoi[];
+}): Promise<{ results: PupilDetectionResult[]; report: PupilBatchReport | null }> {
+  const upstream: PupilDetectionResult[] = [];
+  const requests: PupilRoiRequest[] = [];
+  for (const roi of args.rois) {
+    if (roi.missingReason !== null) {
+      upstream.push({
+        frameIndex: roi.frameIndex,
+        decodedPtsUs: roi.decodedPtsUs,
+        eyeSide: roi.eyeSide,
+        detectorId: args.detectorId,
+        roiX: roi.roiX,
+        roiY: roi.roiY,
+        roiWidth: roi.roiWidth,
+        roiHeight: roi.roiHeight,
+        centroidXInRoi: null,
+        centroidYInRoi: null,
+        centroidXInFrame: null,
+        centroidYInFrame: null,
+        normalizedX: null,
+        normalizedY: null,
+        candidateWidth: null,
+        candidateHeight: null,
+        confidence: 0,
+        failureReason: roi.missingReason,
+      });
+      continue;
+    }
+    requests.push({
+      frameIndex: roi.frameIndex,
+      decodedPtsUs: roi.decodedPtsUs,
+      eyeSide: roi.eyeSide,
+      roiX: roi.roiX,
+      roiY: roi.roiY,
+      roiWidth: roi.roiWidth,
+      roiHeight: roi.roiHeight,
+      condition: roi.condition,
+    });
+  }
+  if (requests.length === 0) {
+    return { results: upstream, report: null };
+  }
+  const report = await analyzeVideoPupils({
+    filePath: args.filePath,
+    detectorId: args.detectorId,
+    saveOverlays: args.saveOverlays,
+    requests,
+  });
+  return { results: [...upstream, ...toPupilDetectionResults(report, args.detectorId)], report };
+}
+
+export interface HintedPupilRequest extends PupilRoiRequest {
+  priorXInRoi: number;
+  priorYInRoi: number;
+  searchRadiusPx: number;
+}
+
+/**
+ * P4 hinted second pass: re-analyze failed ROIs with a motion-model prior.
+ * Only usable eye ROIs are sent (upstream misses have no box to constrain).
+ * Returns rescued `PupilDetectionResult` values in the same shape; callers
+ * tag them `rescued` so the tracker caps their confidence transparently.
+ */
+export async function runHintedPupilBatch(args: {
+  filePath: string;
+  detectorId: PupilDetectorId;
+  saveOverlays?: boolean;
+  hints: HintedPupilRequest[];
+}): Promise<{ results: PupilDetectionResult[]; report: PupilBatchReport | null }> {
+  if (args.hints.length === 0) {
+    return { results: [], report: null };
+  }
+  if (!isHintedPupilDetectorAvailable()) {
+    throw new Error(
+      'Hinted pupil detection needs a Development Build with the P4 native entry ' +
+        '(analyzeVideoPupilsWithPrior). Rebuild the app and retry.',
+    );
+  }
+  const report = await (nativeModule as ExpoPupilDetectorNativeModule).analyzeVideoPupilsWithPrior!(
+    args.filePath,
+    args.detectorId,
+    args.saveOverlays ?? true,
+    JSON.stringify(args.hints),
+  );
+  const results: PupilDetectionResult[] = report.results.map((r) => ({
+    frameIndex: r.frameIndex,
+    decodedPtsUs: r.decodedPtsUs,
+    eyeSide: r.eyeSide,
+    detectorId: args.detectorId,
+    roiX: r.roiX,
+    roiY: r.roiY,
+    roiWidth: r.roiWidth,
+    roiHeight: r.roiHeight,
+    centroidXInRoi: r.centroidXInRoi,
+    centroidYInRoi: r.centroidYInRoi,
+    centroidXInFrame: r.centroidXInFrame,
+    centroidYInFrame: r.centroidYInFrame,
+    normalizedX: r.normalizedX,
+    normalizedY: r.normalizedY,
+    candidateWidth: r.candidateWidth,
+    candidateHeight: r.candidateHeight,
+    confidence: r.confidence,
+    failureReason: toFailureReason(r.failureReason),
+  }));
+  return { results, report };
 }

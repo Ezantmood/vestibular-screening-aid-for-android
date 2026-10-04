@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Button,
   Linking,
   PermissionsAndroid,
   Platform,
@@ -16,12 +15,17 @@ import { formatFramePipelineReport } from '../../camera/framePipelineReport';
 import type { FixedMode } from '../../camera/fixedModes';
 import { collectFixedModes } from '../../camera/fixedModes';
 import type { HighSpeedTestReport } from '../../camera/highSpeedCapture';
-import {
-  cancelHighSpeedTest,
-  isHighSpeedCaptureAvailable,
-  startHighSpeedTest,
-} from '../../camera/highSpeedCapture';
+import { cancelHighSpeedTest, isHighSpeedCaptureAvailable } from '../../camera/highSpeedCapture';
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
+import CameraImageGallery from '../components/CameraImageGallery';
+import CameraCapturePanel from '../components/CameraCapturePanel';
+import {
+  CameraButton as Button,
+  CameraDetails,
+  CameraProgress,
+  CameraSummary,
+} from '../components/CameraUI';
+import { CaptureCancelled, usePreviewCapture } from '../hooks/usePreviewCapture';
 
 type PermissionState = 'checking' | 'granted' | 'denied' | 'blocked' | 'unavailable';
 type Phase = 'idle' | 'loading-modes' | 'ready' | 'recording' | 'analyzing' | 'done' | 'error';
@@ -45,11 +49,11 @@ async function requestCameraPermission(): Promise<PermissionState> {
     return 'granted';
   }
   const result = await PermissionsAndroid.request(permission, {
-    title: 'Camera access for frame-pipeline test',
+    title: 'Cho phép dùng camera',
     message:
-      'P2 records ~10 s with the front camera (user looks at the display), then decodes the MP4 offline. No other permission is requested.',
-    buttonPositive: 'Allow',
-    buttonNegative: 'Deny',
+      'App cần camera để xem trước và ghi video kiểm tra mắt. Video được lưu trên điện thoại, không ghi âm.',
+    buttonPositive: 'Cho phép',
+    buttonNegative: 'Để sau',
   });
   if (result === PermissionsAndroid.RESULTS.GRANTED) {
     return 'granted';
@@ -66,6 +70,9 @@ async function requestCameraPermission(): Promise<PermissionState> {
 // check for frozen frames via luminance MAD, and sample face/eye ROI via
 // ML Kit (feasibility boxes only — NOT pupil tracking).
 export default function FramePipelineScreen() {
+  const camera = usePreviewCapture();
+  const runInProgress = useRef(false);
+  const screenMounted = useRef(true);
   const [permission, setPermission] = useState<PermissionState>('checking');
   const [phase, setPhase] = useState<Phase>('idle');
   const [modes, setModes] = useState<FixedMode[]>([]);
@@ -84,7 +91,7 @@ export default function FramePipelineScreen() {
       setSelectedIndex(0);
       setPhase('ready');
       if (found.length === 0) {
-        setErrorMessage('No fixed high-speed modes advertised by Camera2 on this device.');
+        setErrorMessage('Thiết bị chưa cung cấp chế độ camera tốc độ cao cố định.');
       }
     } catch (e) {
       setErrorMessage(e instanceof Error ? e.message : String(e));
@@ -94,6 +101,7 @@ export default function FramePipelineScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    screenMounted.current = true;
     (async () => {
       const state = await requestCameraPermission();
       if (cancelled) {
@@ -106,6 +114,7 @@ export default function FramePipelineScreen() {
     })();
     return () => {
       cancelled = true;
+      screenMounted.current = false;
       void cancelHighSpeedTest();
     };
   }, [loadModes]);
@@ -120,29 +129,27 @@ export default function FramePipelineScreen() {
   }
 
   async function runRecordAndAnalyze() {
+    if (runInProgress.current) return;
     const mode = modes[selectedIndex];
     if (!mode) {
       return;
     }
+    runInProgress.current = true;
     setPhase('recording');
     setCapture(null);
     setPipeline(null);
     setErrorMessage(null);
     try {
-      const result = await startHighSpeedTest({
-        cameraId: mode.cameraId,
-        width: mode.width,
-        height: mode.height,
-        fpsMin: mode.fpsMin,
-        fpsMax: mode.fpsMax,
-        durationSec: TEST_DURATION_SEC,
-      });
+      const result = await camera.capture(mode, TEST_DURATION_SEC);
+      await camera.close();
+      if (!screenMounted.current) return;
       setCapture(result);
       if (!result.filePath) {
-        setErrorMessage('Recording produced no file; cannot decode.');
+        setErrorMessage('Không lưu được video. Hãy mở lại camera và quay lại.');
         setPhase('error');
         return;
       }
+      if (!screenMounted.current) return;
       setPhase('analyzing');
       const analysis = await analyzeVideoFile({
         filePath: result.filePath,
@@ -150,34 +157,46 @@ export default function FramePipelineScreen() {
         faceSampleCount: FACE_SAMPLE_COUNT,
         saveDebugFrames: true,
       });
+      if (!screenMounted.current) return;
       setPipeline(analysis);
       setPhase('done');
     } catch (e) {
-      setErrorMessage(e instanceof Error ? e.message : String(e));
-      setPhase('error');
+      if (!screenMounted.current) return;
+      setErrorMessage(
+        e instanceof CaptureCancelled ? null : e instanceof Error ? e.message : String(e),
+      );
+      setPhase(e instanceof CaptureCancelled ? 'ready' : 'error');
+    } finally {
+      runInProgress.current = false;
     }
   }
 
   async function analyzeLastRecording() {
+    if (runInProgress.current) return;
     const mode = modes[selectedIndex];
     if (!mode || !capture?.filePath) {
       return;
     }
+    runInProgress.current = true;
     setPhase('analyzing');
     setPipeline(null);
     setErrorMessage(null);
     try {
       const analysis = await analyzeVideoFile({
         filePath: capture.filePath,
-        expectedFps: mode.fpsMax,
+        expectedFps: capture.fpsMax,
         faceSampleCount: FACE_SAMPLE_COUNT,
         saveDebugFrames: true,
       });
+      if (!screenMounted.current) return;
       setPipeline(analysis);
       setPhase('done');
     } catch (e) {
+      if (!screenMounted.current) return;
       setErrorMessage(e instanceof Error ? e.message : String(e));
       setPhase('error');
+    } finally {
+      runInProgress.current = false;
     }
   }
 
@@ -188,9 +207,9 @@ export default function FramePipelineScreen() {
           deviceModel: capture.deviceModel,
           androidRelease: capture.androidRelease,
           apiLevel: capture.apiLevel,
-          cameraLabel: `${selectedMode.cameraId} ${selectedMode.lensFacing}`,
-          captureLabel: `${selectedMode.width}x${selectedMode.height} [${selectedMode.fpsMin},${selectedMode.fpsMax}]`,
-          expectedFps: selectedMode.fpsMax,
+          cameraLabel: `${capture.cameraId} ${capture.lensFacing}`,
+          captureLabel: `${capture.width}x${capture.height} [${capture.fpsMin},${capture.fpsMax}]`,
+          expectedFps: capture.fpsMax,
           report: pipeline,
         })
       : null;
@@ -202,26 +221,22 @@ export default function FramePipelineScreen() {
       contentContainerStyle={styles.content}
       testID="frame-pipeline-screen"
     >
-      <Text style={styles.title}>Frame Decode + Eye ROI Feasibility (P2)</Text>
+      <Text style={styles.title}>Phân tích video & vùng mắt</Text>
       <Text style={styles.note}>
-        Development Build on Android only. Default is FRONT 1920×1080 @ fixed 120fps (MVP candidate:
-        user looks at the display). Timestamps are encoded/media PTS — not sensor exposure. Face/eye
-        boxes are feasibility ROIs, not pupil tracking. Debug JPEGs stay in device-local cache and
-        are never committed.
+        Căn mặt trong camera, quay 10 giây, rồi kiểm tra khung hình và vùng mắt trong video.
       </Text>
 
-      {permission === 'checking' && <Text style={styles.note}>Checking camera permission…</Text>}
+      {permission === 'checking' && <CameraProgress title="Đang kiểm tra quyền camera…" />}
 
       {permission === 'unavailable' && (
         <Text style={styles.error} testID="frame-pipeline-unavailable">
-          Frame-pipeline analysis is unavailable here (needs an Expo Development Build on Android
-          with the P1 + P2 native modules). No camera was opened.
+          Cần bản Android có chức năng camera và phân tích này. Hãy cài bản app mới nhất.
         </Text>
       )}
 
       {permission === 'denied' && (
         <View>
-          <Text style={styles.error}>Camera permission denied — the test cannot run.</Text>
+          <Text style={styles.error}>Cần quyền camera để xem trước và ghi hình.</Text>
           <Button title="Request camera permission" onPress={askPermission} />
         </View>
       )}
@@ -229,7 +244,7 @@ export default function FramePipelineScreen() {
       {permission === 'blocked' && (
         <View>
           <Text style={styles.error}>
-            Camera permission permanently denied. Enable it in system Settings, then retry.
+            Quyền camera đang tắt. Mở cài đặt, cho phép camera rồi kiểm tra lại.
           </Text>
           <Button title="Open Settings" onPress={() => void Linking.openSettings()} />
           <Button title="Retry permission check" onPress={askPermission} />
@@ -237,51 +252,44 @@ export default function FramePipelineScreen() {
       )}
 
       {permission === 'granted' && (phase === 'loading-modes' || phase === 'idle') && (
-        <Text style={styles.note}>Enumerating Camera2 high-speed modes…</Text>
+        <Text style={styles.note}>Đang đọc chế độ camera của thiết bị…</Text>
       )}
+
+      {permission === 'granted' && phase === 'ready' && modes.length === 0 && (
+        <CameraSummary
+          title="Chưa tìm thấy chế độ ghi hình"
+          detail={errorMessage ?? 'Thiết bị chưa cung cấp chế độ phù hợp.'}
+        />
+      )}
+      {permission === 'granted' &&
+        (phase === 'error' || (phase === 'ready' && modes.length === 0)) && (
+          <Button
+            title="Tải lại chế độ camera"
+            tone="secondary"
+            onPress={() => void loadModes()}
+            disabled={camera.stage !== 'closed'}
+          />
+        )}
 
       {permission === 'granted' && modes.length > 0 && (
         <View>
-          <Text style={styles.sectionTitle}>Mode (FRONT 1080p120 default; rear = benchmark)</Text>
-          {modes.map((mode, index) => (
-            <View key={mode.label} style={styles.modeRow}>
-              <Button
-                title={`${index === selectedIndex ? '● ' : ''}${mode.label}`}
-                onPress={() => setSelectedIndex(index)}
-                disabled={busy}
-              />
-            </View>
-          ))}
-          {selectedMode !== null && (
-            <Text style={styles.line}>
-              Selected: camera {selectedMode.cameraId} ({selectedMode.lensFacing}),{' '}
-              {selectedMode.width}x{selectedMode.height}, exact range [{selectedMode.fpsMin},
-              {selectedMode.fpsMax}]
-            </Text>
-          )}
-          {!busy ? (
-            <View style={styles.buttonGap}>
-              <Button
-                title={`Record ${TEST_DURATION_SEC}s + analyze`}
-                onPress={runRecordAndAnalyze}
-              />
-              <View style={styles.gap} />
-              <Button
-                title="Re-analyze last recording"
-                onPress={analyzeLastRecording}
-                disabled={!capture?.filePath}
-              />
-            </View>
-          ) : (
-            <View>
-              <Text style={styles.note}>
-                {phase === 'recording'
-                  ? `Recording ~${TEST_DURATION_SEC} s — look at the phone display…`
-                  : 'Decoding + analyzing 64 offline ROI frames (may take ~1–3 min)…'}
-              </Text>
-              <Button title="Stop capture" onPress={() => void cancelHighSpeedTest()} />
-            </View>
-          )}
+          <CameraCapturePanel
+            camera={camera}
+            modes={modes}
+            selectedIndex={selectedIndex}
+            onSelect={setSelectedIndex}
+            onCapture={runRecordAndAnalyze}
+            busy={busy}
+            phase={phase}
+            requireFace={true}
+            instruction={'Căn mặt trước khi quay. Video được lưu trên điện thoại.'}
+          />
+          <Button
+            title="Re-analyze last recording"
+            tone="secondary"
+            onPress={analyzeLastRecording}
+            disabled={busy || !capture?.filePath || camera.stage !== 'closed'}
+          />
         </View>
       )}
 
@@ -291,41 +299,60 @@ export default function FramePipelineScreen() {
         </Text>
       )}
 
-      {capture !== null && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Capture (P1 module)</Text>
-          <Text style={styles.mono}>File: {capture.filePath ?? '(none)'}</Text>
-          <Text style={styles.mono}>
-            Encoder cross-check: samples={capture.extractorSampleCount ?? '?'} durationUs=
-            {capture.extractorDurationUs ?? '?'}
-          </Text>
-        </View>
+      {pipeline && (
+        <CameraSummary
+          title="Đã phân tích video"
+          detail={
+            'Đã giải mã ' +
+            pipeline.decodedFrameCount +
+            ' khung hình. Tốc độ: ' +
+            (pipeline.effectiveFps?.toFixed(2) ?? 'chưa có') +
+            ' fps.'
+          }
+        />
       )}
-
-      {reportText !== null && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>P2 report (long-press to copy)</Text>
-          <Text style={styles.mono} selectable testID="frame-pipeline-report">
-            {reportText}
-          </Text>
-        </View>
+      {pipeline && (
+        <CameraImageGallery paths={pipeline.savedFramePaths} title="Ảnh từ video vừa quay" />
       )}
+      {(capture !== null || pipeline !== null) && (
+        <CameraDetails>
+          {capture !== null && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Capture (P1 module)</Text>
+              <Text style={styles.mono}>File: {capture.filePath ?? '(none)'}</Text>
+              <Text style={styles.mono}>
+                Encoder cross-check: samples={capture.extractorSampleCount ?? '?'} durationUs=
+                {capture.extractorDurationUs ?? '?'}
+              </Text>
+            </View>
+          )}
 
-      {pipeline !== null && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Face samples (numeric metadata only)</Text>
-          {pipeline.faceSamples.map((s) => (
-            <Text key={`face-${s.frameIndex}`} style={styles.mono}>
-              f{s.frameIndex} ptsUs={s.ptsUs ?? '?'} face={s.faceDetected ? 'yes' : 'no'}
-              {' L='}
-              {s.leftEye !== null ? `${s.leftEye.width}x${s.leftEye.height}` : '-'}
-              {' R='}
-              {s.rightEye !== null ? `${s.rightEye.width}x${s.rightEye.height}` : '-'}
-            </Text>
-          ))}
-          <Text style={styles.mono}>Debug frames: {pipeline.savedFramePaths.length}</Text>
-          <Text style={styles.mono}>Eye crops: {pipeline.savedCropPaths.length}</Text>
-        </View>
+          {reportText !== null && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>P2 report (long-press to copy)</Text>
+              <Text style={styles.mono} selectable testID="frame-pipeline-report">
+                {reportText}
+              </Text>
+            </View>
+          )}
+
+          {pipeline !== null && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Face samples (numeric metadata only)</Text>
+              {pipeline.faceSamples.map((s) => (
+                <Text key={`face-${s.frameIndex}`} style={styles.mono}>
+                  f{s.frameIndex} ptsUs={s.ptsUs ?? '?'} face={s.faceDetected ? 'yes' : 'no'}
+                  {' L='}
+                  {s.leftEye !== null ? `${s.leftEye.width}x${s.leftEye.height}` : '-'}
+                  {' R='}
+                  {s.rightEye !== null ? `${s.rightEye.width}x${s.rightEye.height}` : '-'}
+                </Text>
+              ))}
+              <Text style={styles.mono}>Debug frames: {pipeline.savedFramePaths.length}</Text>
+              <Text style={styles.mono}>Eye crops: {pipeline.savedCropPaths.length}</Text>
+            </View>
+          )}
+        </CameraDetails>
       )}
     </ScrollView>
   );
@@ -371,12 +398,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   note: {
-    fontSize: 12,
-    marginBottom: 8,
-    opacity: 0.7,
+    fontSize: 14,
+    marginBottom: 12,
+    color: '#526A78',
+    lineHeight: 21,
   },
   root: {
     flex: 1,
+    backgroundColor: '#F4F8FA',
     width: '100%',
   },
   sectionTitle: {
@@ -385,8 +414,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   title: {
-    fontSize: 18,
+    color: '#142D3D',
+    fontSize: 25,
     fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: 8,
   },
 });

@@ -323,3 +323,58 @@ No tracking/recording was implemented (out of scope for P0.1).
   byte-for-byte before final manual launch; no camera pixels exported.
 - Manual visual/selfie-direction, READY guidance, and recording-regression
   verdicts remain pending; numeric geometry smoke is not those verdicts.
+
+## Camera controls / UI upgrade (2026-10-05)
+
+- Vietnamese Home cards, back navigation, accessible action buttons, compact
+  camera/exercise selectors, processing states, result summaries and device-local
+  image viewer. Technical diagnostics remain available under expandable details.
+- P1/P2/P3/manual P4 share live preview/framing, a cancellable 3-second countdown,
+  elapsed recording feedback, early stop/save and release on unmount/background.
+  Captured metadata stays attached to its result when selection changes. Home
+  opens manually; it no longer triggers the temporary P4 auto-run flags.
+- Fixed native stop/cancel requests waiting behind the blocking recording on
+  Expo's default module queue. Atomic flags dispatch independently; real batched
+  CaptureResult timings are included in preview recording reports for P1.
+- `npm run check`, changed-source Prettier check, P3.5 52/52 logic checks — pass.
+  JDK 21 arm64 Android build and installation — pass on Xiaomi 2312DRA50G.
+- Device regressions: countdown cancellation, front early stop, rear 720p240,
+  close/reopen/background release, real P1/P2/P3/P4 capture-to-result handlers,
+  P3.5 repeat recording + 1:1 decode, probe and picker layout — pass. P4 offline
+  analysis took about 4 min 53 s for this 10-second run; UI reports processing.
+  Evidence and acceptance limits: `docs/device-probes/CAMERA_UX_REGRESSION.md`.
+- All temporary test routing/effects were restored before final manual Home launch.
+
+## Pupil Tracking Robustness — 2026-10-05
+
+- Completed the existing P4 implementation: full-rate offline tracking,
+  per-eye confidence/loss/recovery states, PTS ROI interpolation, ROI-relative
+  head-motion priors, protected blink/loss slots, fresh measured rescue only,
+  strict timestamp/geometry checks and no gap filling. Removed temporary
+  autorun/replay routes; existing camera controls remain integrated.
+- Xiaomi regression replay: 1208 frames / 2416 eye slots, 70.70% valid overall,
+  242 reacquisitions, 9 accepted rescues; no fabricated coordinates reported.
+  Controlled long-occlusion and visual-audit acceptance remain unverified.
+- Details and limits: [P4 evidence](device-probes/P4_TRACKING.md).
+
+## Stimulus Engine — 2026-10-05
+
+- Added deterministic horizontal Smooth Pursuit and stepwise Horizontal Saccade,
+  10 s configuration, monotonic timelines, committed-target logs, stop/background/
+  unmount cancellation, native clock bridge and decoded-PTS joins. Versioned
+  metadata is saved in app-private cache with viewport and capture references.
+- Final Xiaomi runs: Pursuit 1202 decoded frames / 497 target commits; early-stop
+  Saccade 280 frames / 122 commits. PTS strictly increasing, no missing timestamps;
+  both files and metadata read back. Camera/encoder exposure mapping remains
+  estimated; physical display onset has not been measured.
+- `npm test` covers P3/P3.5/P4/stimulus regressions. Native JDK 21 arm64 build,
+  APK install and production-screen device runs passed.
+- Contracts: [Stimulus Engine](STIMULUS_ENGINE.md); measured results:
+  [device validation](device-probes/STIMULUS_ENGINE.md).
+- Scope ends here. Calibration, Signal Processing, clinical metrics and subsequent
+  phases remain unimplemented.
+
+Final clean-tree verification: `npm run check`, `npm run format`, all four
+`npm test` suites, Android Metro export and JDK 21 `:app:assembleDebug` passed.
+Manual Home launch on Xiaomi shows the new stimulus entry and opens no camera;
+Android camera service reports no active client after cleanup. No test harness remains.

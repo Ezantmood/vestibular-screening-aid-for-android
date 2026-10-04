@@ -29,6 +29,8 @@ export type {
 };
 
 interface ExpoCamera2HighSpeedPreviewNativeModule {
+  getMonotonicTimeUs(): Promise<number>;
+  saveStimulusTimeline(json: string): Promise<string>;
   openPreviewCamera(
     cameraId: string,
     width: number,
@@ -159,4 +161,14 @@ export async function getPreviewTransformInfo(): Promise<PreviewTransformInfo> {
       `getPreviewTransformInfo failed: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
+}
+
+/** Same clock domain as native testStartNs/testEndNs, with bridge RTT recorded by caller. */
+export async function getMonotonicTimeUs(): Promise<number> {
+  return needModule().getMonotonicTimeUs();
+}
+
+/** App-private cache metadata next to the captured video; no upload/database. */
+export async function saveStimulusTimeline(json: string): Promise<string> {
+  return needModule().saveStimulusTimeline(json);
 }
