@@ -88,3 +88,10 @@ compilation and Android Metro export passed. The last APK reinstall was
 interrupted by ADB loss; runtime validation of this last helper and final manual
 Home launch remain unverified. All temporary test effects were removed; App.tsx
 was restored to manual Home.
+
+Follow-up review found a screen-awake race between a delayed native enable and
+replacement of a busy screen. The final hook uses shared owner aggregation and
+serialized native writes. Deferred tests cover replacement during enable/disable,
+background/foreground, final release and native failure recovery; all seven
+execution suites, typecheck/lint and Android export pass. This follow-up does
+not change the native method API or the measured calibration/signal data.

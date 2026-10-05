@@ -11,6 +11,7 @@ const checks = [
   'stimulusLogicCheck',
   'calibrationLogicCheck',
   'signalLogicCheck',
+  'screenAwakeLogicCheck',
 ];
 try {
   execFileSync(

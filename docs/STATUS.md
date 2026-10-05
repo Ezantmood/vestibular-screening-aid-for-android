@@ -415,3 +415,11 @@ Android camera service reports no active client after cleanup. No test harness r
   evidence: [Xiaomi validation](device-probes/CALIBRATION_SIGNALS.md).
 - Scope stops here; metrics, clinical thresholds, interpretation and diagnosis
   remain unimplemented.
+
+Follow-up verification: fixed an async screen-awake ownership race found during
+review. A shared coordinator serializes native writes and aggregates active
+owners; completion of a disposed effect cannot clear a newer run's flag. Added
+five deferred lifecycle/failure execution cases. All seven suites, typecheck,
+lint and Android export pass. Device reconnect/install remains pending: the
+latest supplied ADB endpoint refused the TCP connection before any APK bytes
+were transferred.
