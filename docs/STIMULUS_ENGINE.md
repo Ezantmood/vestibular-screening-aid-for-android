@@ -25,5 +25,9 @@ uses the existing preview/countdown/capture controls.
   statuses are saved as versioned JSON in app-private `cache/stimulus/`, beside
   the video reference. Cache is temporary and can be evicted; no database/upload.
 
-No calibration, filtering, pupil-to-gaze mapping, latency, velocity, gain or
-clinical score is calculated. Validation: [device report](device-probes/STIMULUS_ENGINE.md).
+The original stimulus timing/trajectory behavior remains covered by its regression
+suite. Recorded eye exercises now require a usable calibration and save raw,
+processed pupil/viewport trajectories, velocity and confidence through
+[Calibration/Signal Processing](CALIBRATION_SIGNALS.md). No latency, gain,
+Saccade/Pursuit metric or clinical score is calculated. Original timing validation:
+[device report](device-probes/STIMULUS_ENGINE.md).

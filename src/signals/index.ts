@@ -1,2 +1,2 @@
-// Signal-processing stub (filtering, resampling, saccade detection come later).
-export {};
+export { processTrajectory } from './processing';
+export type { SignalInputSample, SignalOptions, SignalProcessingResult } from './types';

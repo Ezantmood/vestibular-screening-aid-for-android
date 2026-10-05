@@ -17,8 +17,24 @@ import LivePreviewValidationScreen from './LivePreviewValidationScreen';
 import PupilValidationScreen from './PupilValidationScreen';
 import StimulusScreen from './StimulusScreen';
 import TrackingValidationScreen from './TrackingValidationScreen';
+import CalibrationScreen from './CalibrationScreen';
+import SignalProcessingScreen from './SignalProcessingScreen';
 
 const tools = [
+  {
+    id: 'calibration',
+    code: '07',
+    title: 'Hiệu chỉnh mắt',
+    description: 'Hiệu chỉnh với target và kiểm tra chất lượng trước bài mắt.',
+    component: CalibrationScreen,
+  },
+  {
+    id: 'signals',
+    code: '08',
+    title: 'Xử lý tín hiệu đồng tử',
+    description: 'Giữ raw, lọc nhiễu và kiểm tra đoạn tracking tin cậy.',
+    component: SignalProcessingScreen,
+  },
   {
     id: 'stimulus',
     code: '06',

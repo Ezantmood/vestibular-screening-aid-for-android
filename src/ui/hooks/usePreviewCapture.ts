@@ -89,6 +89,7 @@ export function usePreviewCapture() {
     mode: FixedMode,
     duration: number,
     onRecording?: () => void,
+    options?: { countdownSeconds?: number },
   ): Promise<PreviewRecordingReport> {
     if (operation.current || stage !== 'preview' || activeMode.current !== mode.label) {
       throw new Error('Mở camera và căn mặt trước khi ghi hình.');
@@ -98,7 +99,7 @@ export function usePreviewCapture() {
     setError(null);
     try {
       setStage('countdown');
-      for (let remaining = 3; remaining > 0; remaining -= 1) {
+      for (let remaining = options?.countdownSeconds ?? 3; remaining > 0; remaining -= 1) {
         if (cancelled.current || !mounted.current) throw new CaptureCancelled('Đã hủy đếm ngược.');
         setCountdown(remaining);
         await new Promise((resolve) => setTimeout(resolve, 1000));

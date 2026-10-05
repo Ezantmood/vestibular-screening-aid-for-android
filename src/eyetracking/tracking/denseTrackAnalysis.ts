@@ -241,6 +241,7 @@ export async function analyzeFileForTracking(args: {
   faceSampleCount: number;
   detectorId: PupilDetectorId;
   expectedFps: number;
+  saveAuditOverlays?: boolean;
 }): Promise<ReplayRunResult> {
   const analysis = await analyzeVideoFile({
     filePath: args.filePath,
@@ -293,7 +294,7 @@ export async function analyzeFileForTracking(args: {
     (r) => auditFrames.has(r.frameIndex) && r.missingReason === null,
   );
   let auditOverlays: string[] = [];
-  if (auditRois.length > 0) {
+  if (auditRois.length > 0 && args.saveAuditOverlays !== false) {
     const overlayBatch = await runDensePupilBatch({
       filePath: args.filePath,
       detectorId: args.detectorId,
@@ -303,7 +304,7 @@ export async function analyzeFileForTracking(args: {
     auditOverlays = overlayBatch.report?.overlayPaths ?? [];
   }
   const auditHints = hints.filter((h) => auditFrames.has(h.frameIndex));
-  if (auditHints.length > 0) {
+  if (auditHints.length > 0 && args.saveAuditOverlays !== false) {
     const rescueOverlayBatch = await runHintedPupilBatch({
       filePath: args.filePath,
       detectorId: args.detectorId,

@@ -64,6 +64,7 @@ class ExpoCamera2HighSpeedModule : Module() {
   // Values: null (free) | "oneshot" | "preview".
   private val cameraOwner = AtomicReference<String?>(null)
   private val previewState = AtomicReference<PreviewSession?>(null)
+  private val priorKeepAwake = AtomicReference<Boolean?>(null)
 
   override fun definition() = ModuleDefinition {
     Name("ExpoCamera2HighSpeed")
@@ -71,6 +72,19 @@ class ExpoCamera2HighSpeedModule : Module() {
     // Use the main queue so a clock sample is never blocked behind recording.
     AsyncFunction("getMonotonicTimeUs") {
       SystemClock.elapsedRealtimeNanos() / 1000.0
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("setEyeAnalysisKeepAwake") { enabled: Boolean ->
+      val window = appContext.currentActivity?.window
+        ?: throw CodedException("ERR_ACTIVITY", "Activity unavailable", null)
+      val flag = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+      if (enabled) {
+        priorKeepAwake.compareAndSet(null, window.attributes.flags and flag != 0)
+        window.addFlags(flag)
+      } else if (priorKeepAwake.getAndSet(null) == false) {
+        window.clearFlags(flag)
+      }
+      true
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("startHighSpeedTest") { cameraId: String, width: Int, height: Int,
@@ -93,6 +107,44 @@ class ExpoCamera2HighSpeedModule : Module() {
       val file = File(dir, "timeline_${SystemClock.elapsedRealtimeNanos()}.json")
       file.writeText(json)
       file.absolutePath
+    }
+
+    // Versioned local eye-analysis artifacts. Calibration persists across app
+    // restart; video references remain cache files and can be evicted.
+    AsyncFunction("saveEyeAnalysis") { kind: String, json: String ->
+      if (kind != "calibration" && kind != "signal")
+        throw CodedException("ERR_ARTIFACT_KIND", "Unsupported artifact kind", null)
+      if (json.length > 16_000_000)
+        throw CodedException("ERR_ARTIFACT_SIZE", "Eye analysis too large", null)
+      val data = org.json.JSONObject(json)
+      if (data.optInt("schemaVersion") != 1)
+        throw CodedException("ERR_ARTIFACT_SCHEMA", "Unsupported artifact schema", null)
+      val root = appContext.reactContext?.filesDir
+        ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
+      val dir = File(root, "eye-analysis").apply { mkdirs() }
+      val file = File(dir, "${kind}_${SystemClock.elapsedRealtimeNanos()}.json")
+      file.writeText(json)
+      if (kind == "calibration") {
+        val pending = File(dir, "latest-calibration.tmp")
+        pending.writeText(json)
+        if (!pending.renameTo(File(dir, "latest-calibration.json")))
+          throw CodedException("ERR_ARTIFACT_WRITE", "Cannot replace calibration", null)
+      }
+      file.absolutePath
+    }
+    AsyncFunction("loadCalibrationResult") {
+      val root = appContext.reactContext?.filesDir
+        ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
+      val file = File(root, "eye-analysis/latest-calibration.json")
+      if (file.exists() && file.length() <= 16_000_000) file.readText() else null
+    }
+    AsyncFunction("invalidateCalibrationResult") {
+      val root = appContext.reactContext?.filesDir
+        ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
+      val file = File(root, "eye-analysis/latest-calibration.json")
+      if (file.exists() && !file.delete())
+        throw CodedException("ERR_ARTIFACT_WRITE", "Cannot invalidate calibration", null)
+      true
     }
 
     // --- P3.5 live preview (additive; the one-shot path above is untouched).
@@ -168,6 +220,12 @@ class ExpoCamera2HighSpeedModule : Module() {
     }
 
     OnDestroy {
+      appContext.currentActivity?.let { activity ->
+        activity.runOnUiThread {
+          if (priorKeepAwake.getAndSet(null) == false)
+            activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+      }
       try {
         cancelRequested.set(true)
         activeTest.get()?.forceClose()

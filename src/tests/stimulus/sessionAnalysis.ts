@@ -6,6 +6,7 @@ import {
 } from '../../camera/livePreview';
 import type { StimulusRun } from './engine';
 import { clockBridge, matchFrame, type ClockBridge } from './synchronization';
+import type { CalibrationResult } from '../../eyetracking/calibration/types';
 
 /** Lowest-RTT of five bracketed samples reduces JS/native scheduling uncertainty. */
 export async function sampleStimulusClock(): Promise<ClockBridge> {
@@ -24,6 +25,7 @@ export async function analyzeStimulusRecording(
   capture: PreviewRecordingReport,
   bridge: ClockBridge,
   viewport: { width: number; height: number },
+  eyeAnalysis?: { calibration: CalibrationResult; signalPath: string },
 ): Promise<string> {
   if (!capture.filePath) throw new Error('Missing recording file.');
   const decoded = await analyzeVideoFile({
@@ -71,6 +73,7 @@ export async function analyzeStimulusRecording(
       presentationClock: 'react-commit',
       capture,
       frames,
+      eyeAnalysis: eyeAnalysis ?? null,
     }),
   );
   console.log('STIMULUS_RESULT ' + JSON.stringify({ ...summary, timelinePath }));

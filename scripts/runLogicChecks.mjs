@@ -4,7 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const output = mkdtempSync(join(tmpdir(), 'vestibular-logic-'));
-const checks = ['p3LogicCheck', 'p35LogicCheck', 'p4LogicCheck', 'stimulusLogicCheck'];
+const checks = [
+  'p3LogicCheck',
+  'p35LogicCheck',
+  'p4LogicCheck',
+  'stimulusLogicCheck',
+  'calibrationLogicCheck',
+  'signalLogicCheck',
+];
 try {
   execFileSync(
     'node',

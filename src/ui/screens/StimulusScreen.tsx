@@ -26,9 +26,15 @@ import {
   type TargetPosition,
 } from '../../tests/stimulus/engine';
 import type { MvpTestId } from '../../tests/types';
+import { loadCalibration } from '../../storage/calibrationStore';
+import { calibrationUsable } from '../../eyetracking/calibration/calibration';
+import type { CalibrationContext } from '../../eyetracking/calibration/types';
+import { analyzeSignalRecording } from '../../tests/eyeAnalysis';
 import CameraCapturePanel from '../components/CameraCapturePanel';
 import { CameraButton, CameraDetails } from '../components/CameraUI';
 import { CaptureCancelled, usePreviewCapture } from '../hooks/usePreviewCapture';
+import { measureTargetViewport } from '../hooks/measureTargetViewport';
+import { useEyeAnalysisAwake } from '../hooks/useEyeAnalysisAwake';
 
 const nowUs = () => performance.now() * 1000;
 export default function StimulusScreen() {
@@ -37,6 +43,7 @@ export default function StimulusScreen() {
   const [modes, setModes] = useState<FixedMode[]>([]);
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
+  useEyeAnalysisAwake(busy);
   const [running, setRunning] = useState(false);
   const [target, setTarget] = useState<(TargetPosition & { requestedElapsedUs: number }) | null>(
     null,
@@ -50,6 +57,7 @@ export default function StimulusScreen() {
   const mounted = useRef(true);
   const lock = useRef(false);
   const scroll = useRef<ScrollView>(null);
+  const board = useRef<View>(null);
 
   function stop(cancelled = true) {
     if (raf.current !== null) cancelAnimationFrame(raf.current);
@@ -122,19 +130,52 @@ export default function StimulusScreen() {
     setError(null);
     setReport('');
     try {
+      const mode = modes[index];
+      scroll.current?.scrollTo({ y: 0, animated: false });
+      const display = await measureTargetViewport(board);
+      const context: CalibrationContext = {
+        cameraId: mode.cameraId,
+        width: mode.width,
+        height: mode.height,
+        fps: mode.fpsMax,
+        viewportWidth: size.width,
+        viewportHeight: size.height,
+        viewportLeft: display.left,
+        viewportTop: display.top,
+        detectorId: 'percentile-dark',
+        coordinateVersion: 'decoded-roi-v1',
+      };
+      const calibration = await loadCalibration();
+      if (!calibration || !calibrationUsable(calibration, context, Date.now()))
+        throw new Error(
+          'Cần calibration đạt chất lượng cho camera và vùng target này. Quay lại Home → Hiệu chỉnh mắt, rồi thử lại.',
+        );
       const bridge = await sampleStimulusClock();
-      const captureReport = await camera.capture(modes[index], 10, start);
+      const captureReport = await camera.capture(mode, 10, () => {
+        if (!calibrationUsable(calibration, context, Date.now()))
+          throw new Error('Calibration đã hết hạn. Hãy hiệu chỉnh lại.');
+        start();
+      });
       const session = run.current;
       stop(captureReport.manualStop);
       await camera.close();
       if (!mounted.current || session === null || !captureReport.filePath) return;
+      const signal = await analyzeSignalRecording(
+        captureReport.filePath,
+        mode.fpsMax,
+        calibration,
+        context,
+      );
+      if (!mounted.current) return;
       const summary = await analyzeStimulusRecording(
         session,
         captureReport,
         bridge,
         viewport.current,
+        { calibration, signalPath: signal.path },
       );
-      if (mounted.current) setReport(summary);
+      if (mounted.current)
+        setReport(JSON.stringify({ timeline: JSON.parse(summary) as unknown, signal }, null, 2));
     } catch (e) {
       stop();
       if (mounted.current && !(e instanceof CaptureCancelled)) setError(String(e));
@@ -144,10 +185,14 @@ export default function StimulusScreen() {
     }
   }
   return (
-    <ScrollView ref={scroll} contentContainerStyle={styles.content} testID="stimulus-screen">
-      <Text style={styles.title}>Bài nhìn theo mục tiêu</Text>
-      <Text>Giữ đầu ổn định và nhìn theo chấm vàng trong 10 giây.</Text>
+    <ScrollView
+      ref={scroll}
+      scrollEnabled={!running}
+      contentContainerStyle={styles.content}
+      testID="stimulus-screen"
+    >
       <View
+        ref={board}
         style={styles.board}
         onLayout={(e) => {
           if (
@@ -174,6 +219,12 @@ export default function StimulusScreen() {
         )}
         {!target && <Text style={styles.wait}>Mục tiêu sẽ xuất hiện khi bắt đầu.</Text>}
       </View>
+      <Text style={styles.title}>Bài nhìn theo mục tiêu</Text>
+      <Text>Giữ đầu ổn định và nhìn theo chấm vàng trong 10 giây.</Text>
+      <Text>
+        Ghi bài mắt yêu cầu calibration đạt chất lượng, còn hạn và cùng camera/vùng target. Hiệu
+        chỉnh trước tại Home.
+      </Text>
       <CameraButton
         title="Smooth Pursuit"
         disabled={busy || running}

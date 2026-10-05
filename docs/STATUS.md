@@ -378,3 +378,40 @@ Final clean-tree verification: `npm run check`, `npm run format`, all four
 `npm test` suites, Android Metro export and JDK 21 `:app:assembleDebug` passed.
 Manual Home launch on Xiaomi shows the new stimulus entry and opens no camera;
 Android camera service reports no active client after cleanup. No test harness remains.
+
+## Calibration + Signal Processing — 2026-10-05
+
+- Implemented per-eye ROI-normalized calibration with nine fit targets,
+  four independent checks and repeated center; separate stationary recordings
+  avoid assuming a moving-target exposure offset. Coverage/fixation/PTS/geometry/
+  head-ROI/held-out gates fail closed to RETRY. Versioned mapping and quality
+  persist locally; retry/cancel invalidates stale results. Reuse checks camera,
+  viewport dimensions/origin, expiry and per-frame ROI stability.
+- Recorded eye exercises require usable calibration. Signal Processing preserves
+  raw detector/tracker/normalized observations, filters only observed samples,
+  rejects conservative weak isolated spikes, splits missing/blink/dropout/PTS
+  gaps and computes confidence-bearing velocity from actual PTS. No interpolation
+  or nominal frame interval is used; no clinical or Pursuit/Saccade metric added.
+- Xiaomi: all 14 target recordings saved, 2,526 encoded/decoded frames, 5,052 eye
+  slots. Calibration correctly RETRY: held-out RMSE left/right 0.2328/0.2855
+  viewport fraction, plus insufficient coverage and head/ROI changes. Signal
+  coverage remains 68.4%/75.7%; median same-support noise proxy falls
+  0.003911→0.001404 / 0.003981→0.001518, with zero fabricated/interpolated samples.
+- Six execution suites, `npm run check`, `npm run format`, final Android Metro
+  export and JDK 21 arm64 native build passed. Latest pure-domain code was also
+  replayed on all 5,052 real eye slots: raw unchanged, RETRY unmappable, no
+  cross-gap derivative. New Kotlin persistence compiled and initial APK installed;
+  the artifact survived ADB reconnection and read-back.
+- Screen-awake support preserves a pre-existing window flag and releases its
+  own flag on completion/background/unmount. The final APK reinstall was
+  interrupted by wireless ADB loss; that last helper and final manual-device
+  launch remain unverified. Temporary autorun effects were removed; App.tsx is
+  restored to manual Home.
+- Successful supervised calibration, accuracy across sessions/lighting and
+  controlled blink/multi-second occlusion remain unverified. Offline processing
+  took about 6 min 25 s for the 14 recordings; detector false locks and filter
+  effects on fine dynamics remain limitations.
+- Contracts: [Calibration and signals](CALIBRATION_SIGNALS.md). Full measured
+  evidence: [Xiaomi validation](device-probes/CALIBRATION_SIGNALS.md).
+- Scope stops here; metrics, clinical thresholds, interpretation and diagnosis
+  remain unimplemented.

@@ -39,7 +39,7 @@ src/patients/         # patient management (types only)
 src/tests/            # test engine: registry + smooth-pursuit / saccades stubs
 src/camera/           # camera abstraction (no impl in bootstrap)
 src/eyetracking/      # gaze types (stub)
-src/signals/          # signal processing (stub)
+src/signals/          # PTS-based filtering, segments, confidence and velocity
 src/metrics/          # clinical metrics (stub)
 src/storage/          # persistence/reporting (stub)
 src/config/ utils/    # constants, helpers
@@ -53,7 +53,8 @@ Camera, eye tracking, auth, database, and clinical algorithms are **intentionall
 
 - `docs/PROJECT_SPEC.md` — scope, MVP, constraints
 - `docs/ARCHITECTURE.md` — layers and dependency rules
-- `docs/ROADMAP.md` — phases; next is Camera2 capability probe
+- `docs/ROADMAP.md` — phase order; current state is in `docs/STATUS.md`
+- `docs/CALIBRATION_SIGNALS.md` — calibration acceptance, persistence and signal contracts
 - `docs/DECISIONS.md` — recorded architectural decisions
 - `docs/STATUS.md` — current state
 - `AGENTS.md` — working agreement for AI agents
