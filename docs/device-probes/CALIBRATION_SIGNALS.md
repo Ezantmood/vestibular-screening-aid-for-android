@@ -73,7 +73,7 @@ calibration produces no usable viewport trajectory.
 
 ## Regression and remaining limits
 
-All six execution suites, strict typecheck and lint pass. Existing preview/
+All seven execution suites, strict typecheck and lint pass. Existing preview/
 recording and full-rate P4 decoding/tracking executed on all 14 recordings;
 encoded/decoded counts matched. Final pure-domain replay checked all 5,052
 real eye slots: raw unchanged, rejected calibration unmappable, no fabricated
@@ -84,10 +84,9 @@ The wireless ADB connection changed ports repeatedly. Recordings and analysis
 continued locally; the artifact survived reconnection. Keeping the active
 calibration/analysis screen awake was added and releases on background,
 completion and unmount, preserving any pre-existing window flag. Final native
-compilation and Android Metro export passed. The last APK reinstall was
-interrupted by ADB loss; runtime validation of this last helper and final manual
-Home launch remain unverified. All temporary test effects were removed; App.tsx
-was restored to manual Home.
+compilation and Android Metro export passed. Final reinstall and runtime checks
+were subsequently completed below. All temporary test effects were removed;
+App.tsx was restored to manual Home.
 
 Follow-up review found a screen-awake race between a delayed native enable and
 replacement of a busy screen. The final hook uses shared owner aggregation and
@@ -95,3 +94,23 @@ serialized native writes. Deferred tests cover replacement during enable/disable
 background/foreground, final release and native failure recovery; all seven
 execution suites, typecheck/lint and Android export pass. This follow-up does
 not change the native method API or the measured calibration/signal data.
+
+## Runtime follow-up — 2026-10-06
+
+Wireless ADB pairing was restored and the final native APK installed successfully.
+Manual Home displays entries 07 (Calibration) and 08 (Signal Processing), with
+no active camera client. Native Camera2 probe returned BACK 0 and FRONT 1 without
+errors. The existing 9,287,041-byte calibration artifact survived the update
+byte-for-byte (SHA-256 matched the original read-back), remains RETRY, and
+`loadCalibration()` returns null.
+
+A temporary harness called the real native helper and shared busy hook. Actual
+application window `FLAG_KEEP_SCREEN_ON` was observed through Android dumpsys,
+with the default Expo developer tag temporarily released to measure the helper:
+all 16 flag checks passed. These cover repeated enable/release, preserving an
+existing Expo owner's flag, busy foreground/background/resume, completion,
+restart and unmount. The Expo tag and manual Home were restored afterwards.
+No temporary harness remains in source.
+
+No new calibration or trajectory measurements were collected in this follow-up.
+The 2026-10-05 measured results and limitations above remain unchanged.

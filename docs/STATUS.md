@@ -403,10 +403,10 @@ Android camera service reports no active client after cleanup. No test harness r
   cross-gap derivative. New Kotlin persistence compiled and initial APK installed;
   the artifact survived ADB reconnection and read-back.
 - Screen-awake support preserves a pre-existing window flag and releases its
-  own flag on completion/background/unmount. The final APK reinstall was
-  interrupted by wireless ADB loss; that last helper and final manual-device
-  launch remain unverified. Temporary autorun effects were removed; App.tsx is
-  restored to manual Home.
+  own flag on completion/background/unmount. The final APK installed on Xiaomi
+  on 2026-10-06; all 16 actual window-flag checks passed, including repeated
+  enable/release, prior-owner preservation, background/resume and busy unmount.
+  Temporary test effects were removed; App.tsx is restored to manual Home.
 - Successful supervised calibration, accuracy across sessions/lighting and
   controlled blink/multi-second occlusion remain unverified. Offline processing
   took about 6 min 25 s for the 14 recordings; detector false locks and filter
@@ -420,6 +420,11 @@ Follow-up verification: fixed an async screen-awake ownership race found during
 review. A shared coordinator serializes native writes and aggregates active
 owners; completion of a disposed effect cannot clear a newer run's flag. Added
 five deferred lifecycle/failure execution cases. All seven suites, typecheck,
-lint and Android export pass. Device reconnect/install remains pending: the
-latest supplied ADB endpoint refused the TCP connection before any APK bytes
-were transferred.
+lint and Android export pass.
+
+Runtime follow-up — 2026-10-06: wireless ADB pairing restored; final APK install
+and manual Home launch passed. Home displays entries 07/08 and opens no camera.
+Native Camera2 probe returned BACK 0 and FRONT 1 without errors. The existing
+9,287,041-byte RETRY artifact survived the update byte-for-byte;
+`loadCalibration()` returned null. No new calibration/trajectory measurements
+were collected; the measured quality and remaining limits above are unchanged.
