@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 const output = mkdtempSync(join(tmpdir(), 'vestibular-logic-'));
 const checks = [
+  'cameraPipelineLogicCheck',
   'p3LogicCheck',
   'p35LogicCheck',
   'p4LogicCheck',
@@ -12,6 +13,7 @@ const checks = [
   'calibrationLogicCheck',
   'signalLogicCheck',
   'screenAwakeLogicCheck',
+  'eyeTestLogicCheck',
 ];
 try {
   execFileSync(

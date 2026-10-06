@@ -28,6 +28,6 @@ uses the existing preview/countdown/capture controls.
 The original stimulus timing/trajectory behavior remains covered by its regression
 suite. Recorded eye exercises now require a usable calibration and save raw,
 processed pupil/viewport trajectories, velocity and confidence through
-[Calibration/Signal Processing](CALIBRATION_SIGNALS.md). No latency, gain,
-Saccade/Pursuit metric or clinical score is calculated. Original timing validation:
+[Calibration/Signal Processing](CALIBRATION_SIGNALS.md). Pursuit/Saccade engineering metrics and quality gates now consume these signals;
+see [eye-test contracts](EYE_TESTS.md). Original timing validation:
 [device report](device-probes/STIMULUS_ENGINE.md).

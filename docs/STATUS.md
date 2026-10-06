@@ -428,3 +428,39 @@ Native Camera2 probe returned BACK 0 and FRONT 1 without errors. The existing
 9,287,041-byte RETRY artifact survived the update byte-for-byte;
 `loadCalibration()` returned null. No new calibration/trajectory measurements
 were collected; the measured quality and remaining limits above are unchanged.
+
+## Smooth Pursuit + Horizontal Saccade — 2026-10-06
+
+- Completed these two existing stimulus exercises through P4 tracking, per-eye
+  calibration, processed signals and engineering results. Pursuit: smooth
+  velocity harmonic gain, tracking RMSE and bracketed rapid/catch-up candidates.
+  Horizontal Saccade: actual committed steps, baseline/response validity,
+  commit-relative latency (explicit estimate with current camera anchor), sampled
+  peak velocity/raw comparison, primary accuracy and endpoint over/undershoot.
+- Results show per-eye tracking and calibrated support separately, GOOD_DATA /
+  POOR_DATA / INVALID, explicit response failures, units and JSON provenance.
+  No diagnosis/clinical cutoffs, new test type, patient/session database or report
+  subsystem. Existing raw/signal/timeline artifacts are reused. Normal capture
+  retains its calibration guard; explicit debug capture can save an INVALID run.
+- Xiaomi: two completed 10-second real captures, 1,202 encoded/decoded frames
+  each, 119.504 FPS, no missing/reversed PTS. Pupil signal coverage L/R:
+  Pursuit 19.3%/20.4%; Saccade 40.8%/67.6%. Calibration remains RETRY; both
+  tests correctly INVALID, calibrated metrics N/A, Saccade 0/9 eligible responses
+  per eye. These are not measured physiological failures or successful gaze
+  validation. All 4,808 real eye slots replay without fabricated positions,
+  interpolation, cross-gap derivatives or changes to saved raw/processed data.
+- Metrics pass controlled synthetic references, including fitted calibration
+  through both exercises; nine regression suites cover P1/P2, P3/P3.5/P4,
+  stimulus, calibration, signals, screen-awake and 31 eye-test check groups.
+  Synthetic Saccade: 199.9 ms median latency, 14.000 viewport fractions/s peak,
+  accuracy 1.000. Successful calibrated human metrics, visual degrees, physical
+  onset, external gaze accuracy and controlled device blinks remain unverified.
+- Definitions: [Eye-test contracts](EYE_TESTS.md). Actual measurements and final
+  validation: [Xiaomi evidence](device-probes/EYE_TESTS.md).
+- Scope stops after these two tests; all other requested exclusions stay untouched.
+
+Final verification: `npm run check`, `npm run format`, all nine `npm test` suites
+(31 eye-test groups), Android Metro export and JDK 21 arm64 native build passed.
+Final APK reinstalled successfully; manual Home has the two-test entry, no active
+camera client and no temporary harness. Original RETRY calibration survives
+byte-for-byte; final metric JSON artifacts were saved and read back on-device.

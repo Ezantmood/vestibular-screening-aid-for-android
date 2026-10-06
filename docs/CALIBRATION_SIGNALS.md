@@ -37,7 +37,7 @@ P4 tracking and stores artifacts through the camera/storage seams.
   illumination invariance.
 - Recorded Pursuit/Saccade now requires a usable calibration; target-only preview
   remains available. Captured eye signals are saved with the calibration ID and
-  linked from the existing stimulus artifact. No eye-test metric is calculated.
+  linked from the existing stimulus artifact. Engineering metrics consume these signals through [eye-test contracts](EYE_TESTS.md).
 
 ## Signal processing
 

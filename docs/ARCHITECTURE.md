@@ -109,3 +109,8 @@ owns raw/processed separation, real-PTS segments, filtering and velocity.
 `src/tests/eyeAnalysis.ts` orchestrates P4 through both domains; artifacts
 persist via `src/storage/calibrationStore.ts` and the additive camera storage
 seam. Screens consume these services. Contracts: `docs/CALIBRATION_SIGNALS.md`.
+
+Eye tests: `src/tests/{smoothPursuit,horizontalSaccades,metrics/}` owns per-eye
+engineering metrics, quality and response validity. `completeEyeTestRecording`
+reuses the existing tracking/calibration/signal and cache seams; `EyeTestResults`
+renders the measured outputs. Definitions and limits: [Eye tests](EYE_TESTS.md).

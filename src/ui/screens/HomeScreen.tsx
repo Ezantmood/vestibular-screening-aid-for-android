@@ -38,8 +38,8 @@ const tools = [
   {
     id: 'stimulus',
     code: '06',
-    title: 'Mục tiêu Pursuit & Saccade',
-    description: 'Nhìn theo mục tiêu và ghi timeline cùng video.',
+    title: 'Smooth Pursuit & Horizontal Saccade',
+    description: 'Ghi bài mắt, tính metric và kiểm tra chất lượng từng kết quả.',
     component: StimulusScreen,
   },
   {

@@ -15,6 +15,7 @@ export interface ReplayRunResult {
   condition: string;
   filePath: string;
   decodedFrames: number;
+  decodedPtsUs: (number | null)[];
   keyframes: number;
   propagatedSlots: number;
   faceRate: string;
@@ -317,6 +318,7 @@ export async function analyzeFileForTracking(args: {
     condition: args.condition,
     filePath: args.filePath,
     decodedFrames: analysis.decodedFrameCount,
+    decodedPtsUs: analysis.decodedPtsUs,
     keyframes: analysis.faceSamples.length,
     propagatedSlots: rois.length,
     faceRate: String(analysis.faceDetectionRate ?? '?'),

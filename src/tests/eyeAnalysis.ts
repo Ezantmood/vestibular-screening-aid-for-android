@@ -46,6 +46,7 @@ export function processTrackingSignals(
         : {}),
     }));
     const pupil = processTrajectory(normalized, { coordinateSpace: 'eye-roi-normalized' });
+    const normalizedByFrame = new Map(normalized.map((s) => [s.frameIndex, s]));
     const calibrated =
       calibration && context
         ? processTrajectory(
@@ -59,7 +60,15 @@ export function processTrackingSignals(
                 y: mapped?.y ?? null,
                 confidence: mapped?.confidence ?? 0,
                 estimated: s.estimated,
-                ...(mapped ? {} : { missingReason: 'calibration-invalid' }),
+                rescued: track.get(s.frameIndex)?.rescued,
+                ...(mapped
+                  ? {}
+                  : {
+                      missingReason:
+                        s.x === null
+                          ? normalizedByFrame.get(s.frameIndex)?.missingReason
+                          : 'calibration-invalid',
+                    }),
               };
             }),
             { coordinateSpace: 'screen-normalized' },
@@ -127,11 +136,12 @@ export async function analyzeCalibrationTakes(args: {
   console.log('CALIBRATION_RESULT ' + JSON.stringify(summary));
   return { result, summary, path };
 }
-export async function analyzeSignalRecording(
+export async function analyzeEyeRecording(
   filePath: string,
   fps: number,
   calibration?: CalibrationResult,
   context?: CalibrationContext,
+  recordedAtMs = Date.now(),
 ) {
   const replay = await analyzeFileForTracking({
     filePath,
@@ -141,10 +151,13 @@ export async function analyzeSignalRecording(
     expectedFps: fps,
     saveAuditOverlays: false,
   });
-  const signals = processTrackingSignals(replay, calibration, context);
+  // Offline processing may take minutes. Reuse is evaluated at capture time;
+  // a valid take must not expire merely because the decoder was slow.
+  const signals = processTrackingSignals(replay, calibration, context, recordedAtMs);
   const artifact = {
     schemaVersion: 1,
     createdAtMs: Date.now(),
+    recordedAtMs,
     replay,
     calibrationId: calibration?.id ?? null,
     signals,
@@ -168,5 +181,14 @@ export async function analyzeSignalRecording(
     })),
   };
   console.log('SIGNAL_RESULT ' + JSON.stringify(summary));
-  return summary;
+  return { summary, signals, replay, path };
+}
+
+export async function analyzeSignalRecording(
+  filePath: string,
+  fps: number,
+  calibration?: CalibrationResult,
+  context?: CalibrationContext,
+) {
+  return (await analyzeEyeRecording(filePath, fps, calibration, context)).summary;
 }

@@ -13,7 +13,7 @@ import { getCamera2Capabilities } from '../../camera/camera2Probe';
 import { collectFixedModes, type FixedMode } from '../../camera/fixedModes';
 import { isLivePreviewAvailable } from '../../camera/livePreview';
 import {
-  analyzeStimulusRecording,
+  completeEyeTestRecording,
   sampleStimulusClock,
 } from '../../tests/stimulus/sessionAnalysis';
 import {
@@ -29,7 +29,8 @@ import type { MvpTestId } from '../../tests/types';
 import { loadCalibration } from '../../storage/calibrationStore';
 import { calibrationUsable } from '../../eyetracking/calibration/calibration';
 import type { CalibrationContext } from '../../eyetracking/calibration/types';
-import { analyzeSignalRecording } from '../../tests/eyeAnalysis';
+import type { EyeTestResult } from '../../tests/metrics/types';
+import EyeTestResults from '../components/EyeTestResults';
 import CameraCapturePanel from '../components/CameraCapturePanel';
 import { CameraButton, CameraDetails } from '../components/CameraUI';
 import { CaptureCancelled, usePreviewCapture } from '../hooks/usePreviewCapture';
@@ -50,6 +51,8 @@ export default function StimulusScreen() {
   );
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [report, setReport] = useState('');
+  const [result, setResult] = useState<EyeTestResult | null>(null);
+  const [message, setMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const run = useRef<StimulusRun | null>(null);
   const raf = useRef<number | null>(null);
@@ -123,12 +126,14 @@ export default function StimulusScreen() {
       if (mounted.current) setError(String(e));
     }
   }
-  async function capture() {
+  async function capture(diagnostic = false) {
     if (lock.current || !modes[index]) return;
     lock.current = true;
     setBusy(true);
     setError(null);
     setReport('');
+    setResult(null);
+    setMessage('Kiểm tra calibration và chuẩn bị ghi hình…');
     try {
       const mode = modes[index];
       scroll.current?.scrollTo({ y: 0, animated: false });
@@ -146,13 +151,15 @@ export default function StimulusScreen() {
         coordinateVersion: 'decoded-roi-v1',
       };
       const calibration = await loadCalibration();
-      if (!calibration || !calibrationUsable(calibration, context, Date.now()))
+      if (!diagnostic && (!calibration || !calibrationUsable(calibration, context, Date.now())))
         throw new Error(
-          'Cần calibration đạt chất lượng cho camera và vùng target này. Quay lại Home → Hiệu chỉnh mắt, rồi thử lại.',
+          'INVALID — Cần calibration đạt chất lượng cho camera và vùng target này. Quay lại Home → Hiệu chỉnh mắt, rồi thử lại. Có thể ghi debug để kiểm tra tracking; metric sẽ N/A.',
         );
       const bridge = await sampleStimulusClock();
+      let recordedAtMs = Date.now();
       const captureReport = await camera.capture(mode, 10, () => {
-        if (!calibrationUsable(calibration, context, Date.now()))
+        recordedAtMs = Date.now();
+        if (!diagnostic && (!calibration || !calibrationUsable(calibration, context, recordedAtMs)))
           throw new Error('Calibration đã hết hạn. Hãy hiệu chỉnh lại.');
         start();
       });
@@ -160,25 +167,29 @@ export default function StimulusScreen() {
       stop(captureReport.manualStop);
       await camera.close();
       if (!mounted.current || session === null || !captureReport.filePath) return;
-      const signal = await analyzeSignalRecording(
-        captureReport.filePath,
-        mode.fpsMax,
+      setMessage('Đang tracking → calibration → xử lý tín hiệu → metric. Có thể mất vài phút.');
+      const analysis = await completeEyeTestRecording({
+        session,
+        capture: captureReport,
+        bridge,
+        viewport: viewport.current,
         calibration,
         context,
-      );
-      if (!mounted.current) return;
-      const summary = await analyzeStimulusRecording(
-        session,
-        captureReport,
-        bridge,
-        viewport.current,
-        { calibration, signalPath: signal.path },
-      );
-      if (mounted.current)
-        setReport(JSON.stringify({ timeline: JSON.parse(summary) as unknown, signal }, null, 2));
+        recordedAtMs,
+      });
+      if (mounted.current) {
+        setResult(analysis.result);
+        setReport(JSON.stringify(analysis, null, 2));
+        setMessage('Đã phân tích và lưu dữ liệu debug.');
+      }
     } catch (e) {
       stop();
-      if (mounted.current && !(e instanceof CaptureCancelled)) setError(String(e));
+      if (mounted.current) {
+        setMessage(
+          e instanceof CaptureCancelled ? 'Đã hủy test.' : 'Test chưa hoàn thành / không hợp lệ.',
+        );
+        if (!(e instanceof CaptureCancelled)) setError(String(e));
+      }
     } finally {
       lock.current = false;
       if (mounted.current) setBusy(false);
@@ -187,7 +198,7 @@ export default function StimulusScreen() {
   return (
     <ScrollView
       ref={scroll}
-      scrollEnabled={!running}
+      scrollEnabled={!running && !busy}
       contentContainerStyle={styles.content}
       testID="stimulus-screen"
     >
@@ -219,7 +230,17 @@ export default function StimulusScreen() {
         )}
         {!target && <Text style={styles.wait}>Mục tiêu sẽ xuất hiện khi bắt đầu.</Text>}
       </View>
-      <Text style={styles.title}>Bài nhìn theo mục tiêu</Text>
+      {busy && ['countdown', 'recording'].includes(camera.stage) && (
+        <CameraButton
+          title={camera.stage === 'countdown' ? 'Hủy đếm ngược' : 'Dừng và lưu test (không hợp lệ)'}
+          tone="danger"
+          onPress={() => {
+            stop(true);
+            void camera.stop();
+          }}
+        />
+      )}
+      <Text style={styles.title}>Smooth Pursuit & Horizontal Saccade</Text>
       <Text>Giữ đầu ổn định và nhìn theo chấm vàng trong 10 giây.</Text>
       <Text>
         Ghi bài mắt yêu cầu calibration đạt chất lượng, còn hạn và cùng camera/vùng target. Hiệu
@@ -236,6 +257,7 @@ export default function StimulusScreen() {
         onPress={() => setTestId('horizontal-saccades')}
       />
       <Text>Bài đã chọn: {testId}</Text>
+      {message !== '' && <Text accessibilityLiveRegion="polite">{message}</Text>}
       <CameraButton
         title={running ? 'Dừng mục tiêu' : 'Thử mục tiêu (không ghi video)'}
         disabled={busy}
@@ -255,6 +277,13 @@ export default function StimulusScreen() {
           phase={busy ? 'analyzing' : 'ready'}
         />
       )}
+      {modes.length > 0 && (
+        <CameraButton
+          title="Ghi debug (cho phép thiếu calibration)"
+          disabled={busy || running || camera.stage !== 'preview'}
+          onPress={() => void capture(true)}
+        />
+      )}
       {error && (
         <>
           <Text selectable>{error}</Text>
@@ -266,8 +295,8 @@ export default function StimulusScreen() {
       )}
       {report !== '' && (
         <>
-          <Text>Đã lưu timeline mục tiêu và ghép với PTS video. Đồng bộ hiện là ước lượng.</Text>
-          <CameraDetails title="Timeline & đồng bộ">
+          {result && <EyeTestResults result={result} />}
+          <CameraDetails title="Metric, signal & timeline JSON">
             <Text selectable>{report}</Text>
           </CameraDetails>
         </>
