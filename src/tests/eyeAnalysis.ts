@@ -3,80 +3,18 @@ import type {
   CalibrationResult,
   CalibrationTake,
 } from '../eyetracking/calibration/types';
-import { fitCalibration, mapCalibration } from '../eyetracking/calibration/calibration';
+import { fitCalibration } from '../eyetracking/calibration/calibration';
 import {
   analyzeFileForTracking,
   type ReplayRunResult,
 } from '../eyetracking/tracking/denseTrackAnalysis';
 import { trackingObservations } from '../eyetracking/tracking/observations';
-import { processTrajectory } from '../signals/processing';
-import type { SignalInputSample } from '../signals/types';
+import { processTrackingSignals } from '../signals/trackingSignals';
 import { saveCalibrationArtifact } from '../storage/calibrationStore';
 import { saveEyeAnalysis } from '../camera/eyeAnalysisStorage';
 
+export { processTrackingSignals } from '../signals/trackingSignals';
 export type CapturedCalibrationTake = Omit<CalibrationTake, 'samples'>;
-export function processTrackingSignals(
-  replay: ReplayRunResult,
-  calibration?: CalibrationResult,
-  context?: CalibrationContext,
-  nowMs = Date.now(),
-) {
-  const observations = trackingObservations(replay.rawResults, replay.tracked);
-  return (['left', 'right'] as const).map((eyeSide) => {
-    const obs = observations.filter((s) => s.eyeSide === eyeSide);
-    const track = new Map(
-      replay.tracked.filter((t) => t.eyeSide === eyeSide).map((t) => [t.frameIndex, t]),
-    );
-    const normalized: SignalInputSample[] = obs.map((s) => ({
-      frameIndex: s.frameIndex,
-      decodedPtsUs: s.decodedPtsUs,
-      eyeSide,
-      x: s.x,
-      y: s.y,
-      confidence: s.confidence,
-      estimated: s.estimated,
-      rescued: track.get(s.frameIndex)?.rescued,
-      ...(s.x === null
-        ? {
-            missingReason:
-              track.get(s.frameIndex)?.trackingState === 'BLINK_OR_OCCLUDED'
-                ? ('blink-or-occluded' as const)
-                : ('tracking-dropout' as const),
-          }
-        : {}),
-    }));
-    const pupil = processTrajectory(normalized, { coordinateSpace: 'eye-roi-normalized' });
-    const normalizedByFrame = new Map(normalized.map((s) => [s.frameIndex, s]));
-    const calibrated =
-      calibration && context
-        ? processTrajectory(
-            obs.map((s): SignalInputSample => {
-              const mapped = mapCalibration(calibration, s, context, nowMs);
-              return {
-                frameIndex: s.frameIndex,
-                decodedPtsUs: s.decodedPtsUs,
-                eyeSide,
-                x: mapped?.x ?? null,
-                y: mapped?.y ?? null,
-                confidence: mapped?.confidence ?? 0,
-                estimated: s.estimated,
-                rescued: track.get(s.frameIndex)?.rescued,
-                ...(mapped
-                  ? {}
-                  : {
-                      missingReason:
-                        s.x === null
-                          ? normalizedByFrame.get(s.frameIndex)?.missingReason
-                          : 'calibration-invalid',
-                    }),
-              };
-            }),
-            { coordinateSpace: 'screen-normalized' },
-          )
-        : null;
-    return { eyeSide, pupil, calibrated };
-  });
-}
 export async function analyzeCalibrationTakes(args: {
   id: string;
   createdAtMs?: number;
@@ -166,6 +104,7 @@ export async function analyzeEyeRecording(
   const summary = {
     path,
     decodedFrames: replay.decodedFrames,
+    warnings: replay.warnings,
     calibrationId: calibration?.id ?? null,
     eyes: signals.map((eye) => ({
       eyeSide: eye.eyeSide,

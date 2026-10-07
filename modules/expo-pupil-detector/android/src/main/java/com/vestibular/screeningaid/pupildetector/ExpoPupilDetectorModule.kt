@@ -320,7 +320,13 @@ class ExpoPupilDetectorModule : Module() {
                   warnings.add("Wanted-frame convert failed f$frameIndex: ${e.message}")
                 }
                 for (req in wanted) {
-                  val outcome = if (yCopy != null) {
+                  // Frame identity alone cannot prove two independent decodes
+                  // produced the same exposure. Never attach a P2 PTS to other pixels.
+                  val ptsMatches = req.ptsUs == null || req.ptsUs == info.presentationTimeUs
+                  if (!ptsMatches) {
+                    warnings.add("PTS mismatch f$frameIndex ${req.eyeSide}: requested ${req.ptsUs}, decoded ${info.presentationTimeUs}.")
+                  }
+                  val outcome = if (yCopy != null && ptsMatches) {
                     detectForRequest(yCopy, w, h, req, detectorId)
                   } else {
                     Outcome(false, null, null, null, null, 0.0, "INVALID_GEOMETRY")

@@ -53,7 +53,8 @@ P4 tracking and stores artifacts through the camera/storage seams.
   A strong detector false lock can therefore survive: this is conservative
   outlier handling, not a guarantee of pupil accuracy.
 - Confidence-weighted local linear filtering uses a +/-16 ms PTS window within
-  each segment. Large local motion is preserved. This offline filter uses future
+  each segment. Large local motion preserves its complete window support to avoid
+  false reversals at mixed raw/filtered edges. This offline filter uses future
   neighbors and may still alter fine dynamics; no real-time/clinical validation
   is claimed. Filtered observations are explicitly distinct from raw samples.
 - Backward velocity uses actual consecutive PTS differences, with units of

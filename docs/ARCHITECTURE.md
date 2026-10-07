@@ -106,7 +106,9 @@ module methods. Contracts: `docs/STIMULUS_ENGINE.md`.
 Calibration: `src/eyetracking/calibration/` owns per-eye mapping, stationary
 target protocol, quality and context guards. Signal Processing: `src/signals/`
 owns raw/processed separation, real-PTS segments, filtering and velocity.
-`src/tests/eyeAnalysis.ts` orchestrates P4 through both domains; artifacts
+`src/signals/trackingSignals.ts` maps/filters tracked observations as pure logic,
+with one validated calibration mapper per replay. `src/tests/eyeAnalysis.ts`
+orchestrates P4 through both domains; artifacts
 persist via `src/storage/calibrationStore.ts` and the additive camera storage
 seam. Screens consume these services. Contracts: `docs/CALIBRATION_SIGNALS.md`.
 

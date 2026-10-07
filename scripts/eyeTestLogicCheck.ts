@@ -42,9 +42,12 @@ function run(testId: MvpTestId) {
   finishStimulus(session, 10_010_000, false);
   return session;
 }
-function raw(gaze: (t: number) => number | null): SignalInputSample[] {
+function raw(
+  gaze: (t: number) => number | null,
+  intervals = [8000, 9000, 8000],
+): SignalInputSample[] {
   const samples: SignalInputSample[] = [];
-  for (let t = 0, i = 0; t < 10_000_000; t += [8000, 9000, 8000][i % 3], i++) {
+  for (let t = 0, i = 0; t < 10_000_000; t += intervals[i % intervals.length], i++) {
     const x = gaze(t / 1_000_000);
     samples.push({
       frameIndex: i,
@@ -134,6 +137,28 @@ check('nine valid saccades and actual-PTS peak, accuracy and bounded commit late
       accuracy: e.medianAccuracy,
     }),
   );
+});
+check('sustained saccade onset uses elapsed PTS across high and variable frame rates', () => {
+  for (const intervals of [[4167], [2000], [3000, 4000, 5000, 8000]]) {
+    const eye = analyzeEyeTest(args('horizontal-saccades', raw(stepGaze(), intervals))).saccades[0];
+    assert.equal(
+      eye.validResponses,
+      9,
+      JSON.stringify({ intervals, failures: eye.responses.filter((r) => r.reason) }),
+    );
+    assert.ok(Math.abs(eye.medianLatencyMs! - 200) < 20);
+    assert.ok(Math.abs(eye.medianPeakVelocityPerSecond! - 14) < 0.1);
+    assert.ok(Math.abs(eye.medianAccuracy! - 1) < 0.01);
+  }
+});
+check('high-cadence onset cannot accumulate sustained time across a blink', () => {
+  const gaze = stepGaze();
+  const data = raw((t) => (t >= 1.205 && t < 1.215 ? null : gaze(t)), [4167]);
+  const eye = analyzeEyeTest(args('horizontal-saccades', data)).saccades[0];
+  assert.equal(eye.responses[0].reason, 'BLINK_OR_DROPOUT');
+  assert.equal(eye.responses[0].latencyMs, null);
+  assert.equal(eye.responses[0].peakVelocityPerSecond, null);
+  assert.equal(eye.validResponses, 8);
 });
 check('overshoot / undershoot directional and accuracy not clamped', () => {
   for (const scale of [0.9, 1.1]) {

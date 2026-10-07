@@ -3,9 +3,13 @@ import {
   fitCalibration,
   mapCalibration,
   calibrationUsable,
+  createCalibrationMapper,
 } from '../src/eyetracking/calibration/calibration';
 import { CALIBRATION_TARGETS } from '../src/eyetracking/calibration/protocol';
 import type { CalibrationContext, CalibrationTake } from '../src/eyetracking/calibration/types';
+import { buildSuccessResult } from '../src/eyetracking/pupil/coordinates';
+import { finalTrack } from '../src/eyetracking/tracking/twoPassTracking';
+import { processTrackingSignals } from '../src/signals/trackingSignals';
 
 const context: CalibrationContext = {
   cameraId: '1',
@@ -58,6 +62,70 @@ assert.ok(result.models.left!.validationRmse < 0.01);
 const input = fixture()[4].samples[10];
 const mapped = mapCalibration(result, input, context, time + 1000);
 assert.ok(mapped && Math.abs(mapped.x - 0.5) < 0.02 && Math.abs(mapped.y - 0.5) < 0.02);
+const observations = fixture()[4].samples;
+const rawResults = observations.map((s) =>
+  buildSuccessResult({
+    frameIndex: s.frameIndex,
+    decodedPtsUs: s.decodedPtsUs,
+    eyeSide: s.eyeSide,
+    detectorId: 'percentile-dark',
+    box: { roiX: s.roi.x, roiY: s.roi.y, roiWidth: s.roi.width, roiHeight: s.roi.height },
+    centroid: {
+      centroidXInRoi: s.x! * s.roi.width,
+      centroidYInRoi: s.y! * s.roi.height,
+      candidateWidth: 20,
+      candidateHeight: 20,
+      confidence: s.confidence,
+    },
+  }),
+);
+const tracks = finalTrack(rawResults);
+const replay = { rawResults, tracked: [...tracks.left, ...tracks.right] };
+const replayBefore = JSON.stringify(replay);
+const batchSignals = processTrackingSignals(replay, result, context, time + 1000);
+for (const eye of batchSignals) {
+  assert.equal(eye.calibrated!.qualityAfter.coverage, 1);
+  const samples = observations.filter((s) => s.eyeSide === eye.eyeSide);
+  eye.calibrated!.raw.forEach((s, i) => {
+    const expected = mapCalibration(result, samples[i], context, time + 1000)!;
+    assert.ok(Math.abs(s.x! - expected.x) < 1e-12);
+    assert.ok(Math.abs(s.y! - expected.y) < 1e-12);
+  });
+}
+const rejectedSignals = processTrackingSignals(
+  replay,
+  { ...result, verdict: 'RETRY' },
+  context,
+  time,
+);
+assert.ok(rejectedSignals.every((eye) => eye.calibrated!.qualityAfter.usable === 0));
+assert.equal(JSON.stringify(replay), replayBefore);
+const mapper = createCalibrationMapper(result, context, time + 1000);
+for (const sample of fixture().flatMap((take) => take.samples))
+  assert.equal(
+    JSON.stringify(mapper(sample)),
+    JSON.stringify(mapCalibration(result, sample, context, time + 1000)),
+  );
+const mutable = fit();
+const snapshot = createCalibrationMapper(mutable, context, time + 1000);
+mutable.models.left!.coefficientsX[0] = 100;
+mutable.models.left!.featureBounds.minX = 100;
+mutable.models.left!.referenceRoi.x = 1000;
+mutable.verdict = 'RETRY';
+assert.equal(JSON.stringify(snapshot(input)), JSON.stringify(mapped));
+assert.equal(createCalibrationMapper(mutable, context, time)(input), null);
+assert.equal(createCalibrationMapper(result, context, time + 16 * 60_000)(input), null);
+for (const bad of [
+  { ...input, frameIndex: -1 },
+  { ...input, frameIndex: 1.5 },
+  { ...input, decodedPtsUs: -1 },
+  { ...input, decodedPtsUs: NaN },
+  { ...input, x: -0.01 },
+  { ...input, y: 1.01 },
+  { ...input, confidence: NaN },
+  { ...input, roi: { ...input.roi, x: NaN } },
+])
+  assert.equal(mapper(bad), null);
 assert.equal(calibrationUsable(result, { ...context, cameraId: '0' }, time), false);
 assert.equal(calibrationUsable(result, { ...context, viewportHeight: 181 }, time), false);
 assert.equal(

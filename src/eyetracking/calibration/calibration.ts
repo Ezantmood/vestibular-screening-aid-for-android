@@ -29,7 +29,14 @@ export function median(xs: readonly number[]): number {
   return ordered.length % 2 ? ordered[mid] : (ordered[mid - 1] + ordered[mid]) / 2;
 }
 function finiteRoi(roi: EyeObservation['roi']): boolean {
-  return !!roi && Object.values(roi).every(Number.isFinite) && roi.width > 0 && roi.height > 0;
+  return (
+    !!roi &&
+    [roi.x, roi.y, roi.width, roi.height].every(Number.isFinite) &&
+    roi.x >= 0 &&
+    roi.y >= 0 &&
+    roi.width > 0 &&
+    roi.height > 0
+  );
 }
 function roiCompatible(roi: EyeObservation['roi'], ref: EyeObservation['roi']): boolean {
   return (
@@ -415,26 +422,52 @@ export function calibrationUsable(
     return false;
   }
 }
-export function mapCalibration(
-  result: CalibrationResult,
+export type CalibrationMapper = (
   observation: EyeObservation,
+) => { x: number; y: number; confidence: number } | null;
+
+/** Validate once at capture time and privately snapshot the small mapping models.
+ * Every observation still passes time, confidence, ROI and extrapolation gates. */
+export function createCalibrationMapper(
+  result: CalibrationResult,
   context: CalibrationContext,
   nowMs: number,
-): { x: number; y: number; confidence: number } | null {
+): CalibrationMapper {
+  if (!calibrationUsable(result, context, nowMs)) return () => null;
+  const copyModel = (model: EyeCalibration): EyeCalibration => ({
+    ...model,
+    coefficientsX: [...model.coefficientsX],
+    coefficientsY: [...model.coefficientsY],
+    referenceRoi: { ...model.referenceRoi },
+    featureBounds: { ...model.featureBounds },
+  });
+  const models = {
+    left: copyModel(result.models.left!),
+    right: copyModel(result.models.right!),
+  };
+  return (observation) => mapObservation(models[observation.eyeSide], observation);
+}
+
+function mapObservation(model: EyeCalibration | undefined, observation: EyeObservation) {
   if (
-    !calibrationUsable(result, context, nowMs) ||
+    !model ||
     observation.estimated ||
+    !Number.isInteger(observation.frameIndex) ||
+    observation.frameIndex < 0 ||
     observation.decodedPtsUs === null ||
     !Number.isFinite(observation.decodedPtsUs) ||
+    observation.decodedPtsUs < 0 ||
     observation.x === null ||
     observation.y === null ||
     ![observation.x, observation.y, observation.confidence].every(Number.isFinite) ||
+    observation.x < 0 ||
+    observation.x > 1 ||
+    observation.y < 0 ||
+    observation.y > 1 ||
     observation.confidence < CALIBRATION_POLICY.minConfidence ||
     observation.confidence > 1
   )
     return null;
-  const model = result.models[observation.eyeSide]!;
-  if (!model) return null;
   if (!roiCompatible(observation.roi, model.referenceRoi)) return null;
   const b = model.featureBounds;
   const dx = (b.maxX - b.minX) * 0.1;
@@ -450,4 +483,13 @@ export function mapCalibration(
   const y = evaluate(model.coefficientsY, observation.x, observation.y);
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) return null;
   return { x, y, confidence: Math.min(observation.confidence, model.quality) };
+}
+
+export function mapCalibration(
+  result: CalibrationResult,
+  observation: EyeObservation,
+  context: CalibrationContext,
+  nowMs: number,
+): ReturnType<CalibrationMapper> {
+  return createCalibrationMapper(result, context, nowMs)(observation);
 }

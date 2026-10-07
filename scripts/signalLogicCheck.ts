@@ -56,6 +56,21 @@ const st = processTrajectory(step);
 assert.equal(st.samples[4].processedX, 0.7);
 assert.equal(st.samples[3].processedX, 0.4);
 assert.equal(st.outliers, 0);
+// Regression: mixed raw/filtered support used to create >1 fraction/s reverse
+// spikes after a monotonic 240-fps ramp had already reached its endpoint.
+for (const dt of [4167, 2000]) {
+  const rapid = Array.from({ length: 180 }, (_, frameIndex) => ({
+    frameIndex,
+    decodedPtsUs: frameIndex * dt,
+    x: 0.15 + 0.7 * Math.max(0, Math.min(1, (frameIndex * dt - 80_656) / 50_000)),
+    y: 0.5,
+    confidence: 0.9,
+  }));
+  const processed = processTrajectory(rapid, { coordinateSpace: 'screen-normalized' });
+  assert.ok(processed.samples.every((s) => (s.velocityXPerSecond ?? 0) >= -1e-8));
+  assert.equal(processed.samples.at(-1)!.raw.x, 0.85);
+  assert.ok(Math.abs(processed.samples.at(-1)!.processedX! - 0.85) < 1e-10);
+}
 const noise = Array.from({ length: 200 }, (_, frameIndex) => ({
   frameIndex,
   decodedPtsUs: frameIndex * 8000,

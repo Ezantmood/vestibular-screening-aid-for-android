@@ -9,6 +9,7 @@
 // ever fabricated.
 
 import { requireOptionalNativeModule } from 'expo';
+import { reconcilePupilBatch } from '../eyetracking/pupil/reconcileBatch';
 
 import type {
   PupilBatchReport,
@@ -145,7 +146,8 @@ export function toPupilDetectionResults(
     candidateWidth: r.candidateWidth,
     candidateHeight: r.candidateHeight,
     confidence: r.confidence,
-    failureReason: toFailureReason(r.failureReason),
+    failureReason:
+      r.detectorId === detectorId ? toFailureReason(r.failureReason) : 'INVALID_GEOMETRY',
   }));
 }
 
@@ -199,26 +201,11 @@ export async function runPupilBatch(args: {
     saveOverlays: args.saveOverlays,
     requests,
   });
-  const native: PupilDetectionResult[] = report.results.map((r) => ({
-    frameIndex: r.frameIndex,
-    decodedPtsUs: r.decodedPtsUs,
-    eyeSide: r.eyeSide,
-    detectorId: args.detectorId,
-    roiX: r.roiX,
-    roiY: r.roiY,
-    roiWidth: r.roiWidth,
-    roiHeight: r.roiHeight,
-    centroidXInRoi: r.centroidXInRoi,
-    centroidYInRoi: r.centroidYInRoi,
-    centroidXInFrame: r.centroidXInFrame,
-    centroidYInFrame: r.centroidYInFrame,
-    normalizedX: r.normalizedX,
-    normalizedY: r.normalizedY,
-    candidateWidth: r.candidateWidth,
-    candidateHeight: r.candidateHeight,
-    confidence: r.confidence,
-    failureReason: toFailureReason(r.failureReason),
-  }));
+  const native = reconcilePupilBatch(
+    requests,
+    toPupilDetectionResults(report, args.detectorId),
+    args.detectorId,
+  );
   return { results: [...upstream, ...native], report };
 }
 
@@ -292,7 +279,17 @@ export async function runDensePupilBatch(args: {
     saveOverlays: args.saveOverlays,
     requests,
   });
-  return { results: [...upstream, ...toPupilDetectionResults(report, args.detectorId)], report };
+  return {
+    results: [
+      ...upstream,
+      ...reconcilePupilBatch(
+        requests,
+        toPupilDetectionResults(report, args.detectorId),
+        args.detectorId,
+      ),
+    ],
+    report,
+  };
 }
 
 export interface HintedPupilRequest extends PupilRoiRequest {
@@ -328,25 +325,10 @@ export async function runHintedPupilBatch(args: {
     args.saveOverlays ?? true,
     JSON.stringify(args.hints),
   );
-  const results: PupilDetectionResult[] = report.results.map((r) => ({
-    frameIndex: r.frameIndex,
-    decodedPtsUs: r.decodedPtsUs,
-    eyeSide: r.eyeSide,
-    detectorId: args.detectorId,
-    roiX: r.roiX,
-    roiY: r.roiY,
-    roiWidth: r.roiWidth,
-    roiHeight: r.roiHeight,
-    centroidXInRoi: r.centroidXInRoi,
-    centroidYInRoi: r.centroidYInRoi,
-    centroidXInFrame: r.centroidXInFrame,
-    centroidYInFrame: r.centroidYInFrame,
-    normalizedX: r.normalizedX,
-    normalizedY: r.normalizedY,
-    candidateWidth: r.candidateWidth,
-    candidateHeight: r.candidateHeight,
-    confidence: r.confidence,
-    failureReason: toFailureReason(r.failureReason),
-  }));
+  const results = reconcilePupilBatch(
+    args.hints,
+    toPupilDetectionResults(report, args.detectorId),
+    args.detectorId,
+  );
   return { results, report };
 }

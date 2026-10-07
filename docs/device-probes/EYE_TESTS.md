@@ -97,3 +97,51 @@ Remaining limits: supervised successful calibration/fixation, external gaze
 reference, camera exposure and display onset measurement, visual degrees,
 filter/sampling effects on onset and peak velocity, high-confidence false locks,
 and clinical validation. Contract: [Eye tests](../EYE_TESTS.md).
+
+## Robustness follow-up, 2026-10-07
+
+Baseline: commit `9de774b`. Synthetic regression reproduced 0/9 eligible Saccade
+responses at 240 fps from the fixed two-interval duration check. After the elapsed
+PTS fix, a monotonic reference also exposed filter-created reversals after the
+endpoint. Preserving complete rapid-motion window support fixes that artifact.
+The reference now returns 9/9 responses at 120/240/500 fps and irregular cadence;
+blink during onset remains invalid with null latency/peak. Eleven suites pass,
+including 33 eye-test groups, native slot reconciliation and deferred capture
+preparation/cancellation failures.
+
+Node 25 benchmark on Mac, synthetic VALID affine calibration, 2,404 observations,
+10 warm-up and 25 measured batches: median old per-frame validation **9.300 ms**,
+validated snapshot **0.123 ms** (about 75.6× for this mapping step), including
+snapshot construction. All mapped coordinates/confidences equal baseline.
+It does not measure native decode/ML Kit runtime or establish an overall speedup.
+
+Pure production replay of both stored real captures audited 4,808 slots. Raw
+coordinates/PTS, accepted support, coverage and segment boundaries are unchanged;
+no interpolated samples or derivatives across gaps. The corrected filter changes
+3/2 processed pupil positions L/R in Pursuit and 4/13 in Saccade, maximum difference
+0.00872 ROI fraction. Both tests remain INVALID with all calibrated metrics N/A.
+No new supervised human gaze measurement was collected.
+
+Xiaomi native/device checks used temporary effects that call production seams:
+
+- The stored Saccade MP4 decodes 1,202 frames. A correct PTS request returns its
+  original measured centroid (frame 0, PTS 0, X 1087.3897782010085). An injected
+  frame-1 PTS 8334 instead of actual 8333 µs produces INVALID_GEOMETRY, null
+  centroid and the exact requested/decoded mismatch warning.
+- Production StimulusScreen's target width was changed to 240 dp during countdown.
+  The final viewport recheck rejected it before recording; busy cleared and the
+  camera returned to preview for retry.
+- Production capture hook awaited 150 ms setup, then recorded a 1.2-second smoke
+  take successfully with preview active and 72 batched sensor callbacks. This is
+  lifecycle verification, not a successful calibrated eye test or an FPS claim.
+- Full dense P3 replay of the stored Saccade video returned **2,404/2,404 slots**,
+  decoded 1,202 frames, zero changed PTS/failure/centroid/confidence measurements,
+  no warnings/error. The detector batch took 118.724 s; this excludes P2 ML Kit,
+  rescue and metric processing. Failed detector confidence remains intact for
+  audit; only absent/ambiguous slot identity creates a synthetic null failure.
+
+JDK 21 arm64 Android build passed (244 tasks; 13 executed). APK reinstall succeeded.
+Final production typecheck/lint, Prettier, all eleven suites and Android Hermes
+export pass. Temporary effects/input were removed, manual Home restored, camera
+clients empty, original RETRY calibration SHA unchanged. Remaining measurement
+limitations from the original runs still apply.

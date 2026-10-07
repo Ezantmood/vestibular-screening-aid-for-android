@@ -28,6 +28,7 @@ export interface ReplayRunResult {
   auditOverlays: string[];
   /** Decoded frame indices that were real ML Kit keyframes (either eye). */
   keyframeFrames: number[];
+  warnings: string[];
 }
 
 /** Representative frame indices for the visual audit (capped, deduped). */
@@ -256,12 +257,14 @@ export async function analyzeFileForTracking(args: {
     frameCount: analysis.decodedFrameCount,
   });
   const roisWithCondition = rois.map((r) => ({ ...r, condition: args.condition }));
-  const { results: standard } = await runDensePupilBatch({
+  const standardBatch = await runDensePupilBatch({
     filePath: args.filePath,
     detectorId: args.detectorId,
     saveOverlays: false,
     rois: roisWithCondition,
   });
+  const standard = standardBatch.results;
+  const warnings = [...analysis.warnings, ...(standardBatch.report?.warnings ?? [])];
   const hints = buildRescueHints(standard);
   let rescued: PupilDetectionResult[] = [];
   const rescueFailures: Record<string, number> = {};
@@ -273,6 +276,7 @@ export async function analyzeFileForTracking(args: {
       hints,
     });
     rescued = out.results;
+    warnings.push(...(out.report?.warnings ?? []));
     for (const r of rescued) {
       const k = r.failureReason ?? 'RESCUED_OK';
       rescueFailures[k] = (rescueFailures[k] ?? 0) + 1;
@@ -330,5 +334,6 @@ export async function analyzeFileForTracking(args: {
     rescueFailures,
     auditOverlays,
     keyframeFrames: [...new Set(rois.filter((r) => r.keyframe).map((r) => r.frameIndex))],
+    warnings,
   };
 }

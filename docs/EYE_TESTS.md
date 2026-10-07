@@ -19,6 +19,10 @@ The explicit debug recording button permits missing calibration: tracking and
 pupil signals are saved, test is INVALID and calibrated metrics remain null.
 Candidate coefficients from RETRY are never used. Offline analysis uses the
 capture-time calibration snapshot so processing delay does not expire valid data.
+The mapping models are validated once per replay and copied privately; every
+frame still passes the observation/PTS/confidence/ROI/extrapolation guards.
+The target's measured dimensions and absolute origin are checked again after
+countdown, before the recorder starts. A changed viewport aborts the attempt.
 
 The screen shows test/eye quality, support, units, metric values and every Saccade
 response including its failure reason. JSON details link to both local artifacts.
@@ -57,7 +61,9 @@ are not validated against that study's visual-angle measurements.
   fixation near the previous target. The first sustained rapid response wins;
   wrong-direction or anticipatory motion is not replaced by later corrections.
 - Onset is the preceding PTS boundary of the first sustained high-velocity
-  interval. Peak velocity is the largest observed absolute horizontal derivative
+  interval. Sustained duration accumulates actual PTS across consecutive intervals,
+  including at 240 fps or variable cadence; blink/loss resets validity.
+  Peak velocity is the largest observed absolute horizontal derivative
   during the primary response, with a raw same-support peak also reported.
   Gaps, inadequate time resolution, direction reversal, truncated movement or
   failure to observe a stable endpoint invalidate the response.
@@ -94,3 +100,12 @@ sampled peak velocity. Catch-up classification and target-error metrics depend o
 estimated synchronization. Viewing geometry, visual-angle conversion, external
 reference eye tracker and clinical validation remain absent. Verification and real
 measurements: [device evidence](device-probes/EYE_TESTS.md).
+
+Rapid-motion filtering preserves the whole local support around a detected fast
+window. Mixing filtered edge samples with preserved centers used to produce false
+reversals at high cadence. Raw data, missing samples and segment boundaries remain
+unchanged. Native pupil batches are reconciled to one outcome per requested eye
+slot; missing results become `NATIVE_RESULT_MISSING`, duplicates/identity errors
+become explicit invalid outcomes with null centroids. Native decode also compares
+the requested P2 PTS to the actual P3 decoder output; a mismatch is rejected and
+logged. Decoder warnings remain in replay/signal debug JSON.

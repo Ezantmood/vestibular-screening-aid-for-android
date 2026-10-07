@@ -226,27 +226,51 @@ export function processTrajectory(
       });
     }
   }
-  let smoothed = 0;
+  const windows = samples.map((s, n) => {
+    let start = n;
+    let end = n;
+    if (s.usable) {
+      while (
+        start > 0 &&
+        samples[start - 1].segmentId === s.segmentId &&
+        s.raw.decodedPtsUs! - samples[start - 1].raw.decodedPtsUs! <= options.halfWindowUs
+      )
+        start--;
+      while (
+        end + 1 < samples.length &&
+        samples[end + 1].segmentId === s.segmentId &&
+        samples[end + 1].raw.decodedPtsUs! - s.raw.decodedPtsUs! <= options.halfWindowUs
+      )
+        end++;
+    }
+    return { start, end };
+  });
+  // Preserve the whole support of a rapid-motion window. Switching just its
+  // center between raw and filtered values creates false reversals at the edges.
+  const protectedRanges = new Int32Array(samples.length + 1);
   for (let n = 0; n < samples.length; n++) {
-    const s = samples[n];
-    if (!s.usable) continue;
-    const neighbors: ProcessedSignalSample[] = [s];
-    for (const direction of [-1, 1]) {
-      for (let j = n + direction; j >= 0 && j < samples.length; j += direction) {
-        const next = samples[j];
-        if (
-          !next.usable ||
-          next.segmentId !== s.segmentId ||
-          Math.abs(next.raw.decodedPtsUs! - s.raw.decodedPtsUs!) > options.halfWindowUs
-        )
-          break;
-        neighbors.push(next);
+    if (!samples[n].usable) continue;
+    const { start, end } = windows[n];
+    for (let j = start; j <= end; j++) {
+      if (distance(samples[j].raw, samples[n].raw) > options.preserveMotionDistance) {
+        protectedRanges[start]++;
+        protectedRanges[end + 1]--;
+        break;
       }
     }
-    if (neighbors.some((v) => distance(v.raw, s.raw) > options.preserveMotionDistance)) {
+  }
+  let smoothed = 0;
+  let protectedCount = 0;
+  for (let n = 0; n < samples.length; n++) {
+    const s = samples[n];
+    protectedCount += protectedRanges[n];
+    if (!s.usable) continue;
+    if (protectedCount > 0) {
       s.reasons.push('motion-preserved');
       continue;
     }
+    const { start, end } = windows[n];
+    const neighbors = samples.slice(start, end + 1);
     if (neighbors.length >= 3) {
       s.processedX = localFit(neighbors, s.raw.decodedPtsUs!, 'x');
       s.processedY = localFit(neighbors, s.raw.decodedPtsUs!, 'y');

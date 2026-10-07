@@ -81,22 +81,27 @@ function responseForStep(
     return fail('UNSTABLE_BASELINE');
   const first = joined.indexOf(baseline.at(-1)!);
   let onset = -1;
+  let candidate = -1;
+  let candidateDirection = 0;
   for (let i = first + 1; i < joined.length; i++) {
     const s = joined[i];
     if (s.target.elapsedUs === null || s.target.elapsedUs >= nextCommit) break;
     if (!continuous(joined[i - 1], s)) return fail('BLINK_OR_DROPOUT');
-    if (Math.abs(s.signal.velocityXPerSecond!) < TEST_POLICY.rapidVelocityPerSecond) continue;
-    const next = joined[i + 1];
-    if (!next || !continuous(s, next)) return fail('BLINK_OR_DROPOUT');
-    if (
-      Math.sign(s.signal.velocityXPerSecond!) * next.signal.velocityXPerSecond! <
-      TEST_POLICY.rapidVelocityPerSecond
-    )
+    if (Math.abs(s.signal.velocityXPerSecond!) < TEST_POLICY.rapidVelocityPerSecond) {
+      candidate = -1;
       continue;
+    }
+    const sign = Math.sign(s.signal.velocityXPerSecond!);
+    if (candidate < 0 || sign !== candidateDirection) {
+      candidate = i;
+      candidateDirection = sign;
+    }
+    // Confirm a sustained movement by actual time, then retain its FIRST interval.
+    // Two frames alone cover <10 ms at 240 fps and must not hide a valid response.
     const duration =
-      (next.signal.raw.decodedPtsUs! - joined[i - 1].signal.raw.decodedPtsUs!) / 1000;
-    if (duration < TEST_POLICY.rapidMinDurationMs) continue;
-    onset = i;
+      (s.signal.raw.decodedPtsUs! - joined[candidate - 1].signal.raw.decodedPtsUs!) / 1000;
+    if (i === candidate || duration < TEST_POLICY.rapidMinDurationMs) continue;
+    onset = candidate;
     break;
   }
   if (onset < 0) {

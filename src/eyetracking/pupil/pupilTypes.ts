@@ -23,6 +23,7 @@ export type PupilFailureReason =
   | 'NO_PUPIL_CANDIDATE'
   | 'AMBIGUOUS_CANDIDATES'
   | 'LOW_CONFIDENCE'
+  | 'NATIVE_RESULT_MISSING'
   | 'INVALID_GEOMETRY';
 
 export type PupilDetectionVerdict =

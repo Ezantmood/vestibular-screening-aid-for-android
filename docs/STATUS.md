@@ -464,3 +464,28 @@ Final verification: `npm run check`, `npm run format`, all nine `npm test` suite
 Final APK reinstalled successfully; manual Home has the two-test entry, no active
 camera client and no temporary harness. Original RETRY calibration survives
 byte-for-byte; final metric JSON artifacts were saved and read back on-device.
+
+## Eye-test robustness follow-up — 2026-10-07
+
+- Fixed Saccade onset confirmation counting two samples instead of elapsed PTS:
+  valid sustained 240-fps responses previously all became NO_RESPONSE. Actual
+  duration now accumulates without crossing blink/dropout or a target step.
+- Fixed false reversals from mixed raw/filtered edges of rapid movement. Protect
+  the whole local motion window while preserving raw, missing slots and segments.
+- Calibration mapping validates/copies models once per replay, retaining all
+  per-frame guards. Node benchmark on a synthetic VALID model, 2,404 observations,
+  median of 25 warmed runs: 9.300 → 0.123 ms; coordinates identical. This measures
+  mapping only, not the native/offline pipeline runtime.
+- Reconcile native results per requested eye slot: missing/duplicate/invalid
+  identity cannot inflate coverage. Actual P3 decoded PTS must match requested
+  P2 PTS; mismatch is rejected and warnings retained in debug artifacts.
+- Re-measure target dimensions/origin after countdown and prepare asynchronously
+  before recorder start, with cancellation checked again after preparation.
+- Eleven regression suites (33 eye-test groups), strict type/lint and Android
+  native build pass. Xiaomi rejects an injected 1 µs PTS mismatch and a viewport
+  resize during countdown; stable async preparation still records successfully.
+  Full native replay preserves all 2,404 original PTS/failure/centroid/confidence
+  outcomes from the stored 1,202-frame Saccade clip, with zero warnings/errors.
+  Both actual eye tests remain INVALID because the calibration is RETRY; no new
+  valid human gaze metrics or expanded feature scope is claimed. Details:
+  [follow-up evidence](device-probes/EYE_TESTS.md#robustness-follow-up-2026-10-07).

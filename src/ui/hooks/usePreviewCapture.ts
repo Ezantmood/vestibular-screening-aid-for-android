@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import type { FixedMode } from '../../camera/fixedModes';
 import type { PreviewRecordingReport } from '../../camera/livePreview';
+import { CaptureCancelled, prepareRecording } from '../../camera/recordingPreparation';
 import {
   closePreviewCamera,
   openPreviewCamera,
@@ -12,7 +13,7 @@ import {
 } from '../../camera/livePreview';
 
 type Stage = 'closed' | 'opening' | 'preview' | 'countdown' | 'recording' | 'finishing' | 'closing';
-export class CaptureCancelled extends Error {}
+export { CaptureCancelled } from '../../camera/recordingPreparation';
 
 export function usePreviewCapture() {
   const [stage, setStage] = useState<Stage>('closed');
@@ -88,7 +89,7 @@ export function usePreviewCapture() {
   async function capture(
     mode: FixedMode,
     duration: number,
-    onRecording?: () => void,
+    onRecording?: (cancelled: () => boolean) => void | Promise<void>,
     options?: { countdownSeconds?: number },
   ): Promise<PreviewRecordingReport> {
     if (operation.current || stage !== 'preview' || activeMode.current !== mode.label) {
@@ -104,13 +105,12 @@ export function usePreviewCapture() {
         setCountdown(remaining);
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-      if (cancelled.current || !mounted.current) throw new CaptureCancelled('Đã hủy ghi hình.');
+      await prepareRecording(() => cancelled.current || !mounted.current, onRecording);
       setCountdown(0);
       setElapsed(0);
       startTime.current = Date.now();
       recording.current = true;
       setStage('recording');
-      onRecording?.();
       const result = await startPreviewRecording(duration);
       recording.current = false;
       if (cancelled.current || !mounted.current) throw new CaptureCancelled('Đã đóng camera.');

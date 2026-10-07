@@ -27,7 +27,11 @@ import {
 } from '../../tests/stimulus/engine';
 import type { MvpTestId } from '../../tests/types';
 import { loadCalibration } from '../../storage/calibrationStore';
-import { calibrationUsable } from '../../eyetracking/calibration/calibration';
+import {
+  calibrationUsable,
+  sameCalibrationContext,
+} from '../../eyetracking/calibration/calibration';
+import type { ClockBridge } from '../../tests/stimulus/synchronization';
 import type { CalibrationContext } from '../../eyetracking/calibration/types';
 import type { EyeTestResult } from '../../tests/metrics/types';
 import EyeTestResults from '../components/EyeTestResults';
@@ -91,9 +95,9 @@ export default function StimulusScreen() {
       recordPresentation(run.current, target, target.requestedElapsedUs, nowUs());
   }, [target]);
 
-  function start() {
+  function start(display = size) {
     stop();
-    viewport.current = { ...size };
+    viewport.current = { width: display.width, height: display.height };
     run.current = beginStimulus(defaultStimulus(testId), nowUs());
     setRunning(true);
     scroll.current?.scrollTo({ y: 0, animated: false });
@@ -143,8 +147,8 @@ export default function StimulusScreen() {
         width: mode.width,
         height: mode.height,
         fps: mode.fpsMax,
-        viewportWidth: size.width,
-        viewportHeight: size.height,
+        viewportWidth: display.width,
+        viewportHeight: display.height,
         viewportLeft: display.left,
         viewportTop: display.top,
         detectorId: 'percentile-dark',
@@ -155,18 +159,32 @@ export default function StimulusScreen() {
         throw new Error(
           'INVALID — Cần calibration đạt chất lượng cho camera và vùng target này. Quay lại Home → Hiệu chỉnh mắt, rồi thử lại. Có thể ghi debug để kiểm tra tracking; metric sẽ N/A.',
         );
-      const bridge = await sampleStimulusClock();
+      let bridge: ClockBridge | null = null;
       let recordedAtMs = Date.now();
-      const captureReport = await camera.capture(mode, 10, () => {
+      const captureReport = await camera.capture(mode, 10, async (isCancelled) => {
+        const currentDisplay = await measureTargetViewport(board);
+        if (isCancelled()) throw new CaptureCancelled('Đã hủy test.');
+        const currentContext: CalibrationContext = {
+          ...context,
+          viewportWidth: currentDisplay.width,
+          viewportHeight: currentDisplay.height,
+          viewportLeft: currentDisplay.left,
+          viewportTop: currentDisplay.top,
+        };
+        if (!sameCalibrationContext(context, currentContext))
+          throw new Error('Vùng target đã thay đổi khi đếm ngược. Căn lại màn hình và thử lại.');
+        bridge = await sampleStimulusClock();
+        if (isCancelled()) throw new CaptureCancelled('Đã hủy test.');
         recordedAtMs = Date.now();
         if (!diagnostic && (!calibration || !calibrationUsable(calibration, context, recordedAtMs)))
           throw new Error('Calibration đã hết hạn. Hãy hiệu chỉnh lại.');
-        start();
+        start(currentDisplay);
       });
       const session = run.current;
       stop(captureReport.manualStop);
       await camera.close();
-      if (!mounted.current || session === null || !captureReport.filePath) return;
+      if (!mounted.current || session === null || !captureReport.filePath || bridge === null)
+        return;
       setMessage('Đang tracking → calibration → xử lý tín hiệu → metric. Có thể mất vài phút.');
       const analysis = await completeEyeTestRecording({
         session,

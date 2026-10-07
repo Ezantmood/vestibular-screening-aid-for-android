@@ -14,6 +14,8 @@ const checks = [
   'signalLogicCheck',
   'screenAwakeLogicCheck',
   'eyeTestLogicCheck',
+  'pupilBatchLogicCheck',
+  'captureSafetyLogicCheck',
 ];
 try {
   execFileSync(
