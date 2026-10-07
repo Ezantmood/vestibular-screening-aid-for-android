@@ -15,6 +15,12 @@ P4 tracking and stores artifacts through the camera/storage seams.
   for an entire 1.5-second recording through recorder finalization. Clock bridge
   RTT must fit both hold boundaries. This avoids a moving-target exposure join;
   MediaRecorder start still does not establish individual frame exposure times.
+- Before capture, wait for native scroll offset zero and two consecutive stable,
+  non-negative viewport measurements, with a two-second deadline and cancellation.
+  Use measured dimensions/origin for context, lock scrolling while busy, and
+  recheck identical geometry before every recorder start. A queued `scrollTo`
+  alone does not establish the target's display position. Pursuit/Saccade use
+  the same guard, including the post-countdown measurement.
 - Features are accepted tracked centroids normalized against each frame's eye
   ROI. Predictions and estimated timestamps are excluded. Raw P3/P4 values stay
   separate. Robust medians trim distant samples; every target/eye needs at least

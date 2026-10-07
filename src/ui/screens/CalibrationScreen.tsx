@@ -8,6 +8,7 @@ import {
   CALIBRATION_TAKE_SECONDS,
 } from '../../eyetracking/calibration/protocol';
 import type { CalibrationContext, CalibrationTarget } from '../../eyetracking/calibration/types';
+import { sameCalibrationContext } from '../../eyetracking/calibration/calibration';
 import { analyzeCalibrationTakes, type CapturedCalibrationTake } from '../../tests/eyeAnalysis';
 import { sampleStimulusClock } from '../../tests/stimulus/sessionAnalysis';
 import CameraCapturePanel from '../components/CameraCapturePanel';
@@ -34,6 +35,7 @@ export default function CalibrationScreen() {
   const committed = useRef<{ id: string; jsUs: number } | null>(null);
   const viewport = useRef(size);
   const scroll = useRef<ScrollView>(null);
+  const scrollOffset = useRef(0);
   const board = useRef<View>(null);
   useLayoutEffect(() => {
     committed.current = target ? { id: target.id, jsUs: nowUs() } : null;
@@ -73,27 +75,29 @@ export default function CalibrationScreen() {
     setError(null);
     setReport('');
     viewport.current = { ...size };
-    const context: CalibrationContext = {
-      cameraId: mode.cameraId,
-      width: mode.width,
-      height: mode.height,
-      fps: mode.fpsMax,
-      viewportWidth: size.width,
-      viewportHeight: size.height,
-      viewportLeft: 0,
-      viewportTop: 0,
-      detectorId: 'percentile-dark',
-      coordinateVersion: 'decoded-roi-v1',
-    };
     const takes: CapturedCalibrationTake[] = [];
     const createdAtMs = Date.now();
     try {
       // A failed/cancelled retry must never leave an older mapping active.
       await invalidateCalibration();
       scroll.current?.scrollTo({ y: 0, animated: false });
-      const display = await measureTargetViewport(board);
-      context.viewportLeft = display.left;
-      context.viewportTop = display.top;
+      const viewportOptions = {
+        ready: () => Math.abs(scrollOffset.current) < 0.5,
+        cancelled: () => cancelled.current || !mounted.current,
+      };
+      const display = await measureTargetViewport(board, viewportOptions);
+      const context: CalibrationContext = {
+        cameraId: mode.cameraId,
+        width: mode.width,
+        height: mode.height,
+        fps: mode.fpsMax,
+        viewportWidth: display.width,
+        viewportHeight: display.height,
+        viewportLeft: display.left,
+        viewportTop: display.top,
+        detectorId: 'percentile-dark',
+        coordinateVersion: 'decoded-roi-v1',
+      };
       for (let i = 0; i < CALIBRATION_TARGETS.length; i++) {
         if (cancelled.current || !mounted.current) break;
         const next = CALIBRATION_TARGETS[i];
@@ -108,9 +112,29 @@ export default function CalibrationScreen() {
         await new Promise((resolve) => setTimeout(resolve, 750));
         if (cancelled.current || !mounted.current) break;
         const bridge = await sampleStimulusClock();
-        const capture = await camera.capture(mode, CALIBRATION_TAKE_SECONDS, undefined, {
-          countdownSeconds: i === 0 ? 3 : 0,
-        });
+        const capture = await camera.capture(
+          mode,
+          CALIBRATION_TAKE_SECONDS,
+          async (isCancelled) => {
+            const current = await measureTargetViewport(board, {
+              ...viewportOptions,
+              cancelled: () => viewportOptions.cancelled() || isCancelled(),
+            });
+            if (
+              !sameCalibrationContext(context, {
+                ...context,
+                viewportWidth: current.width,
+                viewportHeight: current.height,
+                viewportLeft: current.left,
+                viewportTop: current.top,
+              })
+            )
+              throw new Error('Vùng target đã thay đổi. Căn lại màn hình và thử calibration lại.');
+          },
+          {
+            countdownSeconds: i === 0 ? 3 : 0,
+          },
+        );
         const releasedJsUs = nowUs();
         takes.push({
           target: { ...next },
@@ -175,7 +199,11 @@ export default function CalibrationScreen() {
   return (
     <ScrollView
       ref={scroll}
-      scrollEnabled={!target}
+      scrollEnabled={!busy}
+      scrollEventThrottle={16}
+      onScroll={(event) => {
+        scrollOffset.current = event.nativeEvent.contentOffset.y;
+      }}
       contentContainerStyle={styles.content}
       testID="calibration-screen"
     >

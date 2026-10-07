@@ -114,3 +114,66 @@ No temporary harness remains in source.
 
 No new calibration or trajectory measurements were collected in this follow-up.
 The 2026-10-05 measured results and limitations above remain unchanged.
+
+## User calibration recheck — 2026-10-07
+
+The user's new 14-target recording ran at FRONT 1920×1080 fixed [120,120].
+All takes completed in protocol order with 2,523 encoded and decoded frames.
+Result `cal-1791346355283`, captured about 11:11–11:12 local time, finished
+analysis about 11:19. The 9,269,782-byte artifact was read from device-private
+storage; videos stayed on-device. This result is distinct from the October 5 run.
+
+**RETRY** has 29 reason entries. Recorded context had `viewportTop=-201`:
+`scrollTo({y:0})` was queued, but the previous single-RAF measurement could
+still observe the off-screen board. Context dimensions also came from the
+earlier layout rather than that measurement. The original context is preserved;
+there is no evidence establishing its actual display origin at each exposure.
+
+The fix waits for native offset zero and two stable, finite, non-negative
+viewport measurements, with cancellation and a two-second deadline. Context
+uses measured dimensions/origin. Scrolling is locked throughout the busy run,
+and each capture rechecks geometry before recording. The shared Pursuit/Saccade
+measurement uses the same guard. An unstable/changed viewport prevents recording.
+
+On Xiaomi, a temporary preflight invoked the real CalibrationScreen handler
+after native scrolling: board top **-179**, offset **293.6667** before preparation;
+top **114.6667**, offset **0** after the guard. No recording or calibration
+invalidation was performed in this QA run. The effect and Home override were
+removed; manual Home was restored. This verifies viewport preparation, not a
+new successful human calibration.
+
+| New recording evidence                         | Image-space left | Image-space right |
+| ---------------------------------------------- | ---------------: | ----------------: |
+| Accepted calibration observations              |    1,849 / 2,523 |       230 / 2,523 |
+| Accepted calibration coverage                  |            73.3% |              9.1% |
+| Targets passing per-target gates               |          11 / 14 |            0 / 14 |
+| Fit RMSE (viewport fraction)                   |           0.2676 |               N/A |
+| Held-out RMSE (viewport fraction)              |           0.3885 |               N/A |
+| Held-out maximum error                         |           0.4862 |               N/A |
+| Usable processed pupil slots (confidence ≥.35) |    1,891 / 2,523 |     1,314 / 2,523 |
+
+Left fails ROI-movement, coverage at two fit targets, fit and held-out validation
+gates. Right fails coverage at every target, with additional unstable-fixation
+and ROI-movement flags; missing eligible features prevent a model. Raw detector
+SUCCESS counts (1,947 left / 1,979 right) are not calibration coverage: median
+SUCCESS confidence is 0.6084 / 0.4645, and tracking rejects 51 / 609 candidates.
+Calibration requires accepted tracked features with confidence ≥.5. These flags
+describe measurement quality, not a verified physical cause or diagnosis.
+
+Replaying all **5,046** saved eye slots with the current domain code gives the
+identical fitted RETRY result. Zero raw changes, fabricated tracked positions,
+cross-gap derivatives, missing-to-valid samples, interpolation, PTS errors or
+slot-count errors. Five informational rotation-fallback warnings preserve
+mapped-back ROI coordinates; no decoder/PTS error was found. Mapping produces
+zero usable viewport observations, including at capture time before expiry.
+
+The original latest artifact remains byte-for-byte unchanged, SHA-256
+`f2e854f599b74782b690d4c5528efef6922242ee77fdce5c41ba3cbd034d2515`.
+Twelve execution suites, strict typecheck/lint, formatting, Android export and
+JDK 21 arm64 native build pass. New checks cover the measured negative-origin
+race, scroll readiness, changing/invalid geometry, missing callback deadline,
+cancellation and preventing recorder start on failed preparation.
+
+Fixing viewport preparation does not establish acceptable detection or gaze
+accuracy for this recording. No thresholds were relaxed, no model was forced
+VALID, and no valid Pursuit/Saccade metrics can be derived from this calibration.

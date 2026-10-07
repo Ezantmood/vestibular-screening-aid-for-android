@@ -64,6 +64,7 @@ export default function StimulusScreen() {
   const mounted = useRef(true);
   const lock = useRef(false);
   const scroll = useRef<ScrollView>(null);
+  const scrollOffset = useRef(0);
   const board = useRef<View>(null);
 
   function stop(cancelled = true) {
@@ -141,7 +142,10 @@ export default function StimulusScreen() {
     try {
       const mode = modes[index];
       scroll.current?.scrollTo({ y: 0, animated: false });
-      const display = await measureTargetViewport(board);
+      const display = await measureTargetViewport(board, {
+        ready: () => Math.abs(scrollOffset.current) < 0.5,
+        cancelled: () => !mounted.current,
+      });
       const context: CalibrationContext = {
         cameraId: mode.cameraId,
         width: mode.width,
@@ -162,7 +166,10 @@ export default function StimulusScreen() {
       let bridge: ClockBridge | null = null;
       let recordedAtMs = Date.now();
       const captureReport = await camera.capture(mode, 10, async (isCancelled) => {
-        const currentDisplay = await measureTargetViewport(board);
+        const currentDisplay = await measureTargetViewport(board, {
+          ready: () => Math.abs(scrollOffset.current) < 0.5,
+          cancelled: isCancelled,
+        });
         if (isCancelled()) throw new CaptureCancelled('Đã hủy test.');
         const currentContext: CalibrationContext = {
           ...context,
@@ -217,6 +224,10 @@ export default function StimulusScreen() {
     <ScrollView
       ref={scroll}
       scrollEnabled={!running && !busy}
+      scrollEventThrottle={16}
+      onScroll={(event) => {
+        scrollOffset.current = event.nativeEvent.contentOffset.y;
+      }}
       contentContainerStyle={styles.content}
       testID="stimulus-screen"
     >

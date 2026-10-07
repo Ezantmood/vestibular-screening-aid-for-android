@@ -489,3 +489,18 @@ byte-for-byte; final metric JSON artifacts were saved and read back on-device.
   Both actual eye tests remain INVALID because the calibration is RETRY; no new
   valid human gaze metrics or expanded feature scope is claimed. Details:
   [follow-up evidence](device-probes/EYE_TESTS.md#robustness-follow-up-2026-10-07).
+
+## User calibration recheck — 2026-10-07
+
+- Read the newly recorded 14-target artifact: 2,523 encoded/decoded frames,
+  result `cal-1791346355283`, **RETRY**. Calibration accepted coverage is 73.3%
+  left / 9.1% right; left held-out RMSE 0.3885 exceeds the 0.08 viewport gate,
+  and right has no eligible model. No usable gaze or eye-test metric is claimed.
+- Found and fixed a viewport race: measuring immediately after queued scroll
+  saved `viewportTop=-201`. Wait for native scroll completion and stable visible
+  geometry, use measured dimensions, lock scrolling and recheck each take.
+  Xiaomi preflight reproduced top -179 and correctly measured 114.67 after scroll.
+- All 5,046 real eye slots pass integrity replay; original artifact hash unchanged.
+  Twelve regression suites, strict type/lint, formatting, Android export and native
+  build pass. Manual Home restored; temporary QA effects removed.
+  Details: [new calibration evidence](device-probes/CALIBRATION_SIGNALS.md#user-calibration-recheck--2026-10-07).
