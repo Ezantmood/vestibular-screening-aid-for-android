@@ -3,6 +3,9 @@
 This workflow covers Calibration → Smooth Pursuit → Horizontal Saccade only.
 Do not start Batch 4. Do not connect to, remotely access or control the Xiaomi;
 Wireless Debugging and ADB are not part of this workflow.
+For owner-operated Metro + QR + Fast Refresh use the separate
+[Development APK workflow](DEVELOPMENT_BUILD.md). The offline APK below cannot
+connect to Metro; installing the Development APK updates the same app package.
 
 ## Build on the computer
 

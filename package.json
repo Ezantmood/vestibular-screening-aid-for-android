@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "expo": "~57.0.24",
+    "expo": "~57.0.27",
+    "expo-dev-client": "~57.0.19",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-native": "0.86.3"
@@ -16,8 +17,8 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
+    "start": "expo start --dev-client --lan",
+    "android": "npm run build:dev",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
@@ -26,9 +27,12 @@
     "format:write": "prettier --write .",
     "check": "npm run typecheck && npm run lint",
     "test": "node scripts/runLogicChecks.mjs",
-    "build:batch3": "node scripts/buildBatch3.mjs",
+    "build:batch3": "node scripts/buildAndroidApk.mjs batch3",
     "verify:batch3": "node scripts/verifyBatch3Apk.mjs",
-    "replay:batch3": "node scripts/replayBatch3Evidence.mjs"
+    "replay:batch3": "node scripts/replayBatch3Evidence.mjs",
+    "start:clear": "expo start --dev-client --lan --clear",
+    "build:dev": "node scripts/buildAndroidApk.mjs development",
+    "verify:dev": "node scripts/verifyDevelopmentApk.mjs"
   },
   "private": true
 }

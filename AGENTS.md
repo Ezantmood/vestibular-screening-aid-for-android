@@ -5,12 +5,14 @@ Working agreement for AI/human contributors. Details live in `docs/` — don't d
 ## Stack & target
 
 - Android-first. React Native + TypeScript + Expo SDK 57. Test device: Xiaomi Redmi Note 13 Pro 5G.
-- Expo Go for bootstrap. Move to Expo Development Build + Kotlin modules only when custom native code is needed (see `docs/DECISIONS.md`).
+- Expo Development Build + existing Kotlin modules; see `docs/DEVELOPMENT_BUILD.md`.
 
 ## Commands
 
 ```bash
 npm install
+npm start            # Metro LAN + dev-client QR; owner opens on phone
+npm run build:dev    # local Development APK; no device install/launch
 npm run build:batch3  # local APK build; JDK 21, no phone connection
 npm run typecheck
 npm run lint
@@ -31,9 +33,10 @@ npm run check   # typecheck + lint (run before committing)
 
 - Current work is Batch 3: calibration plus the existing Smooth Pursuit and
   Horizontal Saccade pipeline. Do not start Batch 4 without a new request.
-- No Wireless Debugging, ADB, phone connections or remote phone access/control.
-  Build/check on the computer; physical verification is owner-run in the
-  standalone APK. See [workflow](docs/BATCH3_VALIDATION.md).
+- No Wireless Debugging, ADB or remote phone inspection/control. Owner-operated
+  Metro LAN + QR is authorized; never invoke CLI device launch/install.
+  Build/check on the computer. See [development workflow](docs/DEVELOPMENT_BUILD.md)
+  and [standalone physical verification](docs/BATCH3_VALIDATION.md).
 - No expanded patient/session storage, clinical reports, PDF, other eye tests,
   or diagnosis. Preserve intentional stubs outside this scope.
 - Never lower quality gates or fabricate measurements to obtain VALID. Distinguish

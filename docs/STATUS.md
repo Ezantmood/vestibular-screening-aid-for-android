@@ -524,3 +524,24 @@ byte-for-byte; final metric JSON artifacts were saved and read back on-device.
   validation RMSE 0.3885, no right model). No new reliable metrics are claimed.
   Xiaomi runtime, export and new supervised recordings are pending owner testing.
   [Instructions](BATCH3_VALIDATION.md) · [findings](device-probes/BATCH3_OFFLINE_REVIEW.md).
+
+## Development Build workflow repair — 2026-10-08
+
+- Reused EAS development profile, existing Android package/key and four Kotlin
+  modules. Added missing SDK-compatible `expo-dev-client` and launcher plugin;
+  updated Expo 57.0.24 → 57.0.27 within SDK 57 for dependency compatibility.
+- `npm start` explicitly serves Metro over LAN with the development QR.
+  Default Expo Metro/Babel already provides Fast Refresh. Android build scripts
+  share local Gradle compilation; `npm run android` is now build-only.
+- Development APK has the Expo launcher, registered `exp+vestibular-screening-aid`
+  scheme, debug flag and LAN HTTP/network permission. Offline Batch 3 remains
+  non-debuggable with an embedded bundle and no Internet permission. Both use
+  the same package/signature and replace each other on compatible installation.
+- Strict check/format, 14 regression suites, native CV checks, Expo compatibility
+  and 21/21 expo-doctor checks pass. Both APK builds/binary checks pass. Local
+  Metro manifest/bundle and an actual HMR module update to a loopback client pass;
+  the temporary source edit was restored. QR PNG decodes to the CLI launch URL.
+- No ADB, Wireless Debugging, remote inspection/control, device install/launch
+  or new physical measurement. The owner must verify Redmi APK installation,
+  LAN/QR opening and visible Fast Refresh. Calibration/test verdicts are unchanged.
+  [Install, QR and rebuild rules](DEVELOPMENT_BUILD.md). Scope stops before Batch 4.

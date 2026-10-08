@@ -24,6 +24,14 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["./plugins/withBatch3Offline.cjs"]
+    "plugins": [
+      [
+        "expo-dev-client",
+        {
+          "launchMode": "launcher"
+        }
+      ],
+      "./plugins/withBatch3Offline.cjs"
+    ]
   }
 }

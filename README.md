@@ -7,7 +7,22 @@ not clinical diagnoses; current real calibration evidence remains RETRY.
 React Native + strict TypeScript + Expo SDK 57, with local Kotlin Camera2,
 frame-decoding and pupil modules. Target: Xiaomi Redmi Note 13 Pro 5G.
 
-## Batch 3 verification
+## Development Build
+
+Use the existing native project with Expo's development launcher:
+
+```bash
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home npm run build:dev
+npm start
+```
+
+Install `artifacts/development/vestibular-development.apk` directly on the Redmi,
+then scan the Metro QR on the same LAN. JS/TS edits use Fast Refresh; native code,
+dependencies and config plugins require a new APK. Build scripts never install
+or launch on a phone. `npm run android` is a build-only alias.
+[Installation, QR, troubleshooting and rebuild rules](docs/DEVELOPMENT_BUILD.md).
+
+## Batch 3 standalone verification
 
 ```bash
 npm install
@@ -29,14 +44,17 @@ Node 25, Android SDK 36 and JDK 21 were used for the current local build.
 
 ## Scripts
 
-| Command                 | Purpose                                 |
-| ----------------------- | --------------------------------------- |
-| `npm run check`         | Strict typecheck + lint                 |
-| `npm test`              | 14 pure execution suites                |
-| `npm run format`        | Prettier check                          |
-| `npm run build:batch3`  | Local standalone APK + native CV checks |
-| `npm run verify:batch3` | Inspect APK signature, manifest, bundle |
-| `npm run replay:batch3` | Audit previously saved local evidence   |
+| Command                 | Purpose                                  |
+| ----------------------- | ---------------------------------------- |
+| `npm run check`         | Strict typecheck + lint                  |
+| `npm start`             | Metro LAN + Development Build QR         |
+| `npm run build:dev`     | Local Development APK + native CV checks |
+| `npm run verify:dev`    | Inspect launcher, QR scheme, signature   |
+| `npm test`              | 14 pure execution suites                 |
+| `npm run format`        | Prettier check                           |
+| `npm run build:batch3`  | Local standalone APK + native CV checks  |
+| `npm run verify:batch3` | Inspect APK signature, manifest, bundle  |
+| `npm run replay:batch3` | Audit previously saved local evidence    |
 
 ## Structure
 
