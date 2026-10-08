@@ -38,7 +38,15 @@ Package/version are `com.vestibular.screeningaid` / 0.1.1 (code 2).
 
 ## Physical verification by the device owner
 
-For a direct phone-browser download, serve only the prepared APK directory on the Mac:
+Prefer the private HTTPS
+[Batch 3 release](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/batch3-6c6b088).
+On Redmi Chrome, sign in to GitHub with a repository-authorized account, open
+**Assets**, and download **vestibular.apk**. A 404 while signed out/wrong account
+does not mean the APK is missing. This download works independently of the Mac,
+LAN IP, Metro or port 8082. The release contains only the verified APK and checksum,
+never recordings, calibration evidence or personal reports. Repository stays private.
+
+Optional LAN transfer, if phone-to-Mac access works: serve only the prepared APK directory:
 
 ```bash
 python3 -m http.server 8082 --bind 0.0.0.0 --directory artifacts/phone
@@ -48,6 +56,8 @@ On the same LAN, the owner opens `http://<Mac-LAN-IP>:8082/vestibular.apk`, inst
 the downloaded update, then opens **Vestibular Screening Aid** directly. Port 8082
 is only for transferring the APK; it can be stopped after download and is never
 needed to run the app. The same app/package is updated; do not uninstall to switch.
+Mac loopback/LAN checks cannot establish phone reachability. If Redmi Chrome
+times out, use the HTTPS release above; changing the QR alone cannot fix that route.
 
 1. Copy the APK to the phone and install it directly with Android's installer.
    Allow installation from the chosen source if Android requests it. Prefer an

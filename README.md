@@ -11,6 +11,10 @@ For physical Batch 3 tests, install `artifacts/phone/vestibular.apk` and open
 **Vestibular Screening Aid** from the phone's Home screen. This is the default
 test APK: camera included, no Metro/QR/8081 dependency. Expo Go cannot load the
 project's custom Camera2 modules. Development Build below is for live code updates.
+The verified APK is also available in the private
+[Batch 3 release](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/batch3-6c6b088):
+sign in with a GitHub account that can access this repository, then download
+`vestibular.apk` from Assets. HTTPS download does not require the Mac's LAN/server.
 
 ## Development Build
 

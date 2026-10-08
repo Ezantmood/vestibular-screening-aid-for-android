@@ -562,3 +562,13 @@ no INTERNET permission and disabled backup. APK SHA-256:
 `b51a80e8b963738fde1ee7d3e2c6fe0b0744ada34ddd43c76f2ee7a72d9da302`.
 The shared build bounds Gradle workers to two on the 8 GiB Mac and publishes the
 verified download alias atomically. Redmi installation/runtime remains pending.
+
+2026-10-08 APK transfer follow-up: owner reports Redmi Chrome timeout. Mac IP,
+listening server, local HTTP and allowed firewall rules checked successfully;
+earlier interrupted inbound requests do not prove the owner's exact failure cause.
+Published the same verified APK/checksum as a private GitHub prerelease
+[batch3-6c6b088](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/batch3-6c6b088).
+Authenticated HTTPS download/read-back SHA-256 matches the local APK. No repository
+visibility change, raw/private evidence upload, phone access or app-code change.
+HTTPS avoids the LAN dependency; owner GitHub sign-in/download/install remains a
+physical handoff. Calibration/test status is unchanged, and Batch 4 remains closed.
