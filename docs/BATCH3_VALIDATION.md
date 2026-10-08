@@ -3,7 +3,9 @@
 This workflow covers Calibration → Smooth Pursuit → Horizontal Saccade only.
 Do not start Batch 4. Do not connect to, remotely access or control the Xiaomi;
 Wireless Debugging and ADB are not part of this workflow.
-For owner-operated Metro + QR + Fast Refresh use the separate
+**Default physical workflow:** install one APK and open **Vestibular Screening Aid**
+from the phone Home screen. Camera and JS are included; no Expo Go, QR or port 8081.
+For owner-operated Metro + QR + Fast Refresh while developing use the separate
 [Development APK workflow](DEVELOPMENT_BUILD.md). The offline APK below cannot
 connect to Metro; installing the Development APK updates the same app package.
 
@@ -22,6 +24,8 @@ an arm64 `batch3` variant, verifies its signature/manifest/bundle, and copies:
 
 - `artifacts/batch3/vestibular-batch3.apk`
 - `artifacts/batch3/SHA256SUMS`
+- `artifacts/phone/vestibular.apk` (same verified APK, short download name)
+- `artifacts/phone/vestibular.apk.sha256`
 
 It never installs, launches, or connects to a phone. Generated Android/Gradle
 outputs and APK binaries are ignored by Git. The config plugin recreates the
@@ -33,6 +37,17 @@ The development signing key is for internal verification, not Play Store release
 Package/version are `com.vestibular.screeningaid` / 0.1.1 (code 2).
 
 ## Physical verification by the device owner
+
+For a direct phone-browser download, serve only the prepared APK directory on the Mac:
+
+```bash
+python3 -m http.server 8082 --bind 0.0.0.0 --directory artifacts/phone
+```
+
+On the same LAN, the owner opens `http://<Mac-LAN-IP>:8082/vestibular.apk`, installs
+the downloaded update, then opens **Vestibular Screening Aid** directly. Port 8082
+is only for transferring the APK; it can be stopped after download and is never
+needed to run the app. The same app/package is updated; do not uninstall to switch.
 
 1. Copy the APK to the phone and install it directly with Android's installer.
    Allow installation from the chosen source if Android requests it. Prefer an

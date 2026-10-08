@@ -6,6 +6,32 @@ Never use ADB, Wireless Debugging, CLI device launch, phone inspection or remote
 control. The owner installs the APK and chooses to open the Metro QR themselves.
 Serving JS from the computer over LAN is the authorized development workflow.
 
+**For recording/testing Batch 3, use the standalone `vestibular.apk` by default.**
+Open **Vestibular Screening Aid** directly; no Metro, QR or 8081 service is needed.
+Use this Development Build workflow only when live JS/TS updates are wanted.
+The two builds are alternative modes of the same installed app, not two required
+phone setups. See [physical testing](BATCH3_VALIDATION.md).
+
+## Existing app versus Expo Go / port 8081
+
+The previous working Vestibular app already contained the Kotlin Camera2 module.
+Wireless Debugging was its install/transport mechanism; it did not add that module
+to the separate Expo Go app. A Camera2-module-missing error means the running
+binary does not expose `ExpoCamera2Probe` (Expo Go or an incomplete/stale APK),
+not a denied CAMERA permission. Home now shows this before a camera action.
+
+The historical debug workflow used `adb reverse` to bridge the phone's
+`localhost:8081` to the Mac. That bridge can disappear when debugging reconnects;
+this is separate from camera support. The exact cause of a new phone-side
+connection error cannot be confirmed without its error text. Current LAN/QR
+development bypasses that bridge, but still requires running Metro and LAN access.
+Standalone physical testing removes that dependency altogether.
+
+Do not invoke the stock Expo `--tunnel` on this SDK as an automatic fallback:
+local CLI code in `AsyncNgrok.startAsync` attempts `adb reverse` when Android SDK
+is present. No tunnel was started and no ADB was used; LAN and standalone APK
+remain the supported workflows under the current phone-access restriction.
+
 ## Configuration repair
 
 The EAS profile already had `developmentClient: true`, but `expo-dev-client`
@@ -43,7 +69,7 @@ Outputs: `vestibular-development.apk` and `SHA256SUMS`.
 Optional direct LAN download, serving only the APK artifact directory:
 
 ```bash
-python3 -m http.server 8082 --bind 0.0.0.0 --directory artifacts/development
+python3 -m http.server 8082 --bind 0.0.0.0 --directory artifacts/phone
 ```
 
 The owner opens `http://<computer-LAN-IP>:8082/vestibular-development.apk`
@@ -107,8 +133,10 @@ code changes, since preserved React state is not a valid measurement session.
 | Expo SDK / React Native version, Android manifest/permissions/package/scheme, config plugins, Gradle, app icon/splash | Prebuild + rebuild APK                                           |
 | Metro/Babel config or `.env` values loaded by the bundler                                                             | Restart Metro; rebuild only if native config also changes        |
 
-The newly added dev client/plugin and all previous Batch 3 Kotlin fixes require
-the supplied new APK. Subsequent JS/TS-only edits do not require recompilation.
+If the installed app predates the dev client/plugin or Batch 3 Kotlin fixes,
+install the updated APK once. The current Home/message clarification is JS-only:
+Fast Refresh in Development Build suffices; standalone testing needs the updated
+embedded bundle supplied in `vestibular.apk`.
 Changes to measurement math still require fresh physical calibration and tests;
 Fast Refresh does not establish a VALID model or trustworthy metrics. Coordinate
 contract changes must bump the calibration measurement version.

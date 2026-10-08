@@ -545,3 +545,20 @@ byte-for-byte; final metric JSON artifacts were saved and read back on-device.
   or new physical measurement. The owner must verify Redmi APK installation,
   LAN/QR opening and visible Fast Refresh. Calibration/test verdicts are unchanged.
   [Install, QR and rebuild rules](DEVELOPMENT_BUILD.md). Scope stops before Batch 4.
+
+Workflow clarification: the default physical-test download is now the single
+standalone `artifacts/phone/vestibular.apk`, copied/checksummed by the shared build
+script. Running it needs no Metro/8081; the transfer server is needed only to
+download the update. Development Build remains optional for Fast Refresh.
+Camera2 missing-module guidance now identifies the wrong/incomplete app binary
+on Home and in the camera seam, without changing native/quality gates. No phone
+access or new physical measurement was performed. Stock Expo tunnel was not used
+because the installed CLI attempts ADB reversal; documented LAN remains available.
+
+2026-10-08 computer verification of this clarification: typecheck/lint/format and
+all 14 logic suites passed; Batch 3 APK build and native JVM checks passed. Binary
+inspection confirmed four custom Kotlin modules, embedded JS, valid signature,
+no INTERNET permission and disabled backup. APK SHA-256:
+`b51a80e8b963738fde1ee7d3e2c6fe0b0744ada34ddd43c76f2ee7a72d9da302`.
+The shared build bounds Gradle workers to two on the 8 GiB Mac and publishes the
+verified download alias atomically. Redmi installation/runtime remains pending.

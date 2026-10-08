@@ -7,6 +7,11 @@ not clinical diagnoses; current real calibration evidence remains RETRY.
 React Native + strict TypeScript + Expo SDK 57, with local Kotlin Camera2,
 frame-decoding and pupil modules. Target: Xiaomi Redmi Note 13 Pro 5G.
 
+For physical Batch 3 tests, install `artifacts/phone/vestibular.apk` and open
+**Vestibular Screening Aid** from the phone's Home screen. This is the default
+test APK: camera included, no Metro/QR/8081 dependency. Expo Go cannot load the
+project's custom Camera2 modules. Development Build below is for live code updates.
+
 ## Development Build
 
 Use the existing native project with Expo's development launcher:

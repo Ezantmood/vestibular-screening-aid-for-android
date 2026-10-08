@@ -24,8 +24,9 @@ export function isCamera2ProbeAvailable(): boolean {
 export async function getCamera2Capabilities(): Promise<Camera2ProbeResult[]> {
   if (!isCamera2ProbeAvailable()) {
     throw new Error(
-      'Camera2 probe needs an Expo Development Build on Android (not available in Expo Go). ' +
-        'Build with the development profile and run on-device.',
+      'Bản đang mở không có module Camera2 của dự án. ' +
+        'Hãy mở ứng dụng Vestibular Screening Aid đã cài trên điện thoại; Expo Go không hỗ trợ module này. ' +
+        'Nếu đang mở đúng ứng dụng mà vẫn gặp lỗi, hãy cập nhật APK của dự án.',
     );
   }
   try {

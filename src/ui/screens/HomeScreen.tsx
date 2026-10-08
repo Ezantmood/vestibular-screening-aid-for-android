@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { CameraButton, cameraColors } from '../components/CameraUI';
+import { isCamera2ProbeAvailable } from '../../camera/camera2Probe';
 import Camera2ProbeScreen from './Camera2ProbeScreen';
 import FramePipelineScreen from './FramePipelineScreen';
 import HighSpeedTestScreen from './HighSpeedTestScreen';
@@ -126,6 +127,16 @@ export default function HomeScreen() {
       <Text style={styles.subtitle}>
         Căn khuôn mặt trước, chọn bài kiểm tra rồi ghi hình với hướng dẫn trên màn hình.
       </Text>
+      {!isCamera2ProbeAvailable() && (
+        <Text
+          style={styles.footnote}
+          testID="home-native-required"
+          accessibilityLiveRegion="polite"
+        >
+          Bản đang mở không dùng được camera của dự án. Hãy mở Vestibular Screening Aid trên màn
+          hình chính của điện thoại. Expo Go không hỗ trợ camera này.
+        </Text>
+      )}
       <View style={styles.featured}>
         <Text style={styles.featuredTag}>BẮT ĐẦU TẠI ĐÂY</Text>
         <Text style={styles.featuredTitle}>Xem camera và căn mặt</Text>

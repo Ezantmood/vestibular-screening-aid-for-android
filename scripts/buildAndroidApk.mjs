@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, copyFileSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, copyFileSync, writeFileSync, readFileSync, renameSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 
@@ -31,6 +31,8 @@ execFileSync(
     `:app:assemble${settings.task}`,
     ':expo-pupil-detector:testDebugUnitTest',
     '-PreactNativeArchitectures=arm64-v8a',
+    // Bound memory pressure on the 8 GiB build machine.
+    '--max-workers=2',
   ],
   {
     cwd: resolve('android'),
@@ -52,3 +54,13 @@ execFileSync('node', [`scripts/${settings.verify}`, destination], {
   env: process.env,
 });
 console.log(`${variant} APK: ${destination}\nSHA-256: ${digest}`);
+// One short download name for physical testing; development remains optional.
+// This directory contains APK artifacts only, never phone recordings/evidence.
+const phoneDir = resolve('artifacts/phone');
+mkdirSync(phoneDir, { recursive: true });
+const phoneName = variant === 'batch3' ? 'vestibular.apk' : settings.name;
+// Preserve a complete file for any download already in progress during a rebuild.
+const phonePath = resolve(phoneDir, phoneName);
+copyFileSync(destination, `${phonePath}.tmp`);
+renameSync(`${phonePath}.tmp`, phonePath);
+writeFileSync(resolve(phoneDir, `${phoneName}.sha256`), `${digest}  ${phoneName}\n`);
