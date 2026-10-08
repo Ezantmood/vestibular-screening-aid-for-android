@@ -1,5 +1,8 @@
 package com.vestibular.screeningaid.highspeed
 
+import android.app.Activity
+import android.content.Intent
+import expo.modules.kotlin.Promise
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -64,10 +67,56 @@ class ExpoCamera2HighSpeedModule : Module() {
   // Values: null (free) | "oneshot" | "preview".
   private val cameraOwner = AtomicReference<String?>(null)
   private val previewState = AtomicReference<PreviewSession?>(null)
+  private val pendingReport = AtomicReference<Pair<String, Promise>?>(null)
+  private val reportRequestCode = 7313
   private val priorKeepAwake = AtomicReference<Boolean?>(null)
 
   override fun definition() = ModuleDefinition {
     Name("ExpoCamera2HighSpeed")
+
+    // Android document picker: user chooses the destination; no upload or broad
+    // storage permission. Only the small allowlisted technical summary is accepted.
+    AsyncFunction("exportTechnicalReport") { json: String, promise: Promise ->
+      try {
+        val data = org.json.JSONObject(json)
+        if (json.toByteArray(Charsets.UTF_8).size > 512_000 ||
+          data.optString("kind") != "batch3-technical-report" || data.optInt("schemaVersion") != 1 ||
+          !data.getJSONObject("privacy").getBoolean("aggregateOnly"))
+          throw CodedException("ERR_REPORT_SCHEMA", "Invalid technical report", null)
+        val activity = appContext.currentActivity
+          ?: throw CodedException("ERR_ACTIVITY", "Activity unavailable", null)
+        if (!pendingReport.compareAndSet(null, Pair(json, promise)))
+          throw CodedException("ERR_REPORT_BUSY", "An export is already pending", null)
+        try {
+          activity.startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+            putExtra(Intent.EXTRA_TITLE, "batch3-technical-report.json")
+          }, reportRequestCode)
+        } catch (e: Exception) {
+          pendingReport.set(null)
+          throw e
+        }
+      } catch (e: Exception) { promise.reject("ERR_REPORT_EXPORT", "Cannot export technical report", e) }
+    }.runOnQueue(Queues.MAIN)
+
+    OnActivityResult { activity, result ->
+      if (result.requestCode == reportRequestCode) {
+        val pending = pendingReport.getAndSet(null)
+        if (pending != null) {
+          val uri = result.data?.data
+          if (result.resultCode != Activity.RESULT_OK || uri == null) pending.second.resolve(false)
+          else try {
+            val output = activity.contentResolver.openOutputStream(uri, "wt")
+              ?: throw IllegalStateException("Document unavailable")
+            output.use { it.write(pending.first.toByteArray(Charsets.UTF_8)) }
+            pending.second.resolve(true)
+          } catch (e: Exception) { pending.second.reject("ERR_REPORT_WRITE", "Cannot write document", e) }
+        }
+      }
+    }
+
 
     // Use the main queue so a clock sample is never blocked behind recording.
     AsyncFunction("getMonotonicTimeUs") {
@@ -220,6 +269,7 @@ class ExpoCamera2HighSpeedModule : Module() {
     }
 
     OnDestroy {
+      pendingReport.getAndSet(null)?.second?.reject("ERR_REPORT_CANCELLED", "Export interrupted", null)
       appContext.currentActivity?.let { activity ->
         activity.runOnUiThread {
           if (priorKeepAwake.getAndSet(null) == false)

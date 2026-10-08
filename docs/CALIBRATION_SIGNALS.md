@@ -25,6 +25,10 @@ P4 tracking and stores artifacts through the camera/storage seams.
   ROI. Predictions and estimated timestamps are excluded. Raw P3/P4 values stay
   separate. Robust medians trim distant samples; every target/eye needs at least
   30 accepted samples, 60% coverage, 250 ms PTS span and RMS spread <=0.04 ROI.
+- Measurement context `decoded-roi-v2` uses exact connected-component pixels
+  for pupil intensity/centroid weights. Older models cannot be reused after this
+  correction. Detector/tracker/fit quality stages are reported separately; a
+  detector SUCCESS does not establish an eligible calibration observation.
 - Both eyes must pass. Degenerate/correlated feature geometry, missing targets,
   invalid PTS, unstable fixation, head/ROI changes or poor held-out prediction
   produce `RETRY`. Fit/validation RMSE <=0.08 and validation maximum <=0.15
@@ -46,6 +50,11 @@ P4 tracking and stores artifacts through the camera/storage seams.
   linked from the existing stimulus artifact. Engineering metrics consume these signals through [eye-test contracts](EYE_TESTS.md).
 
 ## Signal processing
+
+- Tracking rejects failed/partial decoder output and requires 1:1 encoded/decoded
+  counts with a complete, strictly increasing real PTS array. ROI propagation
+  requires measured landmarks and consistent bracketing PTS; face-proportion
+  estimates and missing/inconsistent PTS cannot provide a calibrated trajectory.
 
 - Process one eye and one coordinate space at a time. Store the original ordered
   input plus original detector/tracker output. Real decoded media PTS is the
@@ -72,3 +81,5 @@ P4 tracking and stores artifacts through the camera/storage seams.
   processed support is saved to expose any effect of outlier rejection.
 
 Verification and measured limitations: [device evidence](device-probes/CALIBRATION_SIGNALS.md).
+
+Independent APK testing and aggregate export: [Batch 3 verification](BATCH3_VALIDATION.md).

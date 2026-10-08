@@ -25,7 +25,10 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "check": "npm run typecheck && npm run lint",
-    "test": "node scripts/runLogicChecks.mjs"
+    "test": "node scripts/runLogicChecks.mjs",
+    "build:batch3": "node scripts/buildBatch3.mjs",
+    "verify:batch3": "node scripts/verifyBatch3Apk.mjs",
+    "replay:batch3": "node scripts/replayBatch3Evidence.mjs"
   },
   "private": true
 }

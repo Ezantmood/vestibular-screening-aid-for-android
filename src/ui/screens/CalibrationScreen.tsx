@@ -7,8 +7,13 @@ import {
   CALIBRATION_TARGETS,
   CALIBRATION_TAKE_SECONDS,
 } from '../../eyetracking/calibration/protocol';
-import type { CalibrationContext, CalibrationTarget } from '../../eyetracking/calibration/types';
+import type {
+  CalibrationContext,
+  CalibrationTarget,
+  CalibrationResult,
+} from '../../eyetracking/calibration/types';
 import { sameCalibrationContext } from '../../eyetracking/calibration/calibration';
+import { validationFailureCode, type ValidationFailureCode } from '../../tests/validation/failures';
 import { analyzeCalibrationTakes, type CapturedCalibrationTake } from '../../tests/eyeAnalysis';
 import { sampleStimulusClock } from '../../tests/stimulus/sessionAnalysis';
 import CameraCapturePanel from '../components/CameraCapturePanel';
@@ -18,7 +23,13 @@ import { measureTargetViewport } from '../hooks/measureTargetViewport';
 import { useEyeAnalysisAwake } from '../hooks/useEyeAnalysisAwake';
 
 const nowUs = () => performance.now() * 1000;
-export default function CalibrationScreen() {
+export default function CalibrationScreen({
+  onComplete,
+  onFailure,
+}: {
+  onComplete?: (result: CalibrationResult, evidence: unknown) => void;
+  onFailure?: (code: ValidationFailureCode) => void;
+} = {}) {
   const camera = usePreviewCapture();
   const [modes, setModes] = useState<FixedMode[]>([]);
   const [index, setIndex] = useState(0);
@@ -63,7 +74,10 @@ export default function CalibrationScreen() {
       if (mounted.current)
         setModes(collectFixedModes(probe).filter((m) => m.lensFacing === 'FRONT'));
     } catch (e) {
-      if (mounted.current) setError(String(e));
+      if (mounted.current) {
+        setError(String(e));
+        onFailure?.('CAMERA_PREPARATION_FAILED');
+      }
     }
   }
   async function calibrate() {
@@ -96,7 +110,7 @@ export default function CalibrationScreen() {
         viewportLeft: display.left,
         viewportTop: display.top,
         detectorId: 'percentile-dark',
-        coordinateVersion: 'decoded-roi-v1',
+        coordinateVersion: 'decoded-roi-v2',
       };
       for (let i = 0; i < CALIBRATION_TARGETS.length; i++) {
         if (cancelled.current || !mounted.current) break;
@@ -183,8 +197,10 @@ export default function CalibrationScreen() {
             : 'Calibration chưa đạt. Căn lại mặt, giữ ánh sáng ổn định và nhìn đúng chấm rồi thử lại.',
         );
         setReport(JSON.stringify(out.summary, null, 2));
+        onComplete?.(out.result, out.evidence);
       }
     } catch (e) {
+      if (mounted.current) onFailure?.(validationFailureCode(e));
       await camera.close();
       if (mounted.current) {
         setTarget(null);

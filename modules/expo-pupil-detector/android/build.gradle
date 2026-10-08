@@ -22,3 +22,8 @@ dependencies {
   // ML Kit stays in expo-frame-pipeline (face/eye ROI only); this module
   // consumes P2 ROI boxes + decoded Y-plane pixels with small custom CV.
 }
+
+
+dependencies {
+  testImplementation "junit:junit:4.13.2"
+}

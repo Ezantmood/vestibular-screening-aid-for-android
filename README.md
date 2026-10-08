@@ -1,60 +1,57 @@
 # Vestibular Screening Aid
 
-Smartphone-based **central vestibular screening** via eye-movement tracking.
-**Screening aid, not a diagnostic device.**
+Android prototype for engineering validation of eye-movement measurements.
+Current scope: Calibration, Smooth Pursuit and Horizontal Saccade. Results are
+not clinical diagnoses; current real calibration evidence remains RETRY.
 
-- Stack: React Native + TypeScript + Expo (Android-first)
-- Dev/test device: Xiaomi Redmi Note 13 Pro 5G
-- MVP clinical tests: Smooth Pursuit + Horizontal Saccades
-- Run: Expo Go now; Expo Development Build + Kotlin native modules later for Camera2/high-speed camera
+React Native + strict TypeScript + Expo SDK 57, with local Kotlin Camera2,
+frame-decoding and pupil modules. Target: Xiaomi Redmi Note 13 Pro 5G.
 
-## Quickstart
+## Batch 3 verification
 
 ```bash
 npm install
-npm run android   # Expo Development Build (custom native Camera2 probe); or: npm start, then Expo Go (probe shows Dev-Build hint)
-npm run typecheck
-npm run lint
+npm run check
+npm test
+npm run format
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home npm run build:batch3
 ```
 
-Requires Node 18+ (tested here on Node 25 + Expo SDK 57).
+The standalone APK is `artifacts/batch3/vestibular-batch3.apk`, with a SHA-256
+checksum beside it. It embeds JS, has no Internet permission and runs without
+Metro or a computer. The build never connects to or installs on a phone.
+The owner installs directly, runs **Kiểm thử Batch 3 độc lập** (09), then
+exports a small technical JSON with raw/personal identifiers removed.
+
+[Build, installation, physical test and report instructions](docs/BATCH3_VALIDATION.md).
+No Wireless Debugging, ADB or remote phone access is used. Do not start Batch 4.
+Node 25, Android SDK 36 and JDK 21 were used for the current local build.
 
 ## Scripts
 
-| Command             | Purpose                                   |
-| ------------------- | ----------------------------------------- |
-| `npm start`         | Run in Expo Go (no native probe)          |
-| `npm run android`   | Dev Build on Android (`expo run:android`) |
-| `npm run typecheck` | `tsc --noEmit`                            |
-| `npm run lint`      | ESLint (`eslint-config-expo`)             |
-| `npm run format`    | Prettier check                            |
-| `npm run check`     | typecheck + lint                          |
+| Command                 | Purpose                                 |
+| ----------------------- | --------------------------------------- |
+| `npm run check`         | Strict typecheck + lint                 |
+| `npm test`              | 14 pure execution suites                |
+| `npm run format`        | Prettier check                          |
+| `npm run build:batch3`  | Local standalone APK + native CV checks |
+| `npm run verify:batch3` | Inspect APK signature, manifest, bundle |
+| `npm run replay:batch3` | Audit previously saved local evidence   |
 
 ## Structure
 
-```
-App.tsx               # entry -> HomeScreen only
-src/ui/               # screens, components, navigation (stub)
-src/patients/         # patient management (types only)
-src/tests/            # test engine: registry + smooth-pursuit / saccades stubs
-src/camera/           # camera abstraction (no impl in bootstrap)
-src/eyetracking/      # gaze types (stub)
-src/signals/          # PTS-based filtering, segments, confidence and velocity
-src/metrics/          # clinical metrics (stub)
-src/storage/          # persistence/reporting (stub)
-src/config/ utils/    # constants, helpers
-docs/                 # spec, architecture, roadmap, decisions, status
-eas.json              # Dev Build profiles (for later, not used yet)
-```
-
-Camera, eye tracking, auth, database, and clinical algorithms are **intentionally not implemented** in bootstrap.
+`App.tsx` opens manual Home. `src/ui/` owns screens/components/hooks;
+`src/camera/` contains native seams; `src/eyetracking/` owns ROI, pupil,
+tracking and calibration; `src/signals/` processes actual PTS;
+`src/tests/` owns the two stimuli, engineering metrics and Batch 3 validation.
+`modules/` contains Android Kotlin modules. Patient management, expanded session
+storage, clinical reporting and other tests remain outside the current scope.
 
 ## Docs
 
-- `docs/PROJECT_SPEC.md` — scope, MVP, constraints
-- `docs/ARCHITECTURE.md` — layers and dependency rules
-- `docs/ROADMAP.md` — phase order; current state is in `docs/STATUS.md`
-- `docs/CALIBRATION_SIGNALS.md` — calibration acceptance, persistence and signal contracts
-- `docs/DECISIONS.md` — recorded architectural decisions
-- `docs/STATUS.md` — current state
-- `AGENTS.md` — working agreement for AI agents
+- [Current status](docs/STATUS.md)
+- [Batch 3 findings and limitations](docs/device-probes/BATCH3_OFFLINE_REVIEW.md)
+- [Calibration / signal contracts](docs/CALIBRATION_SIGNALS.md)
+- [Eye-test contracts](docs/EYE_TESTS.md)
+- [Architecture](docs/ARCHITECTURE.md) · [Decisions](docs/DECISIONS.md)
+- [Project scope](docs/PROJECT_SPEC.md) · [Contributor agreement](AGENTS.md)

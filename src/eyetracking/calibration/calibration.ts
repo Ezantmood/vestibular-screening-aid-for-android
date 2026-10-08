@@ -60,7 +60,7 @@ function validContext(context: CalibrationContext): boolean {
     typeof context.cameraId === 'string' &&
     context.cameraId.length > 0 &&
     context.detectorId === 'percentile-dark' &&
-    context.coordinateVersion === 'decoded-roi-v1' &&
+    context.coordinateVersion === 'decoded-roi-v2' &&
     [context.viewportLeft, context.viewportTop].every((n) => Number.isFinite(n) && n >= 0) &&
     [
       context.width,

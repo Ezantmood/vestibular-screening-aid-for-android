@@ -11,10 +11,11 @@ Working agreement for AI/human contributors. Details live in `docs/` — don't d
 
 ```bash
 npm install
-npm run android
+npm run build:batch3  # local APK build; JDK 21, no phone connection
 npm run typecheck
 npm run lint
 npm run format
+npm test
 npm run check   # typecheck + lint (run before committing)
 ```
 
@@ -26,12 +27,18 @@ npm run check   # typecheck + lint (run before committing)
 - Strict TypeScript. No `any` without justification. Prettier style: single quotes, 100-col.
 - ESLint flat config (`eslint.config.mjs`) extends `eslint-config-expo`.
 
-## Boundaries (bootstrap)
+## Current boundaries
 
-- DO NOT implement camera, eye tracking, auth, database, or clinical algorithms yet.
-- Stubs with `TODO (Phase N)` are intentional — leave them.
-- Do not start Phase 1 / Camera2 work until asked. Next task is only the Camera2 capability probe (see `docs/STATUS.md`).
-- Keep docs short; each doc has one job (see `docs/ARCHITECTURE.md` header). Update `docs/STATUS.md` when state changes.
+- Current work is Batch 3: calibration plus the existing Smooth Pursuit and
+  Horizontal Saccade pipeline. Do not start Batch 4 without a new request.
+- No Wireless Debugging, ADB, phone connections or remote phone access/control.
+  Build/check on the computer; physical verification is owner-run in the
+  standalone APK. See [workflow](docs/BATCH3_VALIDATION.md).
+- No expanded patient/session storage, clinical reports, PDF, other eye tests,
+  or diagnosis. Preserve intentional stubs outside this scope.
+- Never lower quality gates or fabricate measurements to obtain VALID. Distinguish
+  computer simulations, saved-data replay and pending physical results.
+- Keep docs short; each doc has one job. Update `docs/STATUS.md` when state changes.
 
 ## Git
 

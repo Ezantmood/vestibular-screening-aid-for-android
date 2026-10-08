@@ -17,6 +17,8 @@ const checks = [
   'pupilBatchLogicCheck',
   'captureSafetyLogicCheck',
   'viewportLogicCheck',
+  'batch3LogicCheck',
+  'technicalReportLogicCheck',
 ];
 try {
   execFileSync(

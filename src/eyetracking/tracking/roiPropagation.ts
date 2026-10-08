@@ -42,7 +42,16 @@ function usableEye(sample: FramePipelineFaceSample, eyeSide: EyeSide): EyeBox | 
     return null;
   }
   const eye = eyeSide === 'left' ? sample.leftEye : sample.rightEye;
-  if (eye === null || eye.usable !== true) {
+  if (
+    eye === null ||
+    eye.usable !== true ||
+    eye.estimated !== false ||
+    ![eye.x, eye.y, eye.width, eye.height].every(Number.isFinite) ||
+    eye.x < 0 ||
+    eye.y < 0 ||
+    eye.width <= 0 ||
+    eye.height <= 0
+  ) {
     return null;
   }
   return { x: eye.x, y: eye.y, width: eye.width, height: eye.height };
@@ -74,7 +83,15 @@ export function propagateRois(args: {
     const keys: { frameIndex: number; ptsUs: number | null; box: EyeBox }[] = [];
     for (const s of ordered) {
       const box = usableEye(s, eyeSide);
-      if (box !== null) {
+      if (
+        box !== null &&
+        Number.isInteger(s.frameIndex) &&
+        s.frameIndex >= 0 &&
+        s.ptsUs !== null &&
+        Number.isFinite(s.ptsUs) &&
+        s.ptsUs >= 0 &&
+        s.ptsUs === decodedPtsUsList[s.frameIndex]
+      ) {
         keys.push({ frameIndex: s.frameIndex, ptsUs: s.ptsUs, box });
       }
     }
@@ -86,7 +103,7 @@ export function propagateRois(args: {
     for (let f = 0; f < frameCount; f++) {
       const pts = f < decodedPtsUsList.length ? decodedPtsUsList[f] : null;
       const exact = keyByFrame.get(f);
-      if (exact !== undefined) {
+      if (exact !== undefined && pts !== null && Number.isFinite(pts)) {
         out.push({
           frameIndex: f,
           decodedPtsUs: pts,
@@ -123,7 +140,17 @@ export function propagateRois(args: {
           }
         }
       }
-      if (!clean || lo === null || hi === null) {
+      const timed =
+        pts !== null &&
+        Number.isFinite(pts) &&
+        lo?.ptsUs !== null &&
+        hi?.ptsUs !== null &&
+        lo !== null &&
+        hi !== null &&
+        hi.ptsUs! > lo.ptsUs! &&
+        pts > lo.ptsUs! &&
+        pts < hi.ptsUs!;
+      if (!clean || lo === null || hi === null || !timed) {
         // Nearest sample decides the honest failure label.
         let nearest: FramePipelineFaceSample | undefined;
         let nearestDist = Number.POSITIVE_INFINITY;
@@ -147,15 +174,9 @@ export function propagateRois(args: {
         });
         continue;
       }
-      const span = hi.frameIndex - lo.frameIndex;
-      // Use real media time under irregular frame spacing. Missing PTS cannot
-      // support time interpolation; fall back explicitly to frame fraction.
-      const timed = pts !== null && lo.ptsUs !== null && hi.ptsUs !== null && hi.ptsUs > lo.ptsUs;
-      const alpha = timed
-        ? Math.max(0, Math.min(1, (pts! - lo.ptsUs!) / (hi.ptsUs! - lo.ptsUs!)))
-        : span > 0
-          ? (f - lo.frameIndex) / span
-          : 0;
+      // Only measured, bracketed PTS supports a propagated ROI. Never substitute
+      // frame fractions for missing or inconsistent native timestamps.
+      const alpha = (pts! - lo.ptsUs!) / (hi.ptsUs! - lo.ptsUs!);
       out.push({
         frameIndex: f,
         decodedPtsUs: pts,

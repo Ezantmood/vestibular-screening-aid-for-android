@@ -504,3 +504,23 @@ byte-for-byte; final metric JSON artifacts were saved and read back on-device.
   Twelve regression suites, strict type/lint, formatting, Android export and native
   build pass. Manual Home restored; temporary QA effects removed.
   Details: [new calibration evidence](device-probes/CALIBRATION_SIGNALS.md#user-calibration-recheck--2026-10-07).
+
+## Batch 3 offline review — 2026-10-08
+
+- Scope remains Calibration, Smooth Pursuit and Horizontal Saccade. No Batch 4.
+  Phone/remote/ADB access is prohibited; this batch used only computer evidence.
+- Fixed bounding-box contamination of connected-component centroid/confidence
+  in TS and Kotlin and contrast-domain weights. Pure stateless native CV core is
+  shared with independent checks. Measurement version v2 blocks stale models.
+- Strict measured ROI/PTS bracketing and full decoder integrity now fail closed.
+  Per-target diagnostics distinguish detector, tracking and calibration loss.
+- Added an independent APK, 15 JS / seven native self-checks, manual physical
+  three-stage flow, and allowlisted local JSON export. Reliable metric fields
+  are null unless current VALID calibration and GOOD_DATA both hold.
+- Fourteen regression suites, native CV JVM checks, typecheck/lint/format and
+  standalone build/binary verification pass. Local replay preserves 9,854 real
+  eye slots; both old eye tests remain INVALID. Original calibration unchanged.
+- Latest human calibration remains RETRY (left/right coverage 73.3%/9.1%, left
+  validation RMSE 0.3885, no right model). No new reliable metrics are claimed.
+  Xiaomi runtime, export and new supervised recordings are pending owner testing.
+  [Instructions](BATCH3_VALIDATION.md) · [findings](device-probes/BATCH3_OFFLINE_REVIEW.md).

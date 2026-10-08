@@ -142,6 +142,7 @@ for (const det of [percentileDarkDetector, contrastNormalizedDetector]) {
   const w = 60;
   const h = 60;
   const circle = {
+    pixelIndices: [],
     area: 300,
     minX: 20,
     minY: 20,
@@ -156,6 +157,7 @@ for (const det of [percentileDarkDetector, contrastNormalizedDetector]) {
     touchesBorder: false,
   };
   const bar = {
+    pixelIndices: [],
     area: 300,
     minX: 5,
     minY: 28,

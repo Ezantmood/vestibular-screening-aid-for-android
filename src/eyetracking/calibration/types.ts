@@ -10,7 +10,7 @@ export interface CalibrationContext {
   viewportLeft: number;
   viewportTop: number;
   detectorId: 'percentile-dark';
-  coordinateVersion: 'decoded-roi-v1';
+  coordinateVersion: 'decoded-roi-v2';
 }
 export interface CalibrationTarget {
   id: string;

@@ -109,3 +109,13 @@ slot; missing results become `NATIVE_RESULT_MISSING`, duplicates/identity errors
 become explicit invalid outcomes with null centroids. Native decode also compares
 the requested P2 PTS to the actual P3 decoder output; a mismatch is rejected and
 logged. Decoder warnings remain in replay/signal debug JSON.
+
+## Batch 3 independent verification
+
+The standalone APK reuses these capture/processing handlers in a Calibration →
+Pursuit → Saccade workflow. RETRY stops before eye tests; INVALID stops further
+progression. The exported technical summary publishes reliable metrics only for
+current VALID calibration and overall GOOD_DATA; all other metric fields are
+null. Local qualified debug estimates remain available. It adds no clinical
+report, session database or other tests. See [workflow](BATCH3_VALIDATION.md)
+and [computer evidence](device-probes/BATCH3_OFFLINE_REVIEW.md).

@@ -9,6 +9,7 @@ import type { PupilDetectionResult, PupilDetectorId } from '../pupil/pupilTypes'
 import { runDensePupilBatch, runHintedPupilBatch } from '../../camera/pupilDetector';
 import type { PupilTrackingResult } from './trackingTypes';
 import { buildRescueHints, finalTrack, mergeRescuedResults } from './twoPassTracking';
+import { trackingDecodeFailure } from './decodeIntegrity';
 import { propagateRois } from './roiPropagation';
 
 export interface ReplayRunResult {
@@ -251,6 +252,8 @@ export async function analyzeFileForTracking(args: {
     faceSampleCount: args.faceSampleCount,
     saveDebugFrames: false,
   });
+  const decodeFailure = trackingDecodeFailure(analysis);
+  if (decodeFailure) throw new Error(decodeFailure);
   const rois = propagateRois({
     faceSamples: analysis.faceSamples,
     decodedPtsUsList: analysis.decodedPtsUs,

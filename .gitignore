@@ -55,3 +55,6 @@ modules/*/android/.gradle/
 debug-artifacts/
 framedebug/
 pupildebug/
+
+# Standalone APKs and build checksums (deliver locally, never commit binaries).
+artifacts/

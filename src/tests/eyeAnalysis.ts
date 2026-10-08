@@ -3,6 +3,7 @@ import type {
   CalibrationResult,
   CalibrationTake,
 } from '../eyetracking/calibration/types';
+import { calibrationDiagnostics } from './validation/calibrationDiagnostics';
 import { fitCalibration } from '../eyetracking/calibration/calibration';
 import {
   analyzeFileForTracking,
@@ -49,7 +50,8 @@ export async function analyzeCalibrationTakes(args: {
     createdAtMs: args.createdAtMs ?? Date.now(),
     takes,
   });
-  const artifact = { schemaVersion: 1 as const, result, takes, replays, signals };
+  const diagnostics = calibrationDiagnostics(result, replays);
+  const artifact = { schemaVersion: 1 as const, result, takes, replays, signals, diagnostics };
   const path = await saveCalibrationArtifact(artifact);
   const summary = {
     id: result.id,
@@ -57,6 +59,7 @@ export async function analyzeCalibrationTakes(args: {
     reasons: result.reasons,
     models: result.models,
     targets: result.targetQuality,
+    diagnostics,
     path,
     signals: signals.map((eyes, i) => ({
       target: takes[i].target.id,
@@ -72,7 +75,17 @@ export async function analyzeCalibrationTakes(args: {
     })),
   };
   console.log('CALIBRATION_RESULT ' + JSON.stringify(summary));
-  return { result, summary, path };
+  return {
+    result,
+    summary,
+    path,
+    evidence: {
+      result,
+      diagnostics,
+      takes: takes.map((t) => ({ target: t.target })),
+      replays: replays.map((r) => ({ decodedFrames: r.decodedFrames })),
+    },
+  };
 }
 export async function analyzeEyeRecording(
   filePath: string,

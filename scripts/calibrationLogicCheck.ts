@@ -21,7 +21,7 @@ const context: CalibrationContext = {
   viewportLeft: 16,
   viewportTop: 100,
   detectorId: 'percentile-dark',
-  coordinateVersion: 'decoded-roi-v1',
+  coordinateVersion: 'decoded-roi-v2',
 };
 const time = 100_000;
 function fixture(): CalibrationTake[] {

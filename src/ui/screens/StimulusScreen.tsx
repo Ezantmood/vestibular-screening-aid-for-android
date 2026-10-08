@@ -34,6 +34,7 @@ import {
 import type { ClockBridge } from '../../tests/stimulus/synchronization';
 import type { CalibrationContext } from '../../eyetracking/calibration/types';
 import type { EyeTestResult } from '../../tests/metrics/types';
+import { validationFailureCode, type ValidationFailureCode } from '../../tests/validation/failures';
 import EyeTestResults from '../components/EyeTestResults';
 import CameraCapturePanel from '../components/CameraCapturePanel';
 import { CameraButton, CameraDetails } from '../components/CameraUI';
@@ -42,9 +43,17 @@ import { measureTargetViewport } from '../hooks/measureTargetViewport';
 import { useEyeAnalysisAwake } from '../hooks/useEyeAnalysisAwake';
 
 const nowUs = () => performance.now() * 1000;
-export default function StimulusScreen() {
+export default function StimulusScreen({
+  fixedTestId,
+  onComplete,
+  onFailure,
+}: {
+  fixedTestId?: MvpTestId;
+  onComplete?: (result: EyeTestResult) => void;
+  onFailure?: (code: ValidationFailureCode) => void;
+} = {}) {
   const camera = usePreviewCapture();
-  const [testId, setTestId] = useState<MvpTestId>('smooth-pursuit');
+  const [testId, setTestId] = useState<MvpTestId>(fixedTestId ?? 'smooth-pursuit');
   const [modes, setModes] = useState<FixedMode[]>([]);
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -128,7 +137,10 @@ export default function StimulusScreen() {
       if (!mounted.current) return;
       setModes(collectFixedModes(probe).filter((m) => m.lensFacing === 'FRONT'));
     } catch (e) {
-      if (mounted.current) setError(String(e));
+      if (mounted.current) {
+        setError(String(e));
+        onFailure?.('CAMERA_PREPARATION_FAILED');
+      }
     }
   }
   async function capture(diagnostic = false) {
@@ -156,7 +168,7 @@ export default function StimulusScreen() {
         viewportLeft: display.left,
         viewportTop: display.top,
         detectorId: 'percentile-dark',
-        coordinateVersion: 'decoded-roi-v1',
+        coordinateVersion: 'decoded-roi-v2',
       };
       const calibration = await loadCalibration();
       if (!diagnostic && (!calibration || !calibrationUsable(calibration, context, Date.now())))
@@ -206,8 +218,10 @@ export default function StimulusScreen() {
         setResult(analysis.result);
         setReport(JSON.stringify(analysis, null, 2));
         setMessage('Đã phân tích và lưu dữ liệu debug.');
+        onComplete?.(analysis.result);
       }
     } catch (e) {
+      if (mounted.current) onFailure?.(validationFailureCode(e));
       stop();
       if (mounted.current) {
         setMessage(
@@ -275,16 +289,20 @@ export default function StimulusScreen() {
         Ghi bài mắt yêu cầu calibration đạt chất lượng, còn hạn và cùng camera/vùng target. Hiệu
         chỉnh trước tại Home.
       </Text>
-      <CameraButton
-        title="Smooth Pursuit"
-        disabled={busy || running}
-        onPress={() => setTestId('smooth-pursuit')}
-      />
-      <CameraButton
-        title="Horizontal Saccade"
-        disabled={busy || running}
-        onPress={() => setTestId('horizontal-saccades')}
-      />
+      {!fixedTestId && (
+        <>
+          <CameraButton
+            title="Smooth Pursuit"
+            disabled={busy || running}
+            onPress={() => setTestId('smooth-pursuit')}
+          />
+          <CameraButton
+            title="Horizontal Saccade"
+            disabled={busy || running}
+            onPress={() => setTestId('horizontal-saccades')}
+          />
+        </>
+      )}
       <Text>Bài đã chọn: {testId}</Text>
       {message !== '' && <Text accessibilityLiveRegion="polite">{message}</Text>}
       <CameraButton
@@ -306,7 +324,7 @@ export default function StimulusScreen() {
           phase={busy ? 'analyzing' : 'ready'}
         />
       )}
-      {modes.length > 0 && (
+      {!fixedTestId && modes.length > 0 && (
         <CameraButton
           title="Ghi debug (cho phép thiếu calibration)"
           disabled={busy || running || camera.stage !== 'preview'}

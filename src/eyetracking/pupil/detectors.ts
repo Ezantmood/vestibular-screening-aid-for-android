@@ -47,6 +47,8 @@ export const AMBIGUITY_SCORE_MARGIN = 0.05;
 const CIRCLE_FILL_RATIO = Math.PI / 4;
 
 interface ComponentStats {
+  /** Exact support: the bbox can contain unrelated dark blobs. */
+  pixelIndices: number[];
   area: number;
   minX: number;
   minY: number;
@@ -179,6 +181,7 @@ export function connectedComponents(
       let entry = byRoot.get(root);
       if (!entry) {
         entry = {
+          pixelIndices: [],
           area: 0,
           minX: x,
           minY: y,
@@ -194,6 +197,7 @@ export function connectedComponents(
         };
         byRoot.set(root, entry);
       }
+      entry.pixelIndices.push(idx);
       entry.area += 1;
       entry.minX = Math.min(entry.minX, x);
       entry.minY = Math.min(entry.minY, y);
@@ -417,19 +421,13 @@ function prepareComponents(
     let wTotal = 0;
     let wSumX = 0;
     let wSumY = 0;
-    for (let y = c.minY; y <= c.maxY; y += 1) {
-      for (let x = c.minX; x <= c.maxX; x += 1) {
-        const idx = y * gray.width + x;
-        if (!mask[idx]) {
-          continue;
-        }
-        const v = gray.data[idx];
-        sum += v;
-        const w = Math.max(0, threshold - v);
-        wTotal += w;
-        wSumX += x * w;
-        wSumY += y * w;
-      }
+    for (const idx of c.pixelIndices) {
+      const v = gray.data[idx];
+      sum += v;
+      const w = Math.max(0, threshold - v);
+      wTotal += w;
+      wSumX += (idx % gray.width) * w;
+      wSumY += Math.floor(idx / gray.width) * w;
     }
     c.meanIntensity = c.area > 0 ? sum / c.area : threshold;
     c.wSumX = wSumX;
@@ -611,19 +609,13 @@ export const contrastNormalizedDetector: PupilDetector = {
       let wTotal = 0;
       let wSumX = 0;
       let wSumY = 0;
-      for (let y = c.minY; y <= c.maxY; y += 1) {
-        for (let x = c.minX; x <= c.maxX; x += 1) {
-          const idx = y * gray.width + x;
-          if (!opened[idx]) {
-            continue;
-          }
-          const v = gray.data[idx];
-          sum += v;
-          const w = Math.max(0, absCut - v);
-          wTotal += w;
-          wSumX += x * w;
-          wSumY += y * w;
-        }
+      for (const idx of c.pixelIndices) {
+        const v = gray.data[idx];
+        sum += v;
+        const w = Math.max(0, absCut - stretched[idx]);
+        wTotal += w;
+        wSumX += (idx % gray.width) * w;
+        wSumY += Math.floor(idx / gray.width) * w;
       }
       c.meanIntensity = c.area > 0 ? sum / c.area : absCut;
       c.wSumX = wSumX;

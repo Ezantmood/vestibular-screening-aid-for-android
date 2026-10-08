@@ -17,10 +17,18 @@ import LivePreviewValidationScreen from './LivePreviewValidationScreen';
 import PupilValidationScreen from './PupilValidationScreen';
 import StimulusScreen from './StimulusScreen';
 import TrackingValidationScreen from './TrackingValidationScreen';
+import Batch3ValidationScreen from './Batch3ValidationScreen';
 import CalibrationScreen from './CalibrationScreen';
 import SignalProcessingScreen from './SignalProcessingScreen';
 
 const tools = [
+  {
+    id: 'batch3',
+    code: '09',
+    title: 'Kiểm thử Batch 3 độc lập',
+    description: 'Self-test, quy trình ba bước và báo cáo kỹ thuật đã loại dữ liệu thô.',
+    component: Batch3ValidationScreen,
+  },
   {
     id: 'calibration',
     code: '07',
