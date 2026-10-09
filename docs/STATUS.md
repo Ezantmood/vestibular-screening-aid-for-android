@@ -653,6 +653,6 @@ gates. Exact primitive quantile selection reduces computer benchmark cost;
 aggregate feature/mapping diagnostics and clearer RETRY feedback are added.
 Measurement contract is v3; old models/native binaries cannot be silently reused.
 All 15 regression suites, 18 JS simulations and five JVM tests covering ten native
-checks PASS. Source repair does not establish physical VALID; r3 APK delivery and
-owner verification are pending. No phone access or Batch 4. See
+checks PASS. Source repair does not establish physical VALID; r3 APK is built, verified and
+published privately, with owner verification pending. No phone access or Batch 4. See
 [detector repair and measured limits](device-probes/BATCH3_DETECTOR_IMPROVEMENT_20261010.md).

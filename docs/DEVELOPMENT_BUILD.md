@@ -143,6 +143,10 @@ embedded bundle supplied in `vestibular.apk`.
 The `batch3-20261009-r2` diagnostic-report repair also updates the Kotlin exporter
 to accept schema 2. Rebuild/install the Development APK for that change; Fast
 Refresh alone will leave an older native exporter rejecting the new report.
+The `batch3-20261010-r3` detector cutoff repair and native version constant also
+require rebuilding/installing the Development APK. Older native binaries are
+rejected before calibration/test camera preparation; new v3 calibration is required.
+Aggregate TS report/UI changes can then use Fast Refresh on that compatible build.
 Changes to measurement math still require fresh physical calibration and tests;
 Fast Refresh does not establish a VALID model or trustworthy metrics. Coordinate
 contract changes must bump the calibration measurement version.

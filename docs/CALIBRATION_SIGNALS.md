@@ -25,9 +25,9 @@ P4 tracking and stores artifacts through the camera/storage seams.
   ROI. Predictions and estimated timestamps are excluded. Raw P3/P4 values stay
   separate. Robust medians trim distant samples; every target/eye needs at least
   30 accepted samples, 60% coverage, 250 ms PTS span and RMS spread <=0.04 ROI.
-- Measurement context `decoded-roi-v2` uses exact connected-component pixels
-  for pupil intensity/centroid weights. Older models cannot be reused after this
-  correction. Detector/tracker/fit quality stages are reported separately; a
+- Measurement context `decoded-roi-v3` uses exact connected-component pixels
+  and retains quantized pixels equal to the percentile cutoff. Older models
+  cannot be reused; a native version guard prevents mixed JS/native measurements. Detector/tracker/fit quality stages are reported separately; a
   detector SUCCESS does not establish an eligible calibration observation.
 - Both eyes must pass. Degenerate/correlated feature geometry, missing targets,
   invalid PTS, unstable fixation, head/ROI changes or poor held-out prediction

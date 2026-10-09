@@ -39,7 +39,7 @@ Package/version are `com.vestibular.screeningaid` / 0.1.1 (code 2).
 ## Physical verification by the device owner
 
 Use **Chrome on Redmi** for the
-[direct APK download](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/download/batch3-20261009-r2/vestibular.apk).
+[direct APK download](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/download/batch3-20261010-r3/vestibular.apk).
 If a QR opens inside Zalo, use its menu to open the URL in Chrome (or copy the
 URL into Chrome's address bar). The reported **The file type is not supported**
 occurred while opening the release asset in the Zalo/GitHub flow, before any
@@ -79,7 +79,7 @@ times out, use the HTTPS release above; changing the QR alone cannot fix that ro
    over uninstalling, to preserve existing private calibration evidence.
    [Xiaomi's APK opening instructions](https://www.mi.com/global/support/faq/details/KA-113603/).
 2. Open **Kiểm thử Batch 3 độc lập** (09) → **Chạy self-test tự động**.
-   This runs 15 explicit JS simulations and seven checks against the production
+   This runs 18 explicit JS simulations and ten checks against the production
    Kotlin CV core. Camera permission is not requested and the camera stays closed.
    Simulated calibration is never saved or activated as human calibration.
 3. If both suites PASS, choose **Bắt đầu Calibration → Pursuit → Saccade**.
@@ -127,8 +127,7 @@ The export does not request network or broad storage access.
 Schema 2 (`batch3-20261009-r2`) distinguishes checks not run from unavailable
 results, records self-test completion and saved-calibration read status, and
 includes only fixed diagnostic failure codes. Reading saved calibration failing
-cannot erase JS/native check results or activate a model. All 15 JS and seven
-native checks must PASS to start a physical workflow; partial/duplicate bridge
+cannot erase JS/native check results or activate a model. All required JS and native checks must PASS to start a physical workflow; partial/duplicate bridge
 results cannot unlock it. Empty reports cannot be exported, but failed self-tests
 remain exportable. Schema 1 lacks this distinction: native UNAVAILABLE alone is
 not proof that a module is missing, and an empty report is not a physical result.
@@ -146,12 +145,21 @@ unbounded record-start alignment estimate: physical exposure/photon timing has
 not been measured, so even a successful calibration does not automatically make
 these tests GOOD_DATA. No visual-angle velocity or clinical diagnosis is claimed.
 
+The r3 build (`batch3-20261010-r3`) adds quantized-pupil and negative CV checks,
+aggregate feature spans/correlation, target-axis correlations, per-axis model
+RMSE and repeated-center feature distance. These diagnostic values do not replace
+quality gates and contain no coordinates or trajectories. The detector contract
+is `decoded-roi-v3`: update the APK (including Development Build), then capture
+fresh calibration. Old saved artifacts remain readable for debugging but cannot
+activate. Fast Refresh with an older native detector fails before camera preparation.
+[Reproduced defect, benchmark and limits](device-probes/BATCH3_DETECTOR_IMPROVEMENT_20261010.md).
+
 ## Computer verification and evidence
 
 `npm test` runs 15 suites, including the same APK JS simulations, strict ROI/PTS
 and partial-decoder rejection, regression of the two tests, and report privacy/
 metric guards, storage-read failures and aggregate retention across navigation.
-Native JUnit runs seven production CV cases without Android or a
+Native JUnit runs five tests covering ten production CV self-checks without Android or a
 camera. Simulations establish algorithm behavior, not human tracking accuracy.
 
 Optional replay of evidence **already present on the computer**:

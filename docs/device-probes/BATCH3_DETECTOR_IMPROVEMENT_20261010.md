@@ -59,3 +59,13 @@ computer. High-confidence false components, ROI movement and limited gaze
 sensitivity remain possible. Physical calibration and both tests still require
 owner verification; synchronization/tracking quality gates remain independent.
 Build/distribution instructions: [standalone APK verification](../BATCH3_VALIDATION.md).
+
+Verified private [r3 APK release](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/batch3-20261010-r3)
+is built from `f6804a5`: 39,746,744 bytes, SHA-256
+`e8430ab59827d918eb2bd34b0f983e5f8f76c9a1c6c6ab44de3db922fe967670`.
+Signature matches r2; ZIP, 16 KiB alignment, embedded r3 JS/v3 native checks,
+standalone permissions/manifest and anonymous release download PASS. No phone
+installation or physical result is claimed. Update without uninstalling; screen
+09 → self-test 18/10 PASS → fresh calibration/workflow → export JSON. Saved older
+calibration can first be exported for diagnosis of the measurement pipeline,
+with `versionCurrent=false`; it cannot unlock either eye test.

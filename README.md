@@ -12,9 +12,9 @@ For physical Batch 3 tests, install `artifacts/phone/vestibular.apk` and open
 test APK: camera included, no Metro/QR/8081 dependency. Expo Go cannot load the
 project's custom Camera2 modules. Development Build below is for live code updates.
 The verified APK is also available in the private
-[Batch 3 release](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/batch3-20261009-r2):
+[Batch 3 release](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/batch3-20261010-r3):
 open in Chrome, sign in with a GitHub account that can access this repository,
-then [download vestibular.apk directly](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/download/batch3-20261009-r2/vestibular.apk).
+then [download vestibular.apk directly](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/download/batch3-20261010-r3/vestibular.apk).
 An unsupported-file message in Zalo/GitHub's opening flow is not an Android
 installation result. HTTPS download does not require the Mac's LAN/server.
 
