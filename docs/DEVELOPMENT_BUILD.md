@@ -80,7 +80,10 @@ Stop the download server with Ctrl+C when finished; Metro is a separate process.
 ## Install on Xiaomi Redmi Note 13 Pro
 
 1. Download the Development APK through the computer's LAN download address above,
-   or use your chosen file-transfer method. Open it from **Files / File Manager → Downloads**. The Metro QR loads
+   or use your chosen file-transfer method. Open it from Xiaomi's built-in
+   **Quản lý tệp / File Manager → APK** (or **Downloads**). A browser/QR viewer's
+   unsupported-file message does not establish an incompatible native app.
+   The Metro QR loads
    the project after installation; it does not install the APK.
 2. If Android blocks the source, choose **Settings** in the installer prompt →
    **Allow from this source** for the app opening the APK (Files/Chrome/etc.).

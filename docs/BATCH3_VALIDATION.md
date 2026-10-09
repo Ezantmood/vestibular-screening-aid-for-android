@@ -59,9 +59,14 @@ needed to run the app. The same app/package is updated; do not uninstall to swit
 Mac loopback/LAN checks cannot establish phone reachability. If Redmi Chrome
 times out, use the HTTPS release above; changing the QR alone cannot fix that route.
 
-1. Copy the APK to the phone and install it directly with Android's installer.
-   Allow installation from the chosen source if Android requests it. Prefer an
-   update over uninstalling, to preserve existing private calibration evidence.
+1. After downloading, open Xiaomi's built-in **Quản lý tệp / File Manager** from
+   the phone Home screen → **APK** (or **Downloads**) → **vestibular.apk**.
+   This opens Android's installer. If a browser/QR app says **không hỗ trợ loại tệp**,
+   open the already-downloaded file through File Manager instead.
+   If Android blocks the source, follow **Settings → Allow from this source** for
+   **File Manager**, then return and choose **Install / Update**. Prefer an update
+   over uninstalling, to preserve existing private calibration evidence.
+   [Xiaomi's APK opening instructions](https://www.mi.com/global/support/faq/details/KA-113603/).
 2. Open **Kiểm thử Batch 3 độc lập** (09) → **Chạy self-test tự động**.
    This runs 15 explicit JS simulations and seven checks against the production
    Kotlin CV core. Camera permission is not requested and the camera stays closed.
@@ -86,6 +91,10 @@ and never activates an old or expired model. This read-back alone does not
 establish a completed physical workflow. Older measurement versions require
 fresh calibration. If the APK cannot update because its signing key differs,
 keep the original installation/evidence and report the installer error first.
+An unsupported-file message from a viewer does not by itself establish APK/OS
+incompatibility. If File Manager or the actual Android installer also rejects it,
+record that app's name and exact error before changing the native build. Computer
+checks validate the published APK, not the phone's local download or installation.
 
 ## Report contract
 

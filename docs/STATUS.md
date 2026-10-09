@@ -572,3 +572,13 @@ Authenticated HTTPS download/read-back SHA-256 matches the local APK. No reposit
 visibility change, raw/private evidence upload, phone access or app-code change.
 HTTPS avoids the LAN dependency; owner GitHub sign-in/download/install remains a
 physical handoff. Calibration/test status is unchanged, and Batch 4 remains closed.
+
+2026-10-09 installation follow-up: owner reports `vestibular.apk`, 38 MB,
+**không hỗ trợ loại tệp**; the app displaying that message is not yet confirmed.
+Fresh authenticated GitHub download matches SHA-256 and 39,730,168-byte size.
+ZIP integrity, binary manifest, embedded bundle, v2 signature and 16 KiB ZIP
+alignment pass; minimum API is 24 and native ABI is arm64-v8a. These results
+do not validate the phone's local copy or prove a particular installer failure.
+APK verification now also checks single-package, minimum API, ABI and launcher.
+Install guidance uses Xiaomi File Manager's APK category to reach Android's
+installer. Native/app bytes are unchanged; physical installation remains pending.

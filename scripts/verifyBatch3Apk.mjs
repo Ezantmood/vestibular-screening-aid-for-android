@@ -22,6 +22,13 @@ const badging = execFileSync(resolve(tools, 'aapt'), ['dump', 'badging', apk], {
   encoding: 'utf8',
 });
 assert.ok(badging.includes("name='com.vestibular.screeningaid' versionCode='2'"));
+assert.ok(!/\bsplit=/.test(badging.split('\n')[0]), 'Supply a single APK, not a split package');
+assert.ok(badging.includes("sdkVersion:'24'"), 'Unexpected minimum Android API');
+assert.ok(/^native-code:.*'arm64-v8a'/m.test(badging), 'Redmi arm64 libraries missing');
+assert.ok(
+  badging.includes("launchable-activity: name='com.vestibular.screeningaid.MainActivity'"),
+  'App launcher missing',
+);
 assert.ok(badging.includes('android.permission.CAMERA'));
 for (const permission of [
   'INTERNET',
@@ -56,6 +63,9 @@ console.log(
       internetPermission: false,
       backup: false,
       signatureValid: true,
+      singleApk: true,
+      minimumAndroidApi: 24,
+      arm64Included: true,
       sha256: createHash('sha256').update(readFileSync(apk)).digest('hex'),
     },
     null,
