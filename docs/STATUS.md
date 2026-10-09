@@ -600,3 +600,21 @@ Batch 3 độc lập**, run self-tests, then the physical Calibration → Pursui
 Saccade workflow and export its anonymized technical JSON, including failed or
 stopped stages. Until that evidence arrives, the last measured calibration remains
 RETRY and no new reliable physical metrics are claimed. Batch 4 remains closed.
+
+2026-10-09 technical-report review: owner supplied schema-1 build
+`batch3-20261008-r1` after reporting self-test PASS and physical calibration capture.
+The supplied JSON exactly matches `buildTechnicalReport({})`: 15 JS NOT_RUN,
+seven native UNAVAILABLE, zero calibration targets/frames, both tests NOT_RUN,
+no failure codes or reliable metrics. This does not disprove the owner's actions
+or establish a missing native module. Code inspection confirms screen unmount
+discarded the diagnostic snapshot, and a saved-calibration read exception could
+discard completed checks. The report cannot identify which path occurred.
+
+Schema-2 build `batch3-20261009-r2` distinguishes NOT_RUN from UNAVAILABLE,
+retains independent check outcomes on storage failure, requires every expected
+check to PASS, blocks empty exports and retains only the latest aggregate report
+across screen navigation within one app process. Leaving capture records a
+cancelled stage while the camera still unmounts; starting a new workflow resets
+physical evidence. No model is restored from the report cache, no new disk/session
+storage is added, and calibration/tracking/metric gates are unchanged. Fresh
+physical calibration and both eye-test results remain unverified; Batch 4 closed.

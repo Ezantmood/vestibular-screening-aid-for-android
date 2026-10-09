@@ -45,7 +45,8 @@ export const SELF_CHECK_IDS = [
 ] as const;
 export interface SelfCheckResult {
   id: (typeof SELF_CHECK_IDS)[number];
-  status: 'PASS' | 'FAIL';
+  /** UNAVAILABLE means the runner did not return a result, not an assertion failure. */
+  status: 'PASS' | 'FAIL' | 'UNAVAILABLE';
 }
 export const SYNTHETIC_CONTEXT: CalibrationContext = {
   cameraId: 'synthetic',

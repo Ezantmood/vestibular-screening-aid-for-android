@@ -140,13 +140,16 @@ If the installed app predates the dev client/plugin or Batch 3 Kotlin fixes,
 install the updated APK once. The current Home/message clarification is JS-only:
 Fast Refresh in Development Build suffices; standalone testing needs the updated
 embedded bundle supplied in `vestibular.apk`.
+The `batch3-20261009-r2` diagnostic-report repair also updates the Kotlin exporter
+to accept schema 2. Rebuild/install the Development APK for that change; Fast
+Refresh alone will leave an older native exporter rejecting the new report.
 Changes to measurement math still require fresh physical calibration and tests;
 Fast Refresh does not establish a VALID model or trustworthy metrics. Coordinate
 contract changes must bump the calibration measurement version.
 
 ## Computer verification / remaining physical checks
 
-Local verification covers strict type/lint/format, 14 regression suites, native
+Local verification covers strict type/lint/format, 15 regression suites, native
 CV JVM checks, Expo dependency compatibility, APK binary checks, Metro manifest,
 Android development bundle and HMR update delivery to a loopback test client.
 No phone was accessed. APK installation, QR handling, Wi-Fi reachability and

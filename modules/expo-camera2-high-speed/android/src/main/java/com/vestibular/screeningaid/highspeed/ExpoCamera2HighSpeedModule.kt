@@ -80,7 +80,7 @@ class ExpoCamera2HighSpeedModule : Module() {
       try {
         val data = org.json.JSONObject(json)
         if (json.toByteArray(Charsets.UTF_8).size > 512_000 ||
-          data.optString("kind") != "batch3-technical-report" || data.optInt("schemaVersion") != 1 ||
+          data.optString("kind") != "batch3-technical-report" || data.optInt("schemaVersion") !in listOf(1, 2) ||
           !data.getJSONObject("privacy").getBoolean("aggregateOnly"))
           throw CodedException("ERR_REPORT_SCHEMA", "Invalid technical report", null)
         val activity = appContext.currentActivity

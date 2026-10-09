@@ -94,14 +94,22 @@ times out, use the HTTPS release above; changing the QR alone cannot fix that ro
 5. Return to the workflow review and select **Xuất báo cáo kỹ thuật JSON**.
    The Android document picker requests local destinations; choose Downloads.
    Send only this JSON for review, if desired. Cancelling the picker is supported.
-   Export before leaving/restarting the workflow: the three-stage report is an
-   in-memory diagnostic snapshot, not new session storage.
+   The current build keeps the aggregate report when leaving/reopening screen 09
+   in the same app process. Leaving an active physical stage cancels that stage
+   and records `WORKFLOW_CANCELLED`; it does not resume camera capture on return.
+   Export before closing the app or starting a new workflow. Nothing is written
+   to new session storage; retained reports cannot activate calibration models.
 
 Reading the saved calibration during self-test is read-only, includes RETRY,
 and never activates an old or expired model. This read-back alone does not
 establish a completed physical workflow. Older measurement versions require
 fresh calibration. If the APK cannot update because its signing key differs,
 keep the original installation/evidence and report the installer error first.
+After a schema-1 empty export, update without uninstalling, run self-test and
+export immediately to inspect the calibration already saved, before recording
+again. `savedCalibrationRead` distinguishes available evidence, no saved file,
+invalid data and read failure; `physicalWorkflow.started=false` means this is
+saved-data inspection, not a newly completed three-stage physical test.
 An unsupported-file message from a viewer does not by itself establish APK/OS
 incompatibility. If File Manager or the actual Android installer also rejects it,
 record that app's name and exact error before changing the native build. Computer
@@ -110,12 +118,22 @@ checks validate the published APK, not the phone's local download or installatio
 ## Report contract
 
 The small, versioned JSON uses an explicit allowlist: build tag, fixed check IDs,
-PASS/FAIL/UNAVAILABLE, stage statuses, target/eye counts, confidence-gate counts,
+NOT_RUN/PASS/FAIL/UNAVAILABLE, stage statuses, target/eye counts, confidence-gate counts,
 coverage, fit/validation errors, failure codes and the unchanged engineering policies.
 No arbitrary exception text, recording timestamps, device/participant IDs,
 calibration IDs, file paths, affine coefficients, ROIs, raw pupil coordinates,
 trajectories, images or videos are included. Unknown reasons become a fixed code.
 The export does not request network or broad storage access.
+Schema 2 (`batch3-20261009-r2`) distinguishes checks not run from unavailable
+results, records self-test completion and saved-calibration read status, and
+includes only fixed diagnostic failure codes. Reading saved calibration failing
+cannot erase JS/native check results or activate a model. All 15 JS and seven
+native checks must PASS to start a physical workflow; partial/duplicate bridge
+results cannot unlock it. Empty reports cannot be exported, but failed self-tests
+remain exportable. Schema 1 lacks this distinction: native UNAVAILABLE alone is
+not proof that a module is missing, and an empty report is not a physical result.
+The Android exporter now accepts schemas 1 and 2; this native change requires an
+APK update, including for Development Build. Fast Refresh alone cannot update it.
 Capture/analysis errors retain only a stage and fixed failure code (camera
 preparation, cancellation, decode failure, frame-count mismatch or invalid PTS).
 Failed stages can be retried in place or cancelled to export the completed evidence.
@@ -130,9 +148,10 @@ these tests GOOD_DATA. No visual-angle velocity or clinical diagnosis is claimed
 
 ## Computer verification and evidence
 
-`npm test` runs 14 suites, including the same APK JS simulations, strict ROI/PTS
+`npm test` runs 15 suites, including the same APK JS simulations, strict ROI/PTS
 and partial-decoder rejection, regression of the two tests, and report privacy/
-metric guards. Native JUnit runs seven production CV cases without Android or a
+metric guards, storage-read failures and aggregate retention across navigation.
+Native JUnit runs seven production CV cases without Android or a
 camera. Simulations establish algorithm behavior, not human tracking accuracy.
 
 Optional replay of evidence **already present on the computer**:

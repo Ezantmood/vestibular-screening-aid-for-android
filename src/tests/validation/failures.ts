@@ -14,6 +14,13 @@ export interface ValidationFailure {
   stage: 'calibration' | 'pursuit' | 'saccades';
   code: ValidationFailureCode;
 }
+export const DIAGNOSTIC_FAILURE_CODES = [
+  'JS_SELF_CHECKS_UNAVAILABLE',
+  'NATIVE_SELF_CHECKS_UNAVAILABLE',
+  'SAVED_CALIBRATION_READ_FAILED',
+  'SAVED_CALIBRATION_INVALID',
+] as const;
+export type DiagnosticFailureCode = (typeof DIAGNOSTIC_FAILURE_CODES)[number];
 /** Preserve diagnostic category, never free-form exceptions or device file paths. */
 export function validationFailureCode(error: unknown): ValidationFailureCode {
   if (error instanceof CaptureCancelled) return 'CAPTURE_CANCELLED';

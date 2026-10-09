@@ -4,9 +4,15 @@ import { CALIBRATION_TARGETS } from '../../eyetracking/calibration/protocol';
 import { TEST_POLICY } from '../metrics/quality';
 import { SELF_CHECK_IDS, type SelfCheckResult } from './selfChecks';
 
-import { VALIDATION_FAILURE_CODES, type ValidationFailure } from './failures';
+import {
+  VALIDATION_FAILURE_CODES,
+  DIAGNOSTIC_FAILURE_CODES,
+  type DiagnosticFailureCode,
+  type ValidationFailure,
+} from './failures';
+import type { SavedCalibrationRead } from './diagnosticRun';
 
-export const BATCH3_BUILD = 'batch3-20261008-r1';
+export const BATCH3_BUILD = 'batch3-20261009-r2';
 export const NATIVE_CHECK_IDS = [
   'native-component-isolation-percentile-dark',
   'native-center-percentile-dark',
@@ -287,6 +293,10 @@ export function buildTechnicalReport(args: {
   calibrationConfirmed?: boolean;
   interrupted?: boolean;
   failures?: readonly ValidationFailure[];
+  selfTestCompleted?: boolean;
+  diagnosticFailures?: readonly DiagnosticFailureCode[];
+  savedCalibrationRead?: SavedCalibrationRead;
+  workflowStarted?: boolean;
 }) {
   const calibration = calibrationTechnicalSummary(args.calibrationArtifact);
   const current =
@@ -295,7 +305,7 @@ export function buildTechnicalReport(args: {
     calibration.modelChecksPass &&
     calibration.verdict === 'VALID';
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'batch3-technical-report',
     build: BATCH3_BUILD,
     privacy: {
@@ -305,14 +315,27 @@ export function buildTechnicalReport(args: {
       includesIdentifiers: false,
       includesTrajectories: false,
     },
+    selfTest: {
+      status: args.selfTestCompleted === true ? 'COMPLETED' : 'NOT_RUN',
+      failureCodes: [...new Set(args.diagnosticFailures ?? [])].filter((c) =>
+        DIAGNOSTIC_FAILURE_CODES.includes(c),
+      ),
+      savedCalibrationRead: ['AVAILABLE', 'NOT_FOUND', 'INVALID', 'FAILED'].includes(
+        args.savedCalibrationRead ?? '',
+      )
+        ? args.savedCalibrationRead!
+        : 'NOT_RUN',
+    },
     selfChecks: SELF_CHECK_IDS.map((id) => ({
       id,
       status:
         args.selfChecks?.find((c) => c.id === id)?.status === 'PASS'
           ? 'PASS'
-          : args.selfChecks?.some((c) => c.id === id)
+          : args.selfChecks?.find((c) => c.id === id)?.status === 'FAIL'
             ? 'FAIL'
-            : 'NOT_RUN',
+            : args.selfChecks?.some((c) => c.id === id)
+              ? 'UNAVAILABLE'
+              : 'NOT_RUN',
     })),
     nativeChecks: NATIVE_CHECK_IDS.map((id) => ({
       id,
@@ -321,9 +344,12 @@ export function buildTechnicalReport(args: {
           ? 'PASS'
           : args.nativeChecks?.find((c) => c.id === id)?.status === 'FAIL'
             ? 'FAIL'
-            : 'UNAVAILABLE',
+            : args.nativeChecks?.some((c) => c.id === id)
+              ? 'UNAVAILABLE'
+              : 'NOT_RUN',
     })),
     physicalWorkflow: {
+      started: args.workflowStarted === true,
       interrupted: args.interrupted === true,
       failures: (args.failures ?? [])
         .filter(

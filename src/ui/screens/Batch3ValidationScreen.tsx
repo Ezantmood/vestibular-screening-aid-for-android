@@ -1,28 +1,72 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, View, StyleSheet } from 'react-native';
 import CalibrationScreen from './CalibrationScreen';
 import StimulusScreen from './StimulusScreen';
 import { CameraButton, CameraDetails } from '../components/CameraUI';
-import { runBatch3SelfChecks, type SelfCheckResult } from '../../tests/validation/selfChecks';
+import {
+  runBatch3SelfChecks,
+  SELF_CHECK_IDS,
+  type SelfCheckResult,
+} from '../../tests/validation/selfChecks';
 import {
   buildTechnicalReport,
   BATCH3_BUILD,
-  parseLocalEvidence,
+  NATIVE_CHECK_IDS,
   type NativeCheckResult,
 } from '../../tests/validation/technicalReport';
+import {
+  diagnosticChecksPassed,
+  normalizeChecks,
+  runValidationDiagnostics,
+  type SavedCalibrationRead,
+} from '../../tests/validation/diagnosticRun';
+import {
+  batch3ReportSnapshot,
+  canExportTechnicalReport,
+  restoreReviewReport,
+  type ValidationStage,
+} from '../../tests/validation/reportSnapshot';
 import { exportTechnicalReport, runNativePupilChecks } from '../../camera/batch3Diagnostics';
 import { readCalibrationJson } from '../../camera/eyeAnalysisStorage';
 import type { EyeTestResult } from '../../tests/metrics/types';
 
-import type { ValidationFailure, ValidationFailureCode } from '../../tests/validation/failures';
+import type {
+  DiagnosticFailureCode,
+  ValidationFailure,
+  ValidationFailureCode,
+} from '../../tests/validation/failures';
 
-type Stage = 'review' | 'calibration' | 'pursuit' | 'saccades';
+type Stage = ValidationStage;
 export default function Batch3ValidationScreen() {
+  const [initialSnapshot] = useState(() => batch3ReportSnapshot.read());
+  const [restoredReport, setRestoredReport] = useState(initialSnapshot);
   const [stage, setStage] = useState<Stage>('review');
-  const [selfChecks, setSelfChecks] = useState<SelfCheckResult[]>([]);
-  const [nativeChecks, setNativeChecks] = useState<NativeCheckResult[]>([]);
+  const [selfChecks, setSelfChecks] = useState<SelfCheckResult[]>(() =>
+    initialSnapshot?.selfTest.status === 'COMPLETED'
+      ? normalizeChecks(SELF_CHECK_IDS, initialSnapshot.selfChecks)
+      : [],
+  );
+  const [nativeChecks, setNativeChecks] = useState<NativeCheckResult[]>(() =>
+    initialSnapshot?.selfTest.status === 'COMPLETED'
+      ? normalizeChecks(NATIVE_CHECK_IDS, initialSnapshot.nativeChecks)
+      : [],
+  );
+  const [selfTestCompleted, setSelfTestCompleted] = useState(
+    initialSnapshot?.selfTest.status === 'COMPLETED',
+  );
+  const [diagnosticFailures, setDiagnosticFailures] = useState<DiagnosticFailureCode[]>(
+    initialSnapshot?.selfTest.failureCodes ?? [],
+  );
+  const [savedCalibrationRead, setSavedCalibrationRead] = useState<SavedCalibrationRead>(
+    initialSnapshot?.selfTest.savedCalibrationRead ?? 'NOT_RUN',
+  );
+  const [workflowStarted, setWorkflowStarted] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('Chạy self-test trước khi kiểm thử vật lý.');
+  const [message, setMessage] = useState(
+    initialSnapshot
+      ? 'Đã giữ lại báo cáo trong phiên mở app này. Bạn có thể xuất JSON hoặc chạy quy trình mới.'
+      : 'Bước 1: Chạy self-test trước khi kiểm thử vật lý.',
+  );
   const [evidence, setEvidence] = useState<unknown>(null);
   const [pursuit, setPursuit] = useState<EyeTestResult | null>(null);
   const [saccades, setSaccades] = useState<EyeTestResult | null>(null);
@@ -32,56 +76,101 @@ export default function Batch3ValidationScreen() {
   const calibrationId = useRef<string | null>(null);
   const mounted = useRef(true);
   const operation = useRef(false);
-  useEffect(() => {
+  const report = useMemo(() => {
+    const fresh = buildTechnicalReport({
+      selfChecks,
+      nativeChecks,
+      selfTestCompleted,
+      diagnosticFailures,
+      savedCalibrationRead,
+      workflowStarted,
+      calibrationArtifact: evidence,
+      pursuit,
+      saccades,
+      calibrationConfirmed: confirmed,
+      interrupted,
+      failures,
+    });
+    // A restored aggregate is for review/export only; it never restores a live calibration.
+    return restoreReviewReport(fresh, restoredReport);
+  }, [
+    selfChecks,
+    nativeChecks,
+    selfTestCompleted,
+    diagnosticFailures,
+    savedCalibrationRead,
+    workflowStarted,
+    evidence,
+    pursuit,
+    saccades,
+    confirmed,
+    interrupted,
+    failures,
+    restoredReport,
+  ]);
+  const latestReport = useRef(report);
+  const latestStage = useRef(stage);
+  useLayoutEffect(() => {
+    latestReport.current = report;
+    latestStage.current = stage;
+    batch3ReportSnapshot.remember(report);
+  }, [report, stage]);
+  useLayoutEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      // Child camera screens still unmount normally and release their resources.
+      batch3ReportSnapshot.remember(latestReport.current, latestStage.current);
     };
   }, []);
-  const report = useMemo(
-    () =>
-      buildTechnicalReport({
-        selfChecks,
-        nativeChecks,
-        calibrationArtifact: evidence,
-        pursuit,
-        saccades,
-        calibrationConfirmed: confirmed,
-        interrupted,
-        failures,
-      }),
-    [selfChecks, nativeChecks, evidence, pursuit, saccades, confirmed, interrupted, failures],
-  );
   async function selfTest() {
     if (operation.current) return;
     operation.current = true;
     setBusy(true);
     setSelfChecks([]);
     setNativeChecks([]);
+    setSelfTestCompleted(false);
+    setDiagnosticFailures([]);
+    setSavedCalibrationRead('NOT_RUN');
     setMessage('Đang chạy mô phỏng và kiểm tra CV native; không mở camera.');
     try {
-      const js = await runBatch3SelfChecks();
-      const native = await runNativePupilChecks();
-      const saved = parseLocalEvidence(await readCalibrationJson());
+      const checks = await runValidationDiagnostics({
+        runJs: runBatch3SelfChecks,
+        runNative: runNativePupilChecks,
+        readSaved: readCalibrationJson,
+      });
       if (!mounted.current) return;
-      setSelfChecks(js);
-      setNativeChecks(native);
+      setSelfChecks(checks.selfChecks);
+      setNativeChecks(checks.nativeChecks);
+      setDiagnosticFailures(checks.failureCodes);
+      setSavedCalibrationRead(checks.savedCalibrationRead);
       // Reading existing evidence never activates an old calibration or fabricates a workflow.
-      if (calibrationId.current === null) setEvidence(saved);
+      if (!workflowStarted && !restoredReport?.physicalWorkflow.started) {
+        setEvidence(checks.savedEvidence);
+        setRestoredReport(null);
+      }
       setMessage(
-        js.every((c) => c.status === 'PASS') && native.every((c) => c.status === 'PASS')
-          ? 'Self-test PASS. Mô phỏng chưa xác nhận chất lượng video của người dùng.'
+        diagnosticChecksPassed(checks.selfChecks, checks.nativeChecks)
+          ? 'Self-test PASS. Bước 2: Bắt đầu Calibration → Pursuit → Saccade. Chưa có xác nhận chất lượng video từ self-test.'
           : 'Self-test FAIL hoặc thiếu native module. Xuất báo cáo để kiểm tra.',
       );
     } catch {
-      if (mounted.current) setMessage('Không hoàn thành self-test / đọc dữ liệu cục bộ.');
+      if (mounted.current) {
+        setSelfChecks(normalizeChecks(SELF_CHECK_IDS, null));
+        setNativeChecks(normalizeChecks(NATIVE_CHECK_IDS, null));
+        setDiagnosticFailures(['JS_SELF_CHECKS_UNAVAILABLE', 'NATIVE_SELF_CHECKS_UNAVAILABLE']);
+        setMessage('Không hoàn thành self-test. Xuất báo cáo lỗi để kiểm tra.');
+      }
     } finally {
       operation.current = false;
-      if (mounted.current) setBusy(false);
+      if (mounted.current) {
+        setSelfTestCompleted(true);
+        setBusy(false);
+      }
     }
   }
   async function exportReport() {
-    if (operation.current) return;
+    if (operation.current || !canExportTechnicalReport(report)) return;
     operation.current = true;
     setBusy(true);
     try {
@@ -162,11 +251,7 @@ export default function Batch3ValidationScreen() {
         />
       </View>
     );
-  const passed =
-    selfChecks.length > 0 &&
-    nativeChecks.length > 0 &&
-    selfChecks.every((c) => c.status === 'PASS') &&
-    nativeChecks.every((c) => c.status === 'PASS');
+  const passed = selfTestCompleted && diagnosticChecksPassed(selfChecks, nativeChecks);
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.title}>Kiểm thử Batch 3 độc lập</Text>
@@ -182,6 +267,12 @@ export default function Batch3ValidationScreen() {
       />
       <Text accessibilityLiveRegion="polite">{message}</Text>
       <Text>
+        Self-test: {selfChecks.filter((c) => c.status === 'PASS').length}/{SELF_CHECK_IDS.length} JS
+        PASS; {nativeChecks.filter((c) => c.status === 'PASS').length}/{NATIVE_CHECK_IDS.length}{' '}
+        native PASS. Đọc calibration đã lưu: {savedCalibrationRead}.
+      </Text>
+      {diagnosticFailures.length > 0 && <Text>Lỗi kiểm tra: {diagnosticFailures.join(', ')}</Text>}
+      <Text>
         Kiểm thử vật lý: giữ điện thoại và đầu ổn định, đủ sáng, nhìn đúng chấm. Mỗi bước chọn
         camera trước → mở preview và căn mặt → bắt đầu quay. App tự chạy 14 target calibration và
         phân tích, rồi chuyển Pursuit → Saccade nếu calibration đạt.
@@ -190,6 +281,8 @@ export default function Batch3ValidationScreen() {
         title="Bắt đầu Calibration → Pursuit → Saccade"
         disabled={busy || !passed}
         onPress={() => {
+          setRestoredReport(null);
+          setWorkflowStarted(true);
           setFailures([]);
           calibrationId.current = null;
           setEvidence(null);
@@ -221,9 +314,13 @@ export default function Batch3ValidationScreen() {
       </Text>
       <CameraButton
         title="Xuất báo cáo kỹ thuật JSON"
-        disabled={busy}
+        disabled={busy || !canExportTechnicalReport(report)}
         onPress={() => void exportReport()}
       />
+      <Text>
+        Chạy self-test trước khi xuất. Báo cáo được giữ khi quay lại màn hình này trong cùng phiên
+        mở app; xuất trước khi đóng app hoặc bắt đầu quy trình mới.
+      </Text>
       <Text>
         Báo cáo chỉ gồm phiên bản, PASS/FAIL, số lượng và chất lượng tổng hợp. Không có ảnh, video,
         centroid, đường đi mắt, ID cá nhân/thiết bị, đường dẫn hay thời điểm quay.

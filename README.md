@@ -61,7 +61,7 @@ Node 25, Android SDK 36 and JDK 21 were used for the current local build.
 | `npm start`             | Metro LAN + Development Build QR         |
 | `npm run build:dev`     | Local Development APK + native CV checks |
 | `npm run verify:dev`    | Inspect launcher, QR scheme, signature   |
-| `npm test`              | 14 pure execution suites                 |
+| `npm test`              | 15 pure execution suites                 |
 | `npm run format`        | Prettier check                           |
 | `npm run build:batch3`  | Local standalone APK + native CV checks  |
 | `npm run verify:batch3` | Inspect APK signature, manifest, bundle  |
