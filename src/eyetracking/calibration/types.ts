@@ -1,5 +1,9 @@
 import type { EyeSide } from '../pupil/pupilTypes';
 
+export const CALIBRATION_COORDINATE_VERSION = 'decoded-roi-v3' as const;
+export const currentPupilMeasurement = (version: unknown): boolean =>
+  version === CALIBRATION_COORDINATE_VERSION;
+
 export interface CalibrationContext {
   cameraId: string;
   width: number;
@@ -10,7 +14,7 @@ export interface CalibrationContext {
   viewportLeft: number;
   viewportTop: number;
   detectorId: 'percentile-dark';
-  coordinateVersion: 'decoded-roi-v2';
+  coordinateVersion: typeof CALIBRATION_COORDINATE_VERSION;
 }
 export interface CalibrationTarget {
   id: string;

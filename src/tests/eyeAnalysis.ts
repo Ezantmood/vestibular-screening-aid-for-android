@@ -5,6 +5,7 @@ import type {
 } from '../eyetracking/calibration/types';
 import { calibrationDiagnostics } from './validation/calibrationDiagnostics';
 import { fitCalibration } from '../eyetracking/calibration/calibration';
+import { calibrationInsights, calibrationFeedback } from '../eyetracking/calibration/insights';
 import {
   analyzeFileForTracking,
   type ReplayRunResult,
@@ -60,6 +61,8 @@ export async function analyzeCalibrationTakes(args: {
     models: result.models,
     targets: result.targetQuality,
     diagnostics,
+    insights: calibrationInsights(result),
+    feedback: calibrationFeedback(result),
     path,
     signals: signals.map((eyes, i) => ({
       target: takes[i].target.id,

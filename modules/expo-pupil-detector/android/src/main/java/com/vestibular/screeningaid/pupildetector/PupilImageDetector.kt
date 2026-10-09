@@ -60,6 +60,15 @@ class PupilImageDetector {
         val a = detect(gray, 120, 120, id)
         check(a.success && abs(a.cxRoi!! - 60) < 1 && abs(a.cyRoi!! - 62) < 1)
       }
+      cases["native-quantized-plateau-$id"] = {
+        for (level in listOf(25.0, 60.0, 90.0)) {
+          val gray = DoubleArray(120 * 120) { i ->
+            if (Math.hypot((i % 120 - 58).toDouble(), (i / 120 - 62).toDouble()) < 28) level else 190.0
+          }
+          val a = detect(gray, 120, 120, id)
+          check(a.success && a.confidence >= 0.5 && abs(a.cxRoi!! - 58) < 1 && abs(a.cyRoi!! - 62) < 1)
+        }
+      }
     }
     cases["native-missing-is-null"] = {
       val a = detect(DoubleArray(10000) { 180.0 }, 100, 100, "percentile-dark")
@@ -73,6 +82,23 @@ class PupilImageDetector {
     cases["native-invalid-geometry"] = {
       val a = detect(DoubleArray(100), 10, 10, "percentile-dark")
       check(a.failure == "INVALID_GEOMETRY" && a.cxRoi == null)
+      val b = detectWithPrior(DoubleArray(100), 10, 10, 5.0, 5.0, 12.0, "percentile-dark")
+      check(b.failure == "INVALID_GEOMETRY" && b.cxRoi == null)
+    }
+    cases["native-uniform-and-ambiguous"] = {
+      for (id in listOf("percentile-dark", "contrast-normalized")) {
+        for (level in listOf(25.0, 60.0, 110.0, 180.0)) {
+          val a = detect(DoubleArray(120 * 120) { level }, 120, 120, id)
+          check(!a.success && a.cxRoi == null && a.cyRoi == null)
+        }
+        val twins = DoubleArray(120 * 120) { i ->
+          val x = i % 120; val y = i / 120
+          if (Math.hypot((x - 35).toDouble(), (y - 60).toDouble()) < 18 ||
+              Math.hypot((x - 85).toDouble(), (y - 60).toDouble()) < 18) 25.0 else 190.0
+        }
+        val a = detect(twins, 120, 120, id)
+        check(!a.success && a.cxRoi == null && a.cyRoi == null)
+      }
     }
     return cases.map { (id, run) ->
       mapOf("id" to id, "status" to if (runCatching { run() }.isSuccess) "PASS" else "FAIL")
@@ -88,6 +114,11 @@ class PupilImageDetector {
 
   fun detectWithPrior(gray: DoubleArray, rw: Int, rh: Int, priorX: Double, priorY: Double,
     radiusPx: Double, detectorId: String): Outcome {
+    if (rw < 24 || rh < 24 || gray.size != rw * rh ||
+        gray.any { !it.isFinite() || it < 0 || it > 255 } ||
+        !priorX.isFinite() || !priorY.isFinite() || !radiusPx.isFinite() || radiusPx <= 0 ||
+        priorX < 0 || priorX >= rw || priorY < 0 || priorY >= rh)
+      return Outcome(false, null, null, null, null, 0.0, "INVALID_GEOMETRY")
     val smoothed = boxBlur(gray, rw, rh, 1)
     val mask: ByteArray
     val threshold: Double
@@ -109,7 +140,7 @@ class PupilImageDetector {
       val raw = ByteArray(n)
       var dark = 0
       for (i in 0 until n) {
-        if (stretched[i] < threshold) {
+        if (stretched[i] <= threshold) {
           raw[i] = 1
           dark++
         }
@@ -124,7 +155,7 @@ class PupilImageDetector {
       mask = ByteArray(rw * rh)
       var dark = 0
       for (i in mask.indices) {
-        if (smoothed[i] < threshold) {
+        if (smoothed[i] <= threshold) {
           mask[i] = 1
           dark++
         }
@@ -177,13 +208,44 @@ class PupilImageDetector {
     return out
   }
 
-  private fun percentileValue(values: DoubleArray, q: Double): Double {
+  /** Exact order statistic without boxing/sorting every ROI pixel. Three-way
+   * partition handles quantized plateaus; bounded iterations fall back to the
+   * primitive sort. Input pixels are never modified. */
+  internal fun percentileValue(values: DoubleArray, q: Double): Double {
     if (values.isEmpty()) {
       return 0.0
     }
-    val sorted = values.sorted()
     val qc = min(1.0, max(0.0, q))
-    return sorted[min(sorted.size - 1, (qc * sorted.size).toInt())]
+    val wanted = min(values.size - 1, (qc * values.size).toInt())
+    // Uniform/ordered image buffers need no partition or allocation.
+    var ascending = true; var descending = true
+    for (i in 1 until values.size) {
+      ascending = ascending && values[i] >= values[i - 1]
+      descending = descending && values[i] <= values[i - 1]
+      if (!ascending && !descending) break
+    }
+    if (ascending) return values[wanted]
+    if (descending) return values[values.lastIndex - wanted]
+    val buffer = values.copyOf()
+    var lo = 0
+    var hi = buffer.lastIndex
+    var budget = 2 * (ln(buffer.size.toDouble()) / ln(2.0)).toInt() + 2
+    fun swap(a: Int, b: Int) { val v = buffer[a]; buffer[a] = buffer[b]; buffer[b] = v }
+    while (lo < hi && budget-- > 0) {
+      val a = buffer[lo]; val b = buffer[(lo + hi) / 2]; val c = buffer[hi]
+      val pivot = max(min(a, b), min(max(a, b), c))
+      var lower = lo; var i = lo; var upper = hi
+      while (i <= upper) {
+        if (buffer[i] < pivot) swap(i++, lower++)
+        else if (buffer[i] > pivot) swap(i, upper--)
+        else i++
+      }
+      if (wanted < lower) hi = lower - 1
+      else if (wanted > upper) lo = upper + 1
+      else return buffer[wanted]
+    }
+    if (lo < hi) buffer.sort(lo, hi + 1)
+    return buffer[wanted]
   }
 
   private fun findComps(mask: ByteArray, w: Int, h: Int): List<Comp> {
@@ -401,7 +463,9 @@ class PupilImageDetector {
     val mask = ByteArray(w * h)
     var dark = 0
     for (i in mask.indices) {
-      if (smoothed[i] < threshold) {
+      // Include the quantized plateau at the chosen cutoff. Strict < can
+      // remove the entire pupil when it occupies the percentile itself.
+      if (smoothed[i] <= threshold) {
         mask[i] = 1
         dark++
       }
@@ -426,7 +490,7 @@ class PupilImageDetector {
     val mask = ByteArray(n)
     var dark = 0
     for (i in 0 until n) {
-      if (stretched[i] < absCut) {
+      if (stretched[i] <= absCut) {
         mask[i] = 1
         dark++
       }

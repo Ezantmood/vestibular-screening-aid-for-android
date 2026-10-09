@@ -1,4 +1,5 @@
 import { CALIBRATION_TARGETS } from './protocol';
+import { currentPupilMeasurement } from './types';
 import type {
   CalibrationContext,
   CalibrationPolicy,
@@ -60,7 +61,7 @@ function validContext(context: CalibrationContext): boolean {
     typeof context.cameraId === 'string' &&
     context.cameraId.length > 0 &&
     context.detectorId === 'percentile-dark' &&
-    context.coordinateVersion === 'decoded-roi-v2' &&
+    currentPupilMeasurement(context.coordinateVersion) &&
     [context.viewportLeft, context.viewportTop].every((n) => Number.isFinite(n) && n >= 0) &&
     [
       context.width,

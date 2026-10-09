@@ -307,6 +307,13 @@ export default function Batch3ValidationScreen() {
           {eye.modelPresent ? 'có candidate' : 'chưa có'}.
         </Text>
       ))}
+      {report.physicalWorkflow.calibration.verdict === 'RETRY' && (
+        <Text>
+          Calibration chưa đạt. Coverage phải ≥60% ở từng target; fit và validation RMSE phải ≤0,08,
+          max error ≤0,15. Coverage cao vẫn có thể đi kèm ánh xạ sai. Xem chi tiết báo cáo trước khi
+          thử lại.
+        </Text>
+      )}
       <Text>
         Metric tin cậy: Pursuit {report.physicalWorkflow.pursuit.reliableMetrics ? 'có' : 'N/A'};
         Saccade {report.physicalWorkflow.saccades.reliableMetrics ? 'có' : 'N/A'}. Candidate từ

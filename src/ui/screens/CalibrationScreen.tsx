@@ -3,6 +3,8 @@ import { AppState, PermissionsAndroid, ScrollView, StyleSheet, Text, View } from
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
 import { collectFixedModes, type FixedMode } from '../../camera/fixedModes';
 import { invalidateCalibration } from '../../camera/eyeAnalysisStorage';
+import { assertCurrentPupilDetector } from '../../camera/pupilDetector';
+import { calibrationFeedback } from '../../eyetracking/calibration/insights';
 import {
   CALIBRATION_TARGETS,
   CALIBRATION_TAKE_SECONDS,
@@ -39,6 +41,7 @@ export default function CalibrationScreen({
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [message, setMessage] = useState('');
   const [report, setReport] = useState('');
+  const [feedback, setFeedback] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const cancelled = useRef(false);
   const mounted = useRef(true);
@@ -68,6 +71,7 @@ export default function CalibrationScreen({
   async function prepare() {
     setError(null);
     try {
+      assertCurrentPupilDetector();
       const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
       if (permission !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Cần quyền camera.');
       const probe = await getCamera2Capabilities();
@@ -88,6 +92,7 @@ export default function CalibrationScreen({
     setBusy(true);
     setError(null);
     setReport('');
+    setFeedback([]);
     viewport.current = { ...size };
     const takes: CapturedCalibrationTake[] = [];
     const createdAtMs = Date.now();
@@ -110,7 +115,7 @@ export default function CalibrationScreen({
         viewportLeft: display.left,
         viewportTop: display.top,
         detectorId: 'percentile-dark',
-        coordinateVersion: 'decoded-roi-v2',
+        coordinateVersion: 'decoded-roi-v3',
       };
       for (let i = 0; i < CALIBRATION_TARGETS.length; i++) {
         if (cancelled.current || !mounted.current) break;
@@ -194,9 +199,10 @@ export default function CalibrationScreen({
         setMessage(
           out.result.verdict === 'VALID'
             ? 'Calibration đạt kiểm tra chất lượng. Có thể chuyển sang bài mắt.'
-            : 'Calibration chưa đạt. Căn lại mặt, giữ ánh sáng ổn định và nhìn đúng chấm rồi thử lại.',
+            : 'Calibration chưa đạt. Xem lý do và xuất báo cáo để kiểm tra detector / ánh xạ.',
         );
         setReport(JSON.stringify(out.summary, null, 2));
+        setFeedback(calibrationFeedback(out.result));
         onComplete?.(out.result, out.evidence);
       }
     } catch (e) {
@@ -285,6 +291,9 @@ export default function CalibrationScreen({
         />
       )}
       {error && <Text selectable>{error}</Text>}
+      {feedback.map((line, i) => (
+        <Text key={i}>{line}</Text>
+      ))}
       {report !== '' && (
         <CameraDetails title="Calibration quality & signal">
           <Text selectable>{report}</Text>

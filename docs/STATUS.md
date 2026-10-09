@@ -646,3 +646,13 @@ exact image/feature cause. Computer policy/count audit, all 15 regression suites
 and strict checks PASS. Documentation only; no rebuild, phone access, threshold
 change, fabricated measurements or Batch 4. See
 [physical report review and readiness decision](device-probes/BATCH3_PHYSICAL_REVIEW_20261010.md).
+
+2026-10-10 Batch 3 detector improvement `batch3-20261010-r3`: reproduced and fixed
+quantized pupil cutoff loss in TS/standard/hinted Kotlin without changing quality
+gates. Exact primitive quantile selection reduces computer benchmark cost;
+aggregate feature/mapping diagnostics and clearer RETRY feedback are added.
+Measurement contract is v3; old models/native binaries cannot be silently reused.
+All 15 regression suites, 18 JS simulations and five JVM tests covering ten native
+checks PASS. Source repair does not establish physical VALID; r3 APK delivery and
+owner verification are pending. No phone access or Batch 4. See
+[detector repair and measured limits](device-probes/BATCH3_DETECTOR_IMPROVEMENT_20261010.md).

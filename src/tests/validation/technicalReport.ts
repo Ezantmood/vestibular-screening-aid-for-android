@@ -1,6 +1,8 @@
 import type { CalibrationResult, CalibrationContext } from '../../eyetracking/calibration/types';
+import { currentPupilMeasurement } from '../../eyetracking/calibration/types';
 import { CALIBRATION_POLICY, calibrationUsable } from '../../eyetracking/calibration/calibration';
 import { CALIBRATION_TARGETS } from '../../eyetracking/calibration/protocol';
+import { calibrationInsights } from '../../eyetracking/calibration/insights';
 import { TEST_POLICY } from '../metrics/quality';
 import { SELF_CHECK_IDS, type SelfCheckResult } from './selfChecks';
 
@@ -12,15 +14,18 @@ import {
 } from './failures';
 import type { SavedCalibrationRead } from './diagnosticRun';
 
-export const BATCH3_BUILD = 'batch3-20261009-r2';
+export const BATCH3_BUILD = 'batch3-20261010-r3';
 export const NATIVE_CHECK_IDS = [
   'native-component-isolation-percentile-dark',
   'native-center-percentile-dark',
+  'native-quantized-plateau-percentile-dark',
   'native-component-isolation-contrast-normalized',
   'native-center-contrast-normalized',
+  'native-quantized-plateau-contrast-normalized',
   'native-missing-is-null',
   'native-hinted-isolation',
   'native-invalid-geometry',
+  'native-uniform-and-ambiguous',
 ] as const;
 export type NativeCheckResult = {
   id: (typeof NATIVE_CHECK_IDS)[number];
@@ -121,7 +126,7 @@ export function calibrationTechnicalSummary(artifact: unknown) {
     context as unknown as CalibrationContext,
     number(r.createdAtMs, 0, Number.MAX_SAFE_INTEGER) ?? NaN,
   );
-  const versionCurrent = context.coordinateVersion === 'decoded-roi-v2';
+  const versionCurrent = currentPupilMeasurement(context.coordinateVersion);
   const verdict = r.verdict === 'VALID' || r.verdict === 'RETRY' ? r.verdict : 'UNAVAILABLE';
   const targets = list(r.targetQuality)
     .slice(0, 28)
@@ -219,6 +224,7 @@ export function calibrationTechnicalSummary(artifact: unknown) {
     }),
     targets,
     stageCounts,
+    insights: calibrationInsights(r),
   };
 }
 /** Reliable metrics are absent unless the entire test is GOOD_DATA and the workflow

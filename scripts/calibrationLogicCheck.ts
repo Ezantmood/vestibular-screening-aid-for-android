@@ -10,6 +10,8 @@ import type { CalibrationContext, CalibrationTake } from '../src/eyetracking/cal
 import { buildSuccessResult } from '../src/eyetracking/pupil/coordinates';
 import { finalTrack } from '../src/eyetracking/tracking/twoPassTracking';
 import { processTrackingSignals } from '../src/signals/trackingSignals';
+import { calibrationInsights, calibrationFeedback } from '../src/eyetracking/calibration/insights';
+import { currentPupilMeasurement } from '../src/eyetracking/calibration/types';
 
 const context: CalibrationContext = {
   cameraId: '1',
@@ -21,7 +23,7 @@ const context: CalibrationContext = {
   viewportLeft: 16,
   viewportTop: 100,
   detectorId: 'percentile-dark',
-  coordinateVersion: 'decoded-roi-v2',
+  coordinateVersion: 'decoded-roi-v3',
 };
 const time = 100_000;
 function fixture(): CalibrationTake[] {
@@ -52,6 +54,34 @@ function fixture(): CalibrationTake[] {
 const fit = (takes = fixture()) =>
   fitCalibration({ id: 'test', createdAtMs: time, context, takes });
 const result = fit();
+assert.equal(currentPupilMeasurement(undefined), false);
+assert.equal(currentPupilMeasurement('decoded-roi-v2'), false);
+assert.equal(currentPupilMeasurement('decoded-roi-v3'), true);
+assert.equal(
+  calibrationUsable(
+    {
+      ...result,
+      context: { ...result.context, coordinateVersion: 'decoded-roi-v2' },
+    } as unknown as typeof result,
+    context,
+    time,
+  ),
+  false,
+);
+const insights = calibrationInsights(result);
+assert.equal(insights[0].fitTargetsWithFeatures, 9);
+assert.ok(insights[0].targetCorrelation.featureXTargetY! > 0.99);
+assert.ok(insights[0].targetCorrelation.featureYTargetX! < -0.99);
+assert.ok(insights[0].validationAxisRmse!.x < 0.01);
+assert.ok(insights[0].centerRepeatFeatureDistance! < 0.01);
+assert.equal(calibrationFeedback(result).length, 1);
+assert.equal(calibrationInsights(null)[0].featureSpanX, null);
+assert.equal(
+  calibrationInsights({
+    targetQuality: [{ targetId: 'fit-0-0', eyeSide: 'left', x: NaN, y: 0.5 }],
+  })[0].fitTargetsWithFeatures,
+  0,
+);
 assert.equal(
   calibrationUsable({ schemaVersion: 1 } as unknown as typeof result, context, time),
   false,
@@ -172,6 +202,10 @@ assert.equal(fit(takes).verdict, 'RETRY');
 takes = fixture();
 for (const t of takes) if (t.target.role === 'validation') for (const s of t.samples) s.x! += 0.1;
 assert.ok(fit(takes).reasons.some((r) => r.startsWith('POOR_VALIDATION')));
+const shifted = calibrationInsights(fit(takes))[0];
+assert.ok(shifted.validationAxisRmse!.y > 0.2);
+assert.ok(shifted.centerRepeatFeatureDistance! > 0.09);
+assert.ok(calibrationFeedback(fit(takes)).some((m) => m.includes('ánh xạ chưa đạt')));
 takes = fixture();
 takes[0].samples[2].decodedPtsUs = 0;
 assert.ok(fit(takes).reasons.some((r) => r.startsWith('INVALID_PTS')));

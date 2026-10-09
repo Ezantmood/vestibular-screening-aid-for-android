@@ -395,7 +395,8 @@ function prepareComponents(
   const mask = new Uint8Array(n);
   let dark = 0;
   for (let i = 0; i < n; i += 1) {
-    if (smoothed[i] < threshold) {
+    // Keep pixels on the quantized cutoff; otherwise a pupil plateau can vanish.
+    if (smoothed[i] <= threshold) {
       mask[i] = 1;
       dark += 1;
     }
@@ -583,7 +584,7 @@ export const contrastNormalizedDetector: PupilDetector = {
     const mask = new Uint8Array(n);
     let dark = 0;
     for (let i = 0; i < n; i += 1) {
-      if (stretched[i] < absCut) {
+      if (stretched[i] <= absCut) {
         mask[i] = 1;
         dark += 1;
       }

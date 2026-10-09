@@ -48,8 +48,14 @@ async function main() {
     savedCalibrationRead: storageFailed.savedCalibrationRead,
   });
   assert.ok(canExportTechnicalReport(safeFailure));
-  assert.equal(safeFailure.selfChecks.filter((c) => c.status === 'PASS').length, 15);
-  assert.equal(safeFailure.nativeChecks.filter((c) => c.status === 'PASS').length, 7);
+  assert.equal(
+    safeFailure.selfChecks.filter((c) => c.status === 'PASS').length,
+    SELF_CHECK_IDS.length,
+  );
+  assert.equal(
+    safeFailure.nativeChecks.filter((c) => c.status === 'PASS').length,
+    NATIVE_CHECK_IDS.length,
+  );
   assert.ok(!JSON.stringify(safeFailure).includes('PERSONAL_SENTINEL'));
   for (const json of ['{broken', '{}', 'null', '[]', '{"result":{"verdict":"UNKNOWN"}}']) {
     const invalid = await runValidationDiagnostics({ ...deps, readSaved: async () => json });
@@ -87,7 +93,10 @@ async function main() {
   cache.remember(initial);
   assert.equal(cache.read(), null);
   cache.remember(safeFailure);
-  assert.equal(cache.read()?.selfChecks.filter((c) => c.status === 'PASS').length, 15);
+  assert.equal(
+    cache.read()?.selfChecks.filter((c) => c.status === 'PASS').length,
+    SELF_CHECK_IDS.length,
+  );
   const retryReport = buildTechnicalReport({
     selfTestCompleted: true,
     selfChecks: jsPass,

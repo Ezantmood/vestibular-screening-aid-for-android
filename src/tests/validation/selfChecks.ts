@@ -29,6 +29,9 @@ import { CaptureCancelled } from '../../camera/recordingPreparation';
 export const SELF_CHECK_IDS = [
   'component-isolation-percentile',
   'component-isolation-contrast',
+  'quantized-pupil-percentile',
+  'quantized-pupil-contrast',
+  'uniform-and-ambiguous-remain-missing',
   'calibration-affine-held-out',
   'calibration-missing-right',
   'calibration-poor-validation',
@@ -58,7 +61,7 @@ export const SYNTHETIC_CONTEXT: CalibrationContext = {
   viewportLeft: 16,
   viewportTop: 100,
   detectorId: 'percentile-dark',
-  coordinateVersion: 'decoded-roi-v2',
+  coordinateVersion: 'decoded-roi-v3',
 };
 export function syntheticCalibrationTakes(): CalibrationTake[] {
   return CALIBRATION_TARGETS.map((target, j) => ({
@@ -178,7 +181,43 @@ function pipeline(testId: MvpTestId, rejected = false, blink = false) {
 }
 /** Explicit simulations only. Never writes fixtures to calibration storage or camera paths. */
 export async function runBatch3SelfChecks(): Promise<SelfCheckResult[]> {
+  const plateau = (detector: typeof percentileDarkDetector) => {
+    for (const radius of [24, 28])
+      for (const level of [25, 60, 90]) {
+        const data = Float64Array.from({ length: 120 * 120 }, (_, i) =>
+          Math.hypot((i % 120) - 58, Math.floor(i / 120) - 62) < radius ? level : 190,
+        );
+        const out = detector.detect({ width: 120, height: 120, data });
+        ensure(
+          out.success &&
+            out.confidence >= 0.5 &&
+            Math.abs(out.centroidXInRoi! - 58) < 1 &&
+            Math.abs(out.centroidYInRoi! - 62) < 1,
+        );
+      }
+  };
   const tests: Record<SelfCheckResult['id'], () => void | Promise<void>> = {
+    'quantized-pupil-percentile': () => plateau(percentileDarkDetector),
+    'quantized-pupil-contrast': () => plateau(contrastNormalizedDetector),
+    'uniform-and-ambiguous-remain-missing': () => {
+      for (const detector of [percentileDarkDetector, contrastNormalizedDetector]) {
+        for (const level of [25, 60, 110, 180]) {
+          const out = detector.detect({
+            width: 120,
+            height: 120,
+            data: new Float64Array(120 * 120).fill(level),
+          });
+          ensure(!out.success && out.centroidXInRoi === null && out.centroidYInRoi === null);
+        }
+        const data = Float64Array.from({ length: 120 * 120 }, (_, i) => {
+          const x = i % 120,
+            y = Math.floor(i / 120);
+          return Math.hypot(x - 35, y - 60) < 18 || Math.hypot(x - 85, y - 60) < 18 ? 25 : 190;
+        });
+        const out = detector.detect({ width: 120, height: 120, data });
+        ensure(!out.success && out.centroidXInRoi === null && out.centroidYInRoi === null);
+      }
+    },
     'component-isolation-percentile': () => {
       const a = percentileDarkDetector.detect(nestedComponentImage(false));
       const b = percentileDarkDetector.detect(nestedComponentImage(true));

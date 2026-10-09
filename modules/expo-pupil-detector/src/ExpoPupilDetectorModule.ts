@@ -10,6 +10,7 @@ export type {
 } from './ExpoPupilDetector.types';
 
 declare class ExpoPupilDetectorModule extends NativeModule<Record<string, never>> {
+  readonly measurementVersion: string;
   analyzeVideoPupils(
     filePath: string,
     detectorId: string,

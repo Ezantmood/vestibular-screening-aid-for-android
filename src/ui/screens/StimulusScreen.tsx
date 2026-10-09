@@ -12,6 +12,7 @@ import {
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
 import { collectFixedModes, type FixedMode } from '../../camera/fixedModes';
 import { isLivePreviewAvailable } from '../../camera/livePreview';
+import { assertCurrentPupilDetector } from '../../camera/pupilDetector';
 import {
   completeEyeTestRecording,
   sampleStimulusClock,
@@ -128,6 +129,7 @@ export default function StimulusScreen({
   async function loadCamera() {
     setError(null);
     try {
+      assertCurrentPupilDetector();
       if (Platform.OS !== 'android' || !isLivePreviewAvailable())
         throw new Error('Cần Android Development Build.');
       const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
@@ -168,7 +170,7 @@ export default function StimulusScreen({
         viewportLeft: display.left,
         viewportTop: display.top,
         detectorId: 'percentile-dark',
-        coordinateVersion: 'decoded-roi-v2',
+        coordinateVersion: 'decoded-roi-v3',
       };
       const calibration = await loadCalibration();
       if (!diagnostic && (!calibration || !calibrationUsable(calibration, context, Date.now())))

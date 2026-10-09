@@ -66,9 +66,16 @@ for (const secret of [
   'referenceRoi',
   'createdAtMs',
   '1791346313820',
+  'coefficientsX',
+  'featureBounds',
+  'targetQuality',
 ])
   assert.ok(!json.includes(secret));
 assert.equal(report.physicalWorkflow.pursuit.reliableMetrics, false);
+assert.equal(report.physicalWorkflow.calibration.insights[0].fitTargetsWithFeatures, 9);
+assert.ok(
+  report.physicalWorkflow.calibration.insights[0].targetCorrelation.featureXTargetX! > 0.99,
+);
 assert.equal(report.physicalWorkflow.pursuit.pursuit[0].pursuitGain, null);
 assert.equal(report.physicalWorkflow.saccades.saccades[0].latencyMs, null);
 assert.equal(report.physicalWorkflow.saccades.saccades[0].accuracy, null);

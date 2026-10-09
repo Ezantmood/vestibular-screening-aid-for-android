@@ -10,6 +10,7 @@
 
 import { requireOptionalNativeModule } from 'expo';
 import { reconcilePupilBatch } from '../eyetracking/pupil/reconcileBatch';
+import { currentPupilMeasurement } from '../eyetracking/calibration/types';
 
 import type {
   PupilBatchReport,
@@ -36,6 +37,7 @@ const VALID_FAILURES: ReadonlySet<string> = new Set([
 ]);
 
 interface ExpoPupilDetectorNativeModule {
+  readonly measurementVersion?: string;
   analyzeVideoPupils(
     filePath: string,
     detectorId: string,
@@ -61,6 +63,14 @@ export function isHintedPupilDetectorAvailable(): boolean {
   return nativeModule !== null && typeof nativeModule?.analyzeVideoPupilsWithPrior === 'function';
 }
 
+/** Fast Refresh must not label old native measurements as the new detector. */
+export function assertCurrentPupilDetector(): void {
+  if (!isPupilDetectorAvailable() || !currentPupilMeasurement(nativeModule?.measurementVersion))
+    throw new Error(
+      'Cần cập nhật APK có detector decoded-roi-v3. Fast Refresh không cập nhật phần native.',
+    );
+}
+
 export interface PupilBatchOptions {
   filePath: string;
   detectorId: PupilDetectorId;
@@ -76,6 +86,7 @@ export async function analyzeVideoPupils(options: PupilBatchOptions): Promise<Pu
         'Build with the development profile and run on-device.',
     );
   }
+  assertCurrentPupilDetector();
   try {
     return await (nativeModule as ExpoPupilDetectorNativeModule).analyzeVideoPupils(
       options.filePath,
@@ -319,6 +330,7 @@ export async function runHintedPupilBatch(args: {
         '(analyzeVideoPupilsWithPrior). Rebuild the app and retry.',
     );
   }
+  assertCurrentPupilDetector();
   const report = await (nativeModule as ExpoPupilDetectorNativeModule).analyzeVideoPupilsWithPrior!(
     args.filePath,
     args.detectorId,
