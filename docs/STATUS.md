@@ -592,3 +592,11 @@ APK MIME, 39,730,168 bytes and matching SHA-256. The direct QR passes independen
 ZXing decoding. Only the asset-limited expiring link is handed to the owner;
 account token and signed URL/QR remain outside Git. Repository/app bytes unchanged.
 Phone Chrome download and installation remain owner checks; no phone access.
+
+2026-10-09 owner confirms the APK downloaded and updated successfully. The
+installation handoff is resolved by owner report; app runtime and physical
+calibration/tracking quality are not yet verified. Next: Home **09 — Kiểm thử
+Batch 3 độc lập**, run self-tests, then the physical Calibration → Pursuit →
+Saccade workflow and export its anonymized technical JSON, including failed or
+stopped stages. Until that evidence arrives, the last measured calibration remains
+RETRY and no new reliable physical metrics are claimed. Batch 4 remains closed.
