@@ -634,3 +634,15 @@ calibration on the updated Redmi remain owner checks; no phone was accessed.
 Anonymous HTTPS read-back matches the full APK size/SHA-256 with the expected
 attachment filename and APK MIME. A temporary asset-only download QR passes
 independent ZXing decoding; signed URL/QR and account credentials stay outside Git.
+
+2026-10-10 owner supplied a populated r2 physical report. All 15 JS/seven native
+checks PASS; export contains 14 targets and 2,530 frames. Calibration remains
+RETRY: left accepted 348/2,530 (13.75%), right 2,348/2,530 (92.81%). Both rejected
+candidate models fail fit and validation; held-out RMSE is 0.3463/0.4330 against
+the unchanged 0.08 gate. Both eye tests correctly remain NOT_RUN, with no reliable
+physical metrics. Low left detector confidence and failed mapping despite high
+right coverage are separate blockers; the aggregate report cannot establish the
+exact image/feature cause. Computer policy/count audit, all 15 regression suites
+and strict checks PASS. Documentation only; no rebuild, phone access, threshold
+change, fabricated measurements or Batch 4. See
+[physical report review and readiness decision](device-probes/BATCH3_PHYSICAL_REVIEW_20261010.md).
