@@ -38,13 +38,24 @@ Package/version are `com.vestibular.screeningaid` / 0.1.1 (code 2).
 
 ## Physical verification by the device owner
 
-Prefer the private HTTPS
-[Batch 3 release](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/batch3-6c6b088).
-On Redmi Chrome, sign in to GitHub with a repository-authorized account, open
-**Assets**, and download **vestibular.apk**. A 404 while signed out/wrong account
+Use **Chrome on Redmi** for the
+[direct APK download](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/download/batch3-6c6b088/vestibular.apk).
+If a QR opens inside Zalo, use its menu to open the URL in Chrome (or copy the
+URL into Chrome's address bar). The reported **The file type is not supported**
+occurred while opening the release asset in the Zalo/GitHub flow, before any
+confirmed Android installer failure. Change the opening app before changing APKs.
+For this stable private GitHub URL, sign in with a repository-authorized account
+in **Chrome**; Zalo's login may not carry over. A 404 while signed out/wrong account
 does not mean the APK is missing. This download works independently of the Mac,
 LAN IP, Metro or port 8082. The release contains only the verified APK and checksum,
 never recordings, calibration evidence or personal reports. Repository stays private.
+
+During assisted handoff, a maintainer can obtain GitHub's temporary asset-only
+HTTPS redirect using the [release asset API](https://docs.github.com/en/rest/releases/assets).
+Verify an unauthenticated download's byte count, attachment filename and SHA-256
+before sharing it with the owner. This skips GitHub login/asset preview; still
+open it in Chrome. State its actual expiry. Never share the GitHub account token,
+commit the signed URL/QR, or change repository visibility for this workaround.
 
 Optional LAN transfer, if phone-to-Mac access works: serve only the prepared APK directory:
 
@@ -61,8 +72,8 @@ times out, use the HTTPS release above; changing the QR alone cannot fix that ro
 
 1. After downloading, open Xiaomi's built-in **Quản lý tệp / File Manager** from
    the phone Home screen → **APK** (or **Downloads**) → **vestibular.apk**.
-   This opens Android's installer. If a browser/QR app says **không hỗ trợ loại tệp**,
-   open the already-downloaded file through File Manager instead.
+   This opens Android's installer. A release asset showing 38 MB does not prove a
+   file was saved to Downloads; finish the Chrome download before this step.
    If Android blocks the source, follow **Settings → Allow from this source** for
    **File Manager**, then return and choose **Install / Update**. Prefer an update
    over uninstalling, to preserve existing private calibration evidence.

@@ -582,3 +582,13 @@ do not validate the phone's local copy or prove a particular installer failure.
 APK verification now also checks single-package, minimum API, ABI and launcher.
 Install guidance uses Xiaomi File Manager's APK category to reach Android's
 installer. Native/app bytes are unchanged; physical installation remains pending.
+
+Owner then clarified the exact flow: Zalo QR → GitHub sign-in → **APK kiểm thử
+độc lập** → **The file type is not supported**. This establishes a Zalo/GitHub
+file-opening failure, not a confirmed Android installer rejection. Corrected the
+handoff to Chrome and direct binary download. A temporary GitHub CDN redirect was
+tested without login: HTTP 200, `attachment; filename=vestibular.apk`, correct
+APK MIME, 39,730,168 bytes and matching SHA-256. The direct QR passes independent
+ZXing decoding. Only the asset-limited expiring link is handed to the owner;
+account token and signed URL/QR remain outside Git. Repository/app bytes unchanged.
+Phone Chrome download and installation remain owner checks; no phone access.
