@@ -618,3 +618,19 @@ cancelled stage while the camera still unmounts; starting a new workflow resets
 physical evidence. No model is restored from the report cache, no new disk/session
 storage is added, and calibration/tracking/metric gates are unchanged. Fresh
 physical calibration and both eye-test results remain unverified; Batch 4 closed.
+
+Computer verification of r2: typecheck/lint/format and all 15 regression suites
+PASS, including the unchanged 33 eye-test groups and 15 APK JS simulations.
+Batch 3 APK/native build and seven production CV cases PASS. Binary checks confirm
+the r2 embedded bundle, four custom modules, same signing certificate, no Internet
+permission, disabled backup, ZIP integrity, v2 signature and 16 KiB alignment.
+APK is 39,736,460 bytes; SHA-256
+`d792e9140a44d16deb875e8a77dc3bca2d971e4685d419eea1278fdc62422ad1`.
+Published only APK/checksum in the private
+[r2 prerelease](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/batch3-20261009-r2),
+targeting source commit `5a5c53d`. No other matching Batch 3 technical report was
+found in Downloads. Physical export/navigation behavior and recovery of saved
+calibration on the updated Redmi remain owner checks; no phone was accessed.
+Anonymous HTTPS read-back matches the full APK size/SHA-256 with the expected
+attachment filename and APK MIME. A temporary asset-only download QR passes
+independent ZXing decoding; signed URL/QR and account credentials stay outside Git.

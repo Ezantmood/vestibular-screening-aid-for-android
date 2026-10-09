@@ -39,7 +39,7 @@ Package/version are `com.vestibular.screeningaid` / 0.1.1 (code 2).
 ## Physical verification by the device owner
 
 Use **Chrome on Redmi** for the
-[direct APK download](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/download/batch3-6c6b088/vestibular.apk).
+[direct APK download](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/download/batch3-20261009-r2/vestibular.apk).
 If a QR opens inside Zalo, use its menu to open the URL in Chrome (or copy the
 URL into Chrome's address bar). The reported **The file type is not supported**
 occurred while opening the release asset in the Zalo/GitHub flow, before any
