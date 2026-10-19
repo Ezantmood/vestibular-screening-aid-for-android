@@ -656,3 +656,13 @@ All 15 regression suites, 18 JS simulations and five JVM tests covering ten nati
 checks PASS. Source repair does not establish physical VALID; r3 APK is built, verified and
 published privately, with owner verification pending. No phone access or Batch 4. See
 [detector repair and measured limits](device-probes/BATCH3_DETECTOR_IMPROVEMENT_20261010.md).
+
+## Clinician accounts — FR-01, FR-02, FR-03, FR-06
+
+- Email and password registration, email confirmation before Home, sign-in,
+  sign-out, password-reset link, 15-minute idle sign-out, and optional Android
+  biometric unlock of a still-valid session. Firebase holds the account only.
+- Real email cannot be sent until `EXPO_PUBLIC_FIREBASE_*` in `.env` points at a
+  project with Email/Password enabled. See `.env.example`.
+- Batch 3 builds set `EXPO_PUBLIC_AUTH_REQUIRED=0` and stay offline. Development
+  and Metro builds require an account.

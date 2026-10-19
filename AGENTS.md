@@ -37,8 +37,8 @@ npm run check   # typecheck + lint (run before committing)
   Metro LAN + QR is authorized; never invoke CLI device launch/install.
   Build/check on the computer. See [development workflow](docs/DEVELOPMENT_BUILD.md)
   and [standalone physical verification](docs/BATCH3_VALIDATION.md).
-- No expanded patient/session storage, clinical reports, PDF, other eye tests,
-  or diagnosis. Preserve intentional stubs outside this scope.
+- Clinician sign-in (FR-01, FR-02, FR-03, FR-06) is in scope. Patient records,
+  clinical reports, PDF, other eye tests, and diagnosis stay out until requested.
 - Never lower quality gates or fabricate measurements to obtain VALID. Distinguish
   computer simulations, saved-data replay and pending physical results.
 - Keep docs short; each doc has one job. Update `docs/STATUS.md` when state changes.

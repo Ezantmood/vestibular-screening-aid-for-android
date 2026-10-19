@@ -20,6 +20,7 @@ const checks = [
   'batch3LogicCheck',
   'technicalReportLogicCheck',
   'diagnosticRunLogicCheck',
+  'authLogicCheck',
 ];
 try {
   execFileSync(

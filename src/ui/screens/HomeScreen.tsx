@@ -89,7 +89,7 @@ const tools = [
 ] as const;
 type ToolId = (typeof tools)[number]['id'] | 'preview';
 
-export default function HomeScreen() {
+export default function HomeScreen({ embedded = false }: { embedded?: boolean }) {
   const [active, setActive] = useState<ToolId | null>(null);
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -104,7 +104,7 @@ export default function HomeScreen() {
     const Screen = active === 'preview' ? LivePreviewValidationScreen : selected?.component;
     return (
       <View style={styles.screen}>
-        <View style={styles.header}>
+        <View style={[styles.header, embedded && styles.embeddedHeader]}>
           <Pressable
             onPress={() => setActive(null)}
             accessibilityRole="button"
@@ -121,7 +121,11 @@ export default function HomeScreen() {
     );
   }
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} testID="home-screen">
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={[styles.content, embedded && styles.embeddedContent]}
+      testID="home-screen"
+    >
       <Text style={styles.eyebrow}>VESTIBULAR SCREENING AID</Text>
       <Text style={styles.title}>Camera & chuyển động mắt</Text>
       <Text style={styles.subtitle}>
@@ -178,6 +182,8 @@ const topInset = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 28) : 4
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: cameraColors.background },
   content: { padding: 22, paddingTop: topInset + 20, paddingBottom: 100 },
+  embeddedContent: { paddingTop: 12 },
+  embeddedHeader: { paddingTop: 4 },
   eyebrow: {
     fontSize: 10,
     fontWeight: '800',

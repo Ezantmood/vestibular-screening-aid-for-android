@@ -22,8 +22,12 @@ const variants = {
 const variant = process.argv[2] ?? 'batch3';
 const settings = variants[variant];
 if (!settings) throw new Error('Expected batch3 or development variant.');
+const env = { ...process.env };
+// The offline measurement APK has no network, so it cannot confirm email.
+if (variant === 'batch3') env.EXPO_PUBLIC_AUTH_REQUIRED = '0';
 execFileSync('npx', ['expo', 'prebuild', '--no-install', '--platform', 'android'], {
   stdio: 'inherit',
+  env,
 });
 execFileSync(
   './gradlew',
@@ -37,7 +41,7 @@ execFileSync(
   {
     cwd: resolve('android'),
     stdio: 'inherit',
-    env: process.env,
+    env,
   },
 );
 const dir = resolve('artifacts', variant);

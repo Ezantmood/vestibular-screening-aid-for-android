@@ -31,7 +31,14 @@
           "launchMode": "launcher"
         }
       ],
-      "./plugins/withBatch3Offline.cjs"
+      "./plugins/withBatch3Offline.cjs",
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Đăng nhập nhanh vào tài khoản clinician."
+        }
+      ]
     ]
   }
 }
