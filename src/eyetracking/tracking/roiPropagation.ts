@@ -16,6 +16,99 @@
 import type { FramePipelineFaceSample } from '../../../modules/expo-frame-pipeline/src/ExpoFramePipeline.types';
 import type { EyeSide, PupilFailureReason } from '../pupil/pupilTypes';
 
+export interface FaceAnchor {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function usableFace(sample: FramePipelineFaceSample): FaceAnchor | null {
+  if (!sample.faceDetected || sample.faceBox === null) return null;
+  const box = sample.faceBox;
+  if (
+    ![box.x, box.y, box.width, box.height].every(Number.isFinite) ||
+    box.x < 0 ||
+    box.y < 0 ||
+    box.width <= 0 ||
+    box.height <= 0
+  )
+    return null;
+  return { x: box.x, y: box.y, width: box.width, height: box.height };
+}
+
+/** One face box per decoded frame. The box stays with the head; it is not
+ * recentered on the eye landmark. Missing faces are not invented. */
+export function propagateFaceAnchors(args: {
+  faceSamples: FramePipelineFaceSample[];
+  decodedPtsUsList: (number | null)[];
+  frameCount: number;
+}): (FaceAnchor | null)[] {
+  const ordered = [...args.faceSamples].sort((a, b) => a.frameIndex - b.frameIndex);
+  const keys: { frameIndex: number; ptsUs: number; box: FaceAnchor }[] = [];
+  for (const sample of ordered) {
+    const box = usableFace(sample);
+    if (
+      box !== null &&
+      Number.isInteger(sample.frameIndex) &&
+      sample.frameIndex >= 0 &&
+      sample.ptsUs !== null &&
+      Number.isFinite(sample.ptsUs) &&
+      sample.ptsUs >= 0 &&
+      sample.ptsUs === args.decodedPtsUsList[sample.frameIndex]
+    )
+      keys.push({ frameIndex: sample.frameIndex, ptsUs: sample.ptsUs, box });
+  }
+  const keyByFrame = new Map(keys.map((key) => [key.frameIndex, key]));
+  const out: (FaceAnchor | null)[] = [];
+  for (let frame = 0; frame < args.frameCount; frame++) {
+    const pts = frame < args.decodedPtsUsList.length ? args.decodedPtsUsList[frame] : null;
+    const exact = keyByFrame.get(frame);
+    if (exact !== undefined && pts !== null && Number.isFinite(pts)) {
+      out.push(exact.box);
+      continue;
+    }
+    let lo: (typeof keys)[number] | null = null;
+    let hi: (typeof keys)[number] | null = null;
+    for (const key of keys) {
+      if (key.frameIndex < frame) lo = key;
+      else if (key.frameIndex > frame) {
+        hi = key;
+        break;
+      }
+    }
+    let clean = lo !== null && hi !== null;
+    if (clean && lo && hi) {
+      for (const sample of ordered) {
+        if (sample.frameIndex > lo.frameIndex && sample.frameIndex < hi.frameIndex) {
+          clean = false;
+          break;
+        }
+      }
+    }
+    const timed =
+      pts !== null &&
+      Number.isFinite(pts) &&
+      lo !== null &&
+      hi !== null &&
+      hi.ptsUs > lo.ptsUs &&
+      pts > lo.ptsUs &&
+      pts < hi.ptsUs;
+    if (!clean || !lo || !hi || !timed) {
+      out.push(null);
+      continue;
+    }
+    const alpha = (pts - lo.ptsUs) / (hi.ptsUs - lo.ptsUs);
+    out.push({
+      x: Math.round(lo.box.x + (hi.box.x - lo.box.x) * alpha),
+      y: Math.round(lo.box.y + (hi.box.y - lo.box.y) * alpha),
+      width: Math.round(lo.box.width + (hi.box.width - lo.box.width) * alpha),
+      height: Math.round(lo.box.height + (hi.box.height - lo.box.height) * alpha),
+    });
+  }
+  return out;
+}
+
 export interface PropagatedRoi {
   frameIndex: number;
   decodedPtsUs: number | null;

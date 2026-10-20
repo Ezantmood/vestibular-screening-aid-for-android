@@ -1,11 +1,15 @@
 import type { PupilDetectionResult } from '../pupil/pupilTypes';
 import type { EyeObservation } from '../calibration/types';
+import type { FaceAnchor } from './roiPropagation';
 import type { PupilTrackingResult } from './trackingTypes';
 
-/** Normalize accepted observations against each frame's ROI. Never use predictions. */
+/** Pupil position inside the eye crop, plus the head-fixed face box when the
+ * caller measured one. The eye crop follows the landmark and is not the gaze
+ * coordinate. Never use predictions. */
 export function trackingObservations(
   raw: readonly PupilDetectionResult[],
   tracked: readonly PupilTrackingResult[],
+  faceAnchors?: readonly (FaceAnchor | null)[],
 ): EyeObservation[] {
   const rois = new Map(raw.map((r) => [`${r.eyeSide}:${r.frameIndex}`, r]));
   return tracked.map((t) => {
@@ -19,6 +23,7 @@ export function trackingObservations(
       t.trackedCentroidY !== null &&
       roi.width > 0 &&
       roi.height > 0;
+    const face = faceAnchors ? (faceAnchors[t.frameIndex] ?? null) : undefined;
     return {
       frameIndex: t.frameIndex,
       decodedPtsUs: t.decodedPtsUs,
@@ -27,6 +32,7 @@ export function trackingObservations(
       y: valid ? (t.trackedCentroidY! - roi.y) / roi.height : null,
       confidence: t.trackingConfidence,
       roi,
+      face,
       estimated: t.ptsEstimated,
     };
   });

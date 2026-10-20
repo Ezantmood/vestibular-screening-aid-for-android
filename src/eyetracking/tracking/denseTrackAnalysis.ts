@@ -10,7 +10,7 @@ import { runDensePupilBatch, runHintedPupilBatch } from '../../camera/pupilDetec
 import type { PupilTrackingResult } from './trackingTypes';
 import { buildRescueHints, finalTrack, mergeRescuedResults } from './twoPassTracking';
 import { trackingDecodeFailure } from './decodeIntegrity';
-import { propagateRois } from './roiPropagation';
+import { propagateFaceAnchors, propagateRois } from './roiPropagation';
 
 export interface ReplayRunResult {
   condition: string;
@@ -23,6 +23,8 @@ export interface ReplayRunResult {
   bothEyesRate: string;
   rawResults: PupilDetectionResult[];
   tracked: PupilTrackingResult[];
+  /** Head box for each decoded frame. Null when the face was not measured. */
+  faceAnchors: ({ x: number; y: number; width: number; height: number } | null)[];
   hintCount: number;
   rescuedCount: number;
   rescueFailures: Record<string, number>;
@@ -259,6 +261,11 @@ export async function analyzeFileForTracking(args: {
     decodedPtsUsList: analysis.decodedPtsUs,
     frameCount: analysis.decodedFrameCount,
   });
+  const faceAnchors = propagateFaceAnchors({
+    faceSamples: analysis.faceSamples,
+    decodedPtsUsList: analysis.decodedPtsUs,
+    frameCount: analysis.decodedFrameCount,
+  });
   const roisWithCondition = rois.map((r) => ({ ...r, condition: args.condition }));
   const standardBatch = await runDensePupilBatch({
     filePath: args.filePath,
@@ -332,6 +339,7 @@ export async function analyzeFileForTracking(args: {
     bothEyesRate: String(analysis.bothEyesUsableRate ?? '?'),
     rawResults: standard,
     tracked,
+    faceAnchors,
     hintCount: hints.length,
     rescuedCount,
     rescueFailures,

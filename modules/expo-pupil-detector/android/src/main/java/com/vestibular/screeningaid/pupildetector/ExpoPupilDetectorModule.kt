@@ -66,7 +66,7 @@ class ExpoPupilDetectorModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ExpoPupilDetector")
-    Constant("measurementVersion") { "decoded-roi-v3" }
+    Constant("measurementVersion") { "face-pupil-v5" }
 
     AsyncFunction("runPupilSelfChecks") { imageDetector.selfChecks() }
 

@@ -127,7 +127,7 @@ export function calibrationFeedback(result: CalibrationResult): string[] {
       messages.push(`${label}: đặc trưng chưa đủ để fit ánh xạ hai chiều.`);
   }
   messages.push(
-    'Chưa dùng calibration này cho bài mắt. Báo cáo kỹ thuật giúp kiểm tra detector và ánh xạ; chưa xác định được nguyên nhân vật lý chỉ từ các chỉ số này.',
+    'Đặc trưng là vị trí đồng tử trên khung mặt. Ô mắt bám theo mốc mắt chỉ để tìm đồng tử, không phải tọa độ nhìn. Chưa dùng calibration này cho bài mắt.',
   );
   return messages;
 }

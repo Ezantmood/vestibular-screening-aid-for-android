@@ -10,6 +10,7 @@ export function processTrackingSignals(
   replay: {
     rawResults: readonly PupilDetectionResult[];
     tracked: readonly PupilTrackingResult[];
+    faceAnchors?: readonly ({ x: number; y: number; width: number; height: number } | null)[];
   },
   calibration?: CalibrationResult,
   context?: CalibrationContext,
@@ -17,7 +18,7 @@ export function processTrackingSignals(
 ) {
   const mapper =
     calibration && context ? createCalibrationMapper(calibration, context, nowMs) : null;
-  const observations = trackingObservations(replay.rawResults, replay.tracked);
+  const observations = trackingObservations(replay.rawResults, replay.tracked, replay.faceAnchors);
   return (['left', 'right'] as const).map((eyeSide) => {
     const obs = observations.filter((s) => s.eyeSide === eyeSide);
     const track = new Map(

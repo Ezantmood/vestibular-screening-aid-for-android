@@ -79,6 +79,10 @@ class ExpoFramePipelineModule : Module() {
     const val LOW_MOTION_MAD = 5.0
     /** Minimum eye-box edge (px at 1080p scale) to count as usable. */
     private const val MIN_EYE_ROI_PX = 30
+    /** Wider than the old 0.22 face-width crop so a pupil near the canthus is
+     * less likely to touch the border and lose 0.35 confidence. Nominal eye
+     * centers sit at 0.3 and 0.7 of the face box, so 0.30 crops still leave a gap. */
+    private const val EYE_ROI_FACE_FRACTION = 0.30
     private const val LARGE_GAP_FACTOR = 1.5
     private const val MAX_DECODED_FRAMES = 20_000
     private const val FACE_TIMEOUT_SEC = 8L
@@ -1202,7 +1206,7 @@ class ExpoFramePipelineModule : Module() {
           val fy = (hitT * scaleY).toInt().coerceIn(0, max(0, frameHeight - 1))
           val fw = ((hitR - hitL) * scaleX).toInt().coerceIn(1, frameWidth - fx)
           val fh = ((hitB - hitT) * scaleY).toInt().coerceIn(1, frameHeight - fy)
-          val eyeSize = max(MIN_EYE_ROI_PX, (fw * 0.22).toInt())
+          val eyeSize = max(MIN_EYE_ROI_PX, (fw * EYE_ROI_FACE_FRACTION).toInt())
           fun eyeBox(pos: PointF?, estX: Double, estY: Double): EyeBox {
             val cx = if (pos != null) {
               (pos.x * scaleX).toInt()

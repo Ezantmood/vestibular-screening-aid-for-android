@@ -1,6 +1,6 @@
 import type { EyeSide } from '../pupil/pupilTypes';
 
-export const CALIBRATION_COORDINATE_VERSION = 'decoded-roi-v3' as const;
+export const CALIBRATION_COORDINATE_VERSION = 'face-pupil-v5' as const;
 export const currentPupilMeasurement = (version: unknown): boolean =>
   version === CALIBRATION_COORDINATE_VERSION;
 
@@ -29,7 +29,11 @@ export interface EyeObservation {
   x: number | null;
   y: number | null;
   confidence: number;
+  /** Eye crop. It follows the eye landmark so the pupil stays inside the image. */
   roi: { x: number; y: number; width: number; height: number };
+  /** Head box for the gaze feature. Null means this frame had no face.
+   * Omitted means a legacy sample whose feature is still ROI-normalized. */
+  face?: { x: number; y: number; width: number; height: number } | null;
   estimated: boolean;
 }
 /** Target remains committed before recorder start until AFTER finalization.
@@ -60,7 +64,7 @@ export interface TargetQuality {
 }
 export interface EyeCalibration {
   eyeSide: EyeSide;
-  /** screen fraction = c0 + c1 * ROI-normalized x + c2 * ROI-normalized y */
+  /** screen fraction = c0 + c1 * face-normalized x + c2 * face-normalized y */
   coefficientsX: [number, number, number];
   coefficientsY: [number, number, number];
   referenceRoi: EyeObservation['roi'];

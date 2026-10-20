@@ -10,7 +10,10 @@
 
 import { requireOptionalNativeModule } from 'expo';
 import { reconcilePupilBatch } from '../eyetracking/pupil/reconcileBatch';
-import { currentPupilMeasurement } from '../eyetracking/calibration/types';
+import {
+  CALIBRATION_COORDINATE_VERSION,
+  currentPupilMeasurement,
+} from '../eyetracking/calibration/types';
 
 import type {
   PupilBatchReport,
@@ -67,7 +70,7 @@ export function isHintedPupilDetectorAvailable(): boolean {
 export function assertCurrentPupilDetector(): void {
   if (!isPupilDetectorAvailable() || !currentPupilMeasurement(nativeModule?.measurementVersion))
     throw new Error(
-      'Cần cập nhật APK có detector decoded-roi-v3. Fast Refresh không cập nhật phần native.',
+      `Cần cập nhật APK có detector ${CALIBRATION_COORDINATE_VERSION}. Fast Refresh không cập nhật phần native.`,
     );
 }
 

@@ -9,10 +9,11 @@ import {
   CALIBRATION_TARGETS,
   CALIBRATION_TAKE_SECONDS,
 } from '../../eyetracking/calibration/protocol';
-import type {
-  CalibrationContext,
-  CalibrationTarget,
-  CalibrationResult,
+import {
+  CALIBRATION_COORDINATE_VERSION,
+  type CalibrationContext,
+  type CalibrationTarget,
+  type CalibrationResult,
 } from '../../eyetracking/calibration/types';
 import { sameCalibrationContext } from '../../eyetracking/calibration/calibration';
 import { validationFailureCode, type ValidationFailureCode } from '../../tests/validation/failures';
@@ -115,7 +116,7 @@ export default function CalibrationScreen({
         viewportLeft: display.left,
         viewportTop: display.top,
         detectorId: 'percentile-dark',
-        coordinateVersion: 'decoded-roi-v3',
+        coordinateVersion: CALIBRATION_COORDINATE_VERSION,
       };
       for (let i = 0; i < CALIBRATION_TARGETS.length; i++) {
         if (cancelled.current || !mounted.current) break;

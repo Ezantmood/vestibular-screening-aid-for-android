@@ -42,6 +42,8 @@ export interface PupilDetector {
 
 /** Engineering feasibility gates (NOT clinical thresholds). */
 export const MIN_PUPIL_CONFIDENCE = 0.35;
+/** Position is not evidence that a blob is a pupil. Production weights keep this at 0. */
+export const ACCEPTANCE_CENTER_WEIGHT = 0;
 export const AMBIGUITY_SCORE_MARGIN = 0.05;
 /** Ideal bbox fill ratio of a circle (pi/4); shape scoring anchor. */
 const CIRCLE_FILL_RATIO = Math.PI / 4;
@@ -223,9 +225,10 @@ function clamp01(v: number): number {
  * - areaPrior: prefers pupils covering ~1–12% of the ROI,
  * - shape: bbox fill ratio near pi/4 with an aspect-ratio penalty
  *   (ellipse plausibility proxy without a full ellipse fit),
- * - centrality: prefers candidates away from the ROI edge,
+ * - centrality is computed for diagnostics only. It is not part of the
+ *   acceptance score: an off-center pupil is the gaze signal, not a worse pupil.
  * - borderPenalty: components touching the ROI border are suspect
- *   (eyelashes, shadows, eye corners),
+ *   (clipped pupils have biased centroids; eyelashes and shadows too),
  * - contrast: candidate mean vs. surrounding ring brightness.
  */
 export function scoreCandidate(
@@ -501,7 +504,7 @@ export const percentileDarkDetector: PupilDetector = {
       darkness: 2,
       area: 2,
       shape: 2,
-      center: 1,
+      center: ACCEPTANCE_CENTER_WEIGHT,
       contrast: 1,
     });
     return selectBest(scored, gray, MIN_PUPIL_CONFIDENCE, maskFraction);
@@ -628,7 +631,7 @@ export const contrastNormalizedDetector: PupilDetector = {
       darkness: 1,
       area: 2,
       shape: 3,
-      center: 1,
+      center: ACCEPTANCE_CENTER_WEIGHT,
       contrast: 2,
     });
     return selectBest(scored, gray, MIN_PUPIL_CONFIDENCE, dark / roiArea);

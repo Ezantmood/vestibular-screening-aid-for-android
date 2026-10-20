@@ -40,7 +40,10 @@ export async function analyzeCalibrationTakes(args: {
       expectedFps: args.context.fps,
       saveAuditOverlays: false,
     });
-    takes.push({ ...take, samples: trackingObservations(replay.rawResults, replay.tracked) });
+    takes.push({
+      ...take,
+      samples: trackingObservations(replay.rawResults, replay.tracked, replay.faceAnchors),
+    });
     replays.push(replay);
     signals.push(processTrackingSignals(replay));
   }

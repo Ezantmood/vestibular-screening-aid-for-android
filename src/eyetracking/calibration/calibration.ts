@@ -29,6 +29,19 @@ export function median(xs: readonly number[]): number {
   const mid = Math.floor(ordered.length / 2);
   return ordered.length % 2 ? ordered[mid] : (ordered[mid - 1] + ordered[mid]) / 2;
 }
+/** Re-express points in the take's median box size. A constant box reproduces
+ * the median of the stored coordinates. */
+export function stableNormalizedPoint(
+  samples: readonly { x: number; y: number; roi: { width: number; height: number } }[],
+): { x: number; y: number } | null {
+  if (samples.length === 0) return null;
+  const scaleW = median(samples.map((s) => s.roi.width));
+  const scaleH = median(samples.map((s) => s.roi.height));
+  if (!(scaleW > 0) || !(scaleH > 0)) return null;
+  const x = median(samples.map((s) => 0.5 + (s.x - 0.5) * (s.roi.width / scaleW)));
+  const y = median(samples.map((s) => 0.5 + (s.y - 0.5) * (s.roi.height / scaleH)));
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
 function finiteRoi(roi: EyeObservation['roi']): boolean {
   return (
     !!roi &&
@@ -97,12 +110,32 @@ function solve(rows: number[][], values: number[]): [number, number, number] | n
 function evaluate(c: [number, number, number], x: number, y: number): number {
   return c[0] + c[1] * x + c[2] * y;
 }
-function medianRoi(samples: EyeObservation[]): EyeObservation['roi'] {
+type Box = EyeObservation['roi'];
+
+/** Gaze feature. A face box is the head anchor: pupil position in that box.
+ * The eye crop follows the landmark, so position inside the crop cancels gaze.
+ * Samples with no face field keep the older ROI-normalized feature. */
+export function gazeFeature(sample: EyeObservation): { x: number; y: number; box: Box } | null {
+  if (sample.x === null || sample.y === null) return null;
+  if (![sample.x, sample.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1))
+    return null;
+  if (!finiteRoi(sample.roi)) return null;
+  if (sample.face === undefined) return { x: sample.x, y: sample.y, box: sample.roi };
+  if (sample.face === null || !finiteRoi(sample.face)) return null;
+  const frameX = sample.roi.x + sample.x * sample.roi.width;
+  const frameY = sample.roi.y + sample.y * sample.roi.height;
+  const x = (frameX - sample.face.x) / sample.face.width;
+  const y = (frameY - sample.face.y) / sample.face.height;
+  if (![x, y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) return null;
+  return { x, y, box: sample.face };
+}
+
+function medianBox(boxes: readonly Box[]): Box {
   return {
-    x: median(samples.map((s) => s.roi.x)),
-    y: median(samples.map((s) => s.roi.y)),
-    width: median(samples.map((s) => s.roi.width)),
-    height: median(samples.map((s) => s.roi.height)),
+    x: median(boxes.map((box) => box.x)),
+    y: median(boxes.map((box) => box.y)),
+    width: median(boxes.map((box) => box.width)),
+    height: median(boxes.map((box) => box.height)),
   };
 }
 function holdReasons(take: CalibrationTake, policy: CalibrationPolicy): string[] {
@@ -175,13 +208,13 @@ export function fitCalibration(args: {
       result.reasons.push(`${reason}:${expected.id}`);
   }
   for (const side of ['left', 'right'] as const) {
-    const acceptedAll: EyeObservation[] = [];
+    const acceptedBoxes: Box[] = [];
     for (const take of args.takes) {
       const samples = take.samples.filter((s) => s.eyeSide === side);
       const reasons: string[] = [];
       let previousPts = -Infinity;
       let previousIndex = -1;
-      const usable = samples.filter((s) => {
+      const usable = samples.flatMap((s) => {
         const timeValid =
           s.decodedPtsUs !== null &&
           Number.isFinite(s.decodedPtsUs) &&
@@ -192,42 +225,48 @@ export function fitCalibration(args: {
           previousPts = Math.max(previousPts, s.decodedPtsUs);
         previousIndex = Math.max(previousIndex, s.frameIndex);
         if (!timeValid) reasons.push('INVALID_PTS');
-        return (
-          timeValid &&
-          !s.estimated &&
-          s.x !== null &&
-          s.y !== null &&
-          [s.x, s.y, s.confidence].every(Number.isFinite) &&
-          s.x >= 0 &&
-          s.x <= 1 &&
-          s.y >= 0 &&
-          s.y <= 1 &&
-          s.confidence >= policy.minConfidence &&
-          s.confidence <= 1 &&
-          finiteRoi(s.roi)
-        );
+        const feature = gazeFeature(s);
+        if (
+          !timeValid ||
+          s.estimated ||
+          !feature ||
+          !Number.isFinite(s.confidence) ||
+          s.confidence < policy.minConfidence ||
+          s.confidence > 1
+        )
+          return [];
+        return [{ sample: s, feature }];
       });
-      const mx = median(usable.map((s) => s.x!));
-      const my = median(usable.map((s) => s.y!));
-      const distances = usable.map((s) => Math.hypot(s.x! - mx, s.y! - my));
+      const mx = median(usable.map((row) => row.feature.x));
+      const my = median(usable.map((row) => row.feature.y));
+      const distances = usable.map((row) => Math.hypot(row.feature.x - mx, row.feature.y - my));
       const mad = median(distances);
       // Robustly trim isolated measurement errors; do not repair insufficient coverage.
       const accepted = usable.filter(
-        (s) => Math.hypot(s.x! - mx, s.y! - my) <= Math.max(0.015, 3 * mad),
+        (row) => Math.hypot(row.feature.x - mx, row.feature.y - my) <= Math.max(0.015, 3 * mad),
       );
-      const x = accepted.length ? median(accepted.map((s) => s.x!)) : null;
-      const y = accepted.length ? median(accepted.map((s) => s.y!)) : null;
+      const stable = stableNormalizedPoint(
+        accepted.map((row) => ({
+          x: row.feature.x,
+          y: row.feature.y,
+          roi: row.feature.box,
+        })),
+      );
+      const x = stable?.x ?? null;
+      const y = stable?.y ?? null;
       const spread =
         x === null || y === null
           ? null
           : Math.sqrt(
-              accepted.reduce((sum, s) => sum + (s.x! - x) ** 2 + (s.y! - y) ** 2, 0) /
-                accepted.length,
+              accepted.reduce(
+                (sum, row) => sum + (row.feature.x - x) ** 2 + (row.feature.y - y) ** 2,
+                0,
+              ) / accepted.length,
             );
       const coverage = samples.length ? accepted.length / samples.length : 0;
       const spanUs =
         accepted.length > 1
-          ? accepted[accepted.length - 1].decodedPtsUs! - accepted[0].decodedPtsUs!
+          ? accepted[accepted.length - 1].sample.decodedPtsUs! - accepted[0].sample.decodedPtsUs!
           : 0;
       if (
         accepted.length < policy.minSamples ||
@@ -238,8 +277,8 @@ export function fitCalibration(args: {
       if (spanUs > take.recordEndNativeUs - take.recordStartNativeUs + 100_000)
         reasons.push('INVALID_PTS_SPAN');
       if (spread === null || spread > policy.maxSpread) reasons.push('UNSTABLE_FIXATION');
-      const ref = accepted.length ? medianRoi(accepted) : null;
-      if (ref && accepted.some((s) => !roiCompatible(s.roi, ref)))
+      const ref = accepted.length ? medianBox(accepted.map((row) => row.feature.box)) : null;
+      if (ref && accepted.some((row) => !roiCompatible(row.feature.box, ref)))
         reasons.push('HEAD_OR_ROI_MOVED');
       const quality: TargetQuality = {
         targetId: take.target.id,
@@ -257,10 +296,10 @@ export function fitCalibration(args: {
       result.targetQuality.push(quality);
       for (const reason of quality.reasons)
         result.reasons.push(`${reason}:${side}:${take.target.id}`);
-      acceptedAll.push(...accepted);
+      acceptedBoxes.push(...accepted.map((row) => row.feature.box));
     }
-    const referenceRoi = medianRoi(acceptedAll);
-    if (!finiteRoi(referenceRoi) || acceptedAll.some((s) => !roiCompatible(s.roi, referenceRoi)))
+    const referenceRoi = medianBox(acceptedBoxes);
+    if (!finiteRoi(referenceRoi) || acceptedBoxes.some((box) => !roiCompatible(box, referenceRoi)))
       result.reasons.push(`HEAD_OR_ROI_MOVED:${side}`);
     const qualities = result.targetQuality.filter(
       (q) => q.eyeSide === side && q.x !== null && q.y !== null,
@@ -450,38 +489,34 @@ export function createCalibrationMapper(
 }
 
 function mapObservation(model: EyeCalibration | undefined, observation: EyeObservation) {
+  const feature = gazeFeature(observation);
   if (
     !model ||
+    !feature ||
     observation.estimated ||
     !Number.isInteger(observation.frameIndex) ||
     observation.frameIndex < 0 ||
     observation.decodedPtsUs === null ||
     !Number.isFinite(observation.decodedPtsUs) ||
     observation.decodedPtsUs < 0 ||
-    observation.x === null ||
-    observation.y === null ||
-    ![observation.x, observation.y, observation.confidence].every(Number.isFinite) ||
-    observation.x < 0 ||
-    observation.x > 1 ||
-    observation.y < 0 ||
-    observation.y > 1 ||
+    !Number.isFinite(observation.confidence) ||
     observation.confidence < CALIBRATION_POLICY.minConfidence ||
     observation.confidence > 1
   )
     return null;
-  if (!roiCompatible(observation.roi, model.referenceRoi)) return null;
+  if (!roiCompatible(feature.box, model.referenceRoi)) return null;
   const b = model.featureBounds;
   const dx = (b.maxX - b.minX) * 0.1;
   const dy = (b.maxY - b.minY) * 0.1;
   if (
-    observation.x < b.minX - dx ||
-    observation.x > b.maxX + dx ||
-    observation.y < b.minY - dy ||
-    observation.y > b.maxY + dy
+    feature.x < b.minX - dx ||
+    feature.x > b.maxX + dx ||
+    feature.y < b.minY - dy ||
+    feature.y > b.maxY + dy
   )
     return null;
-  const x = evaluate(model.coefficientsX, observation.x, observation.y);
-  const y = evaluate(model.coefficientsY, observation.x, observation.y);
+  const x = evaluate(model.coefficientsX, feature.x, feature.y);
+  const y = evaluate(model.coefficientsY, feature.x, feature.y);
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) return null;
   return { x, y, confidence: Math.min(observation.confidence, model.quality) };
 }

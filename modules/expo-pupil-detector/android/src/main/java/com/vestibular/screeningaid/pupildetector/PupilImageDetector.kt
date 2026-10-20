@@ -69,6 +69,16 @@ class PupilImageDetector {
           check(a.success && a.confidence >= 0.5 && abs(a.cxRoi!! - 58) < 1 && abs(a.cyRoi!! - 62) < 1)
         }
       }
+      cases["native-eccentric-$id"] = {
+        fun disk(w: Int, h: Int, cx: Int, cy: Int, r: Int) = DoubleArray(w * h) { i ->
+          if (Math.hypot((i % w - cx).toDouble(), (i / w - cy).toDouble()) < r) 25.0 else 190.0
+        }
+        val center = detect(disk(120, 120, 60, 60, 16), 120, 120, id)
+        val side = detect(disk(140, 110, 100, 28, 16), 140, 110, id)
+        check(center.success && side.success && center.confidence >= 0.5 && side.confidence >= 0.5)
+        check(abs(center.confidence - side.confidence) <= 0.08)
+        check(abs(side.cxRoi!! - 100) < 3 && abs(side.cyRoi!! - 28) < 3)
+      }
     }
     cases["native-missing-is-null"] = {
       val a = detect(DoubleArray(10000) { 180.0 }, 100, 100, "percentile-dark")
@@ -148,7 +158,7 @@ class PupilImageDetector {
       darkFrac = dark.toDouble() / n.toDouble()
       mask = binaryOpen(raw, rw, rh)
       weightImage = stretched
-      weights = doubleArrayOf(1.0, 2.0, 3.0, 1.0, 2.0)
+      weights = doubleArrayOf(1.0, 2.0, 3.0, 0.0, 2.0)
     } else {
       val rawThreshold = percentileValue(smoothed, 0.12)
       threshold = min(110.0, max(25.0, rawThreshold))
@@ -162,7 +172,7 @@ class PupilImageDetector {
       }
       darkFrac = dark.toDouble() / (rw * rh).toDouble()
       weightImage = gray
-      weights = doubleArrayOf(2.0, 2.0, 2.0, 1.0, 1.0)
+      weights = doubleArrayOf(2.0, 2.0, 2.0, 0.0, 1.0)
     }
     val comps = filterAndWeigh(findComps(mask, rw, rh), gray, weightImage, rw, rh, threshold)
     val near = comps.filter { c ->
@@ -471,7 +481,7 @@ class PupilImageDetector {
       }
     }
     val comps = filterAndWeigh(findComps(mask, w, h), gray, gray, w, h, threshold)
-    return selectBest(gray, comps, doubleArrayOf(2.0, 2.0, 2.0, 1.0, 1.0), dark.toDouble() / (w * h).toDouble(), w, h)
+    return selectBest(gray, comps, doubleArrayOf(2.0, 2.0, 2.0, 0.0, 1.0), dark.toDouble() / (w * h).toDouble(), w, h)
   }
 
   private fun detectContrastNormalized(gray: DoubleArray, w: Int, h: Int): Outcome {
@@ -497,7 +507,7 @@ class PupilImageDetector {
     }
     val opened = binaryOpen(mask, w, h)
     val comps = filterAndWeigh(findComps(opened, w, h), gray, stretched, w, h, absCut)
-    return selectBest(gray, comps, doubleArrayOf(1.0, 2.0, 3.0, 1.0, 2.0), dark.toDouble() / n.toDouble(), w, h)
+    return selectBest(gray, comps, doubleArrayOf(1.0, 2.0, 3.0, 0.0, 2.0), dark.toDouble() / n.toDouble(), w, h)
   }
 
   private fun binaryOpen(mask: ByteArray, w: Int, h: Int): ByteArray {

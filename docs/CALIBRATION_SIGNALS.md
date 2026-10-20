@@ -21,14 +21,18 @@ P4 tracking and stores artifacts through the camera/storage seams.
   recheck identical geometry before every recorder start. A queued `scrollTo`
   alone does not establish the target's display position. Pursuit/Saccade use
   the same guard, including the post-countdown measurement.
-- Features are accepted tracked centroids normalized against each frame's eye
-  ROI. Predictions and estimated timestamps are excluded. Raw P3/P4 values stay
-  separate. Robust medians trim distant samples; every target/eye needs at least
-  30 accepted samples, 60% coverage, 250 ms PTS span and RMS spread <=0.04 ROI.
-- Measurement context `decoded-roi-v3` uses exact connected-component pixels
-  and retains quantized pixels equal to the percentile cutoff. Older models
-  cannot be reused; a native version guard prevents mixed JS/native measurements. Detector/tracker/fit quality stages are reported separately; a
-  detector SUCCESS does not establish an eligible calibration observation.
+- The gaze feature is the tracked pupil in the head face box, divided by that
+  take's median face size. The eye crop still follows the eye landmark so the
+  pupil can be found, but position inside that moving crop is not the feature:
+  it cancels gaze. Frames with no measured face are rejected. Predictions and
+  estimated timestamps are excluded. Robust medians trim distant samples; every
+  target/eye needs at least 30 accepted samples, 60% coverage, 250 ms PTS span
+  and RMS spread <=0.04 of the face box.
+- Measurement context `face-pupil-v5` keeps the v4 detector: exact
+  connected-component pixels, quantized percentile cutoff, and no center-closeness
+  penalty. The eye crop is 0.30 of the face width. v1–v4 models cannot activate.
+  A native version guard prevents mixed JS/native measurements. A detector
+  SUCCESS does not establish an eligible calibration observation.
 - Both eyes must pass. Degenerate/correlated feature geometry, missing targets,
   invalid PTS, unstable fixation, head/ROI changes or poor held-out prediction
   produce `RETRY`. Fit/validation RMSE <=0.08 and validation maximum <=0.15
@@ -40,10 +44,10 @@ P4 tracking and stores artifacts through the camera/storage seams.
   can be evicted; no database/upload is added.
 - Reuse is limited to 15 minutes, identical camera/resolution/FPS/detector,
   coordinate version and viewport geometry, including absolute display origin.
-  Mapping rejects ROI scale changes >20%, center changes >0.3 ROI, unsupported
-  feature extrapolation and off-viewport output. Recalibrate after changing
-  framing, lighting, device position or session conditions. ROI normalization
-  reduces translation/scale sensitivity; it does not establish head-pose or
+  Mapping rejects face-box scale changes >20%, center changes >0.3 of the face,
+  unsupported feature extrapolation and off-viewport output. Recalibrate after
+  changing framing, lighting, device position or session conditions. Face
+  normalization reduces head translation; it does not establish head-pose or
   illumination invariance.
 - Recorded Pursuit/Saccade now requires a usable calibration; target-only preview
   remains available. Captured eye signals are saved with the calibration ID and

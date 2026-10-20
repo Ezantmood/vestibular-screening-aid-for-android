@@ -4,7 +4,11 @@ import {
   mapCalibration,
   calibrationUsable,
   createCalibrationMapper,
+  gazeFeature,
+  stableNormalizedPoint,
 } from '../src/eyetracking/calibration/calibration';
+import { trackingObservations } from '../src/eyetracking/tracking/observations';
+import type { PupilTrackingResult } from '../src/eyetracking/tracking/trackingTypes';
 import { CALIBRATION_TARGETS } from '../src/eyetracking/calibration/protocol';
 import type { CalibrationContext, CalibrationTake } from '../src/eyetracking/calibration/types';
 import { buildSuccessResult } from '../src/eyetracking/pupil/coordinates';
@@ -23,7 +27,7 @@ const context: CalibrationContext = {
   viewportLeft: 16,
   viewportTop: 100,
   detectorId: 'percentile-dark',
-  coordinateVersion: 'decoded-roi-v3',
+  coordinateVersion: 'face-pupil-v5',
 };
 const time = 100_000;
 function fixture(): CalibrationTake[] {
@@ -55,8 +59,15 @@ const fit = (takes = fixture()) =>
   fitCalibration({ id: 'test', createdAtMs: time, context, takes });
 const result = fit();
 assert.equal(currentPupilMeasurement(undefined), false);
-assert.equal(currentPupilMeasurement('decoded-roi-v2'), false);
-assert.equal(currentPupilMeasurement('decoded-roi-v3'), true);
+assert.equal(currentPupilMeasurement('decoded-roi-v3'), false);
+assert.equal(currentPupilMeasurement('decoded-roi-v4'), false);
+assert.equal(currentPupilMeasurement('face-pupil-v5'), true);
+const stable = stableNormalizedPoint([
+  { x: 0.6, y: 0.5, roi: { width: 100, height: 100 } },
+  { x: 0.55, y: 0.5, roi: { width: 200, height: 100 } },
+]);
+assert.ok(Math.abs(stable!.x - (0.5 + 10 / 150)) < 1e-9);
+assert.equal(stable!.y, 0.5);
 assert.equal(
   calibrationUsable(
     {
@@ -226,6 +237,92 @@ assert.ok(fit(takes).reasons.includes('INVALID_SEQUENCE_ORDER'));
 takes = fixture();
 for (const s of takes[0].samples) s.decodedPtsUs! *= 10;
 assert.ok(fit(takes).reasons.some((r) => r.startsWith('INVALID_PTS_SPAN')));
+const face = { x: 100, y: 80, width: 600, height: 800 };
+const crop = { width: 90, height: 70 };
+const chased = fit(
+  CALIBRATION_TARGETS.map((target, j) => {
+    const gazeX = 0.35 + 0.2 * target.x;
+    const gazeY = 0.4 + 0.15 * target.y;
+    const frameX = face.x + gazeX * face.width;
+    const frameY = face.y + gazeY * face.height;
+    const roi = {
+      x: frameX - crop.width / 2,
+      y: frameY - crop.height / 2,
+      width: crop.width,
+      height: crop.height,
+    };
+    return {
+      target: { ...target },
+      presentedJsUs: j * 5_000_000,
+      releasedJsUs: j * 5_000_000 + 3_000_000,
+      recordStartNativeUs: j * 5_000_000 + 1_000_000,
+      recordEndNativeUs: j * 5_000_000 + 2_500_000,
+      bridge: { nativeMinusJsUs: 0, roundTripUs: 1000 },
+      completed: true,
+      filePath: 'local.mp4',
+      samples: (['left', 'right'] as const).flatMap((eyeSide) =>
+        Array.from({ length: 100 }, (_, frameIndex) => ({
+          frameIndex,
+          decodedPtsUs: frameIndex * 9000,
+          eyeSide,
+          x: 0.5,
+          y: 0.5,
+          confidence: 0.9,
+          roi,
+          face,
+          estimated: false,
+        })),
+      ),
+    };
+  }),
+);
+assert.equal(chased.verdict, 'VALID', chased.reasons.join(','));
+const pupil = [500, 560];
+const anchors = [
+  { x: 200, y: 100, width: 800, height: 900 },
+  { x: 200, y: 100, width: 800, height: 900 },
+];
+const raw = pupil.map((x, frameIndex) =>
+  buildSuccessResult({
+    frameIndex,
+    decodedPtsUs: frameIndex,
+    eyeSide: 'left',
+    detectorId: 'percentile-dark',
+    box: { roiX: x - 60, roiY: 340, roiWidth: 120, roiHeight: 120 },
+    centroid: {
+      centroidXInRoi: 60,
+      centroidYInRoi: 60,
+      candidateWidth: 20,
+      candidateHeight: 20,
+      confidence: 0.9,
+    },
+  }),
+);
+const trackedPupil: PupilTrackingResult[] = pupil.map((x, frameIndex) => ({
+  frameIndex,
+  decodedPtsUs: frameIndex,
+  eyeSide: 'left',
+  rawCentroidX: x,
+  rawCentroidY: 400,
+  rawConfidence: 0.9,
+  rawFailure: null,
+  rescued: false,
+  trackingState: 'TRACKED',
+  trackingConfidence: 0.9,
+  trackedCentroidX: x,
+  trackedCentroidY: 400,
+  predictedCentroidX: null,
+  predictedCentroidY: null,
+  searchRadiusPx: null,
+  gateRejected: false,
+  failureReason: null,
+  dropoutDurationUs: 0,
+  ptsEstimated: false,
+}));
+const observed = trackingObservations(raw, trackedPupil, anchors);
+assert.ok(observed.every((sample) => sample.x !== null && Math.abs(sample.x - 0.5) < 1e-9));
+assert.ok(Math.abs(gazeFeature(observed[0])!.x - (500 - 200) / 800) < 1e-9);
+assert.ok(Math.abs(gazeFeature(observed[1])!.x - (560 - 200) / 800) < 1e-9);
 console.log(
-  'Calibration checks: PASS (held targets, independent validation, degeneracy, coverage, drift, context, expiry, raw preservation)',
+  'Calibration checks: PASS (held targets, independent validation, degeneracy, coverage, drift, context, expiry, raw preservation, face anchor)',
 );
