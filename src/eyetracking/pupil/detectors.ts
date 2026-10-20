@@ -486,9 +486,10 @@ function checkGeometry(gray: GrayImage): boolean {
 }
 
 /**
- * Candidate A — percentile-dark: threshold at the 12th percentile of the
- * lightly smoothed ROI (clamped), i.e. "the darkest blob(s) relative to this
- * ROI". Simple, fast, and robust to global illumination shifts.
+ * Candidate A — percentile-dark. The gate is the darkest 4% of the smoothed
+ * eye crop, not 12%. On the Redmi front camera a 12% gate joined the pupil to
+ * the eyelid (a tall blob that the aspect filter then discarded), so a
+ * fixation produced no pupil sample. 4% stays on the darker pupil core.
  */
 export const percentileDarkDetector: PupilDetector = {
   id: 'percentile-dark',
@@ -497,7 +498,7 @@ export const percentileDarkDetector: PupilDetector = {
       return invalidGeometry();
     }
     const smoothed = boxBlur(gray.data, gray.width, gray.height, 1);
-    const rawThreshold = percentileValue(smoothed, 0.12);
+    const rawThreshold = percentileValue(smoothed, 0.04);
     const threshold = Math.min(110, Math.max(25, rawThreshold));
     const { comps, maskFraction } = prepareComponents(gray, smoothed, threshold);
     const scored = scoreAll(gray, smoothed, comps, {

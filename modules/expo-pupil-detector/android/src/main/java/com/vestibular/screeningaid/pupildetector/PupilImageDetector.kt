@@ -6,6 +6,13 @@ import kotlin.math.*
 class PupilImageDetector {
   companion object {
     const val MIN_PUPIL_CONFIDENCE = 0.35
+    /**
+     * Darkest fraction of the eye crop that is allowed to form a candidate.
+     * 12% on this phone merged the pupil into the eyelid: the blob was about
+     * 41×114 and was rejected for its aspect, so calibration kept no pupil.
+     * 4% stays inside the darker pupil core.
+     */
+    const val DARK_PERCENTILE = 0.04
     const val RELAXED_PUPIL_CONFIDENCE = 0.25
     const val AMBIGUITY_SCORE_MARGIN = 0.05
     const val CIRCLE_FILL = Math.PI / 4.0
@@ -160,7 +167,7 @@ class PupilImageDetector {
       weightImage = stretched
       weights = doubleArrayOf(1.0, 2.0, 3.0, 0.0, 2.0)
     } else {
-      val rawThreshold = percentileValue(smoothed, 0.12)
+      val rawThreshold = percentileValue(smoothed, DARK_PERCENTILE)
       threshold = min(110.0, max(25.0, rawThreshold))
       mask = ByteArray(rw * rh)
       var dark = 0
@@ -468,7 +475,7 @@ class PupilImageDetector {
 
   private fun detectPercentileDark(gray: DoubleArray, w: Int, h: Int): Outcome {
     val smoothed = boxBlur(gray, w, h, 1)
-    val rawThreshold = percentileValue(smoothed, 0.12)
+    val rawThreshold = percentileValue(smoothed, DARK_PERCENTILE)
     val threshold = min(110.0, max(25.0, rawThreshold))
     val mask = ByteArray(w * h)
     var dark = 0

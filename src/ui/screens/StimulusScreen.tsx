@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
@@ -43,6 +44,7 @@ import type { EyeTestResult } from '../../tests/metrics/types';
 import { validationFailureCode, type ValidationFailureCode } from '../../tests/validation/failures';
 import EyeTestResults from '../components/EyeTestResults';
 import CameraCapturePanel from '../components/CameraCapturePanel';
+import { targetBoardHeight } from '../targetBoard';
 import { CameraButton, CameraDetails } from '../components/CameraUI';
 import { CaptureCancelled, usePreviewCapture } from '../hooks/usePreviewCapture';
 import { measureTargetViewport } from '../hooks/measureTargetViewport';
@@ -67,6 +69,8 @@ export default function StimulusScreen({
   discardRecording?: boolean;
 } = {}) {
   const camera = usePreviewCapture();
+  const windowSize = useWindowDimensions();
+  const boardHeight = targetBoardHeight(windowSize.height);
   const [testId, setTestId] = useState<MvpTestId>(fixedTestId ?? 'smooth-pursuit');
   const [modes, setModes] = useState<FixedMode[]>([]);
   const [index, setIndex] = useState(0);
@@ -284,7 +288,7 @@ export default function StimulusScreen({
     >
       <View
         ref={board}
-        style={styles.board}
+        style={[styles.board, { height: boardHeight }]}
         onLayout={(e) => {
           if (
             running &&
@@ -394,7 +398,6 @@ const styles = StyleSheet.create({
   content: { padding: 16, gap: 12, paddingBottom: 160 },
   title: { fontSize: 24, fontWeight: '700' },
   board: {
-    height: 180,
     backgroundColor: '#142D3D',
     borderRadius: 12,
     justifyContent: 'center',

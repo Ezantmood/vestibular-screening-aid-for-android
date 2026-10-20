@@ -57,6 +57,26 @@ class PupilImageDetectorTest {
     }
   }
 
+  @Test fun darkCoreInsideATallLidIsThePupil() {
+    val detector = PupilImageDetector()
+    val w = 160
+    val h = 160
+    val gray = DoubleArray(w * h) { 190.0 }
+    for (y in 0 until h) {
+      for (x in 0 until w) {
+        val dx = (x - 84) / 16.0
+        val dy = (y - 78) / 50.0
+        val d = dx * dx + dy * dy
+        if (d < 1.0) gray[y * w + x] = 70.0 + 80.0 * d
+        if ((x - 84) * (x - 84) + (y - 78) * (y - 78) < 13 * 13) gray[y * w + x] = 12.0
+      }
+    }
+    val out = detector.detect(gray, w, h, "percentile-dark")
+    assertTrue(out.failure, out.success)
+    assertEquals(84.0, out.cxRoi!!, 3.0)
+    assertEquals(78.0, out.cyRoi!!, 3.0)
+  }
+
   @Test fun productionSelfChecksPassWithoutAndroid() {
     val results = PupilImageDetector().selfChecks()
     assertEquals(12, results.size)

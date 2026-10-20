@@ -1,5 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { AppState, PermissionsAndroid, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  AppState,
+  PermissionsAndroid,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
 import { collectFixedModes, type FixedMode } from '../../camera/fixedModes';
 import { invalidateCalibration } from '../../camera/eyeAnalysisStorage';
@@ -23,6 +31,7 @@ import CameraCapturePanel from '../components/CameraCapturePanel';
 import { CameraButton, CameraDetails } from '../components/CameraUI';
 import { CaptureCancelled, usePreviewCapture } from '../hooks/usePreviewCapture';
 import { measureTargetViewport } from '../hooks/measureTargetViewport';
+import { targetBoardHeight } from '../targetBoard';
 import { useEyeAnalysisAwake } from '../hooks/useEyeAnalysisAwake';
 
 const nowUs = () => performance.now() * 1000;
@@ -34,6 +43,8 @@ export default function CalibrationScreen({
   onFailure?: (code: ValidationFailureCode) => void;
 } = {}) {
   const camera = usePreviewCapture();
+  const windowSize = useWindowDimensions();
+  const boardHeight = targetBoardHeight(windowSize.height);
   const [modes, setModes] = useState<FixedMode[]>([]);
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -232,7 +243,7 @@ export default function CalibrationScreen({
     >
       <View
         ref={board}
-        style={styles.board}
+        style={[styles.board, { height: boardHeight }]}
         testID="calibration-board"
         onLayout={(e) => {
           const layout = e.nativeEvent.layout;
@@ -261,8 +272,8 @@ export default function CalibrationScreen({
       </View>
       <Text style={styles.title}>Hiệu chỉnh mắt</Text>
       <Text>
-        Nhìn lần lượt vào 14 chấm. Giữ nguyên điện thoại, đầu và ánh sáng. Mỗi chấm được quay riêng
-        khi đã đứng yên.
+        Nhìn đúng vào từng chấm, chỉ xoay mắt. Chấm đi gần hết màn hình; một bảng nhỏ làm mắt dịch
+        vài pixel, nhỏ hơn nhiễu camera. Giữ nguyên điện thoại, đầu và ánh sáng.
       </Text>
       {message !== '' && <Text accessibilityLiveRegion="polite">{message}</Text>}
       {busy && (
@@ -307,7 +318,6 @@ const styles = StyleSheet.create({
   content: { padding: 16, gap: 12, paddingBottom: 160 },
   title: { fontSize: 24, fontWeight: '700' },
   board: {
-    height: 180,
     backgroundColor: '#142D3D',
     borderRadius: 12,
     alignItems: 'center',
