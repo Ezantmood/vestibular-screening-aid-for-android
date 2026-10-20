@@ -21,6 +21,7 @@ const checks = [
   'technicalReportLogicCheck',
   'diagnosticRunLogicCheck',
   'authLogicCheck',
+  'clinicLogicCheck',
 ];
 try {
   execFileSync(
@@ -41,7 +42,10 @@ try {
     { stdio: 'inherit' },
   );
   for (const name of checks)
-    execFileSync('node', [join(output, 'scripts', `${name}.js`)], { stdio: 'inherit' });
+    execFileSync('node', [join(output, 'scripts', `${name}.js`)], {
+      stdio: 'inherit',
+      env: { ...process.env, NODE_PATH: join(process.cwd(), 'node_modules') },
+    });
 } finally {
   rmSync(output, { recursive: true, force: true });
 }

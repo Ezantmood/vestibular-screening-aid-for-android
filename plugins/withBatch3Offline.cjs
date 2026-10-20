@@ -19,6 +19,21 @@ android {
 }
 `;
     }
+    const clinician = 'clinician {';
+    if (!mod.modResults.contents.includes(clinician)) {
+      mod.modResults.contents += `
+android {
+    buildTypes {
+        clinician {
+            initWith release
+            matchingFallbacks = ['release']
+            debuggable false
+            signingConfig signingConfigs.debug
+        }
+    }
+}
+`;
+    }
     return mod;
   });
   return withDangerousMod(config, [

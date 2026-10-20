@@ -30,6 +30,8 @@ export default function CameraCapturePanel({
   instruction,
   requireFace = true,
   duration = 10,
+  startTitle,
+  stopTitle,
 }: {
   camera: PreviewCaptureController;
   modes: FixedMode[];
@@ -41,6 +43,8 @@ export default function CameraCapturePanel({
   instruction?: string;
   requireFace?: boolean;
   duration?: number;
+  startTitle?: string;
+  stopTitle?: string;
 }) {
   const mode = modes[selectedIndex];
   const stabilizer = useRef(new FramingStabilizer(3));
@@ -198,11 +202,12 @@ export default function CameraCapturePanel({
           </View>
           <CameraButton
             title={
-              camera.stage === 'countdown'
+              stopTitle ??
+              (camera.stage === 'countdown'
                 ? 'Hủy đếm ngược'
                 : camera.stage === 'finishing'
                   ? 'Đang lưu video…'
-                  : 'Dừng và lưu video'
+                  : 'Dừng và lưu video')
             }
             tone="danger"
             onPress={() => void camera.stop()}
@@ -213,7 +218,7 @@ export default function CameraCapturePanel({
       ) : (
         <>
           <CameraButton
-            title={'Bắt đầu quay ' + duration + ' giây'}
+            title={startTitle ?? 'Bắt đầu quay ' + duration + ' giây'}
             onPress={onCapture}
             disabled={busy || !ready}
             testID="capture-start"

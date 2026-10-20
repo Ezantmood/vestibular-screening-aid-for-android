@@ -39,6 +39,7 @@ type AuthContextValue = {
   gate: AuthGate;
   booting: boolean;
   email: string | null;
+  uid: string | null;
   busy: boolean;
   error: string | null;
   info: string | null;
@@ -367,6 +368,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       gate,
       booting: !authReady || !sessionLoaded || !biometricReady,
       email: account?.email ?? null,
+      uid: account?.uid ?? null,
       busy,
       error,
       info,
@@ -392,6 +394,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }),
     [
       account?.email,
+      account?.uid,
       authReady,
       biometricHardware,
       biometricReady,

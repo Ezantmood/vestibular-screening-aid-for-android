@@ -14,6 +14,7 @@ npm install
 npm start            # Metro LAN + dev-client QR; owner opens on phone
 npm run build:dev    # local Development APK; no device install/launch
 npm run build:batch3  # local APK build; JDK 21, no phone connection
+npm run build:clinic  # one-install clinician APK; keeps INTERNET; no phone connection
 npm run typecheck
 npm run lint
 npm run format
@@ -37,8 +38,9 @@ npm run check   # typecheck + lint (run before committing)
   Metro LAN + QR is authorized; never invoke CLI device launch/install.
   Build/check on the computer. See [development workflow](docs/DEVELOPMENT_BUILD.md)
   and [standalone physical verification](docs/BATCH3_VALIDATION.md).
-- Clinician sign-in (FR-01, FR-02, FR-03, FR-06) is in scope. Patient records,
-  clinical reports, PDF, other eye tests, and diagnosis stay out until requested.
+- The clinician product (accounts, patients, the eye-test battery, on-device
+  report, and PDF) is in scope. Do not upload patient records, invent a
+  diagnosis, or describe the front camera as 240 fps.
 - Never lower quality gates or fabricate measurements to obtain VALID. Distinguish
   computer simulations, saved-data replay and pending physical results.
 - Keep docs short; each doc has one job. Update `docs/STATUS.md` when state changes.

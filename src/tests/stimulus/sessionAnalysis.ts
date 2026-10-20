@@ -8,6 +8,7 @@ import type { StimulusRun } from './engine';
 import { clockBridge, matchFrame, type ClockBridge } from './synchronization';
 import type { CalibrationContext, CalibrationResult } from '../../eyetracking/calibration/types';
 import { calibrationUsable } from '../../eyetracking/calibration/calibration';
+import { tracesFromProcessed } from '../../clinic/trace';
 import { analyzeEyeRecording } from '../eyeAnalysis';
 import { analyzeEyeTest } from '../metrics/analysis';
 import type { EyeTestResult } from '../metrics/types';
@@ -143,5 +144,11 @@ export async function completeEyeTestRecording(args: {
     ),
   ) as unknown;
   console.log('EYE_TEST_RESULT ' + JSON.stringify(result));
-  return { result, timeline, signal: eye.summary };
+  const trace = tracesFromProcessed(
+    eye.signals.map((signal) => ({
+      eyeSide: signal.eyeSide,
+      samples: (signal.calibrated ?? signal.pupil).samples,
+    })),
+  );
+  return { result, timeline, signal: eye.summary, trace };
 }

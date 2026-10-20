@@ -18,10 +18,17 @@ const variants = {
     name: 'vestibular-development.apk',
     verify: 'verifyDevelopmentApk.mjs',
   },
+  clinician: {
+    task: 'Clinician',
+    native: 'clinician',
+    name: 'vestibular-clinician.apk',
+    verify: 'verifyClinicianApk.mjs',
+    phone: 'vestibular-clinic.apk',
+  },
 };
 const variant = process.argv[2] ?? 'batch3';
 const settings = variants[variant];
-if (!settings) throw new Error('Expected batch3 or development variant.');
+if (!settings) throw new Error('Expected batch3, development, or clinician variant.');
 const env = { ...process.env };
 // The offline measurement APK has no network, so it cannot confirm email.
 if (variant === 'batch3') env.EXPO_PUBLIC_AUTH_REQUIRED = '0';
@@ -62,7 +69,7 @@ console.log(`${variant} APK: ${destination}\nSHA-256: ${digest}`);
 // This directory contains APK artifacts only, never phone recordings/evidence.
 const phoneDir = resolve('artifacts/phone');
 mkdirSync(phoneDir, { recursive: true });
-const phoneName = variant === 'batch3' ? 'vestibular.apk' : settings.name;
+const phoneName = settings.phone ?? (variant === 'batch3' ? 'vestibular.apk' : settings.name);
 // Preserve a complete file for any download already in progress during a rebuild.
 const phonePath = resolve(phoneDir, phoneName);
 copyFileSync(destination, `${phonePath}.tmp`);

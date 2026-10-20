@@ -33,7 +33,12 @@ import {
   sameCalibrationContext,
 } from '../../eyetracking/calibration/calibration';
 import type { ClockBridge } from '../../tests/stimulus/synchronization';
-import type { CalibrationContext } from '../../eyetracking/calibration/types';
+import {
+  CALIBRATION_COORDINATE_VERSION,
+  type CalibrationContext,
+} from '../../eyetracking/calibration/types';
+import type { EyeTrace } from '../../clinic/types';
+import { deleteRecordingFile } from '../../clinic/vault';
 import type { EyeTestResult } from '../../tests/metrics/types';
 import { validationFailureCode, type ValidationFailureCode } from '../../tests/validation/failures';
 import EyeTestResults from '../components/EyeTestResults';
@@ -48,10 +53,18 @@ export default function StimulusScreen({
   fixedTestId,
   onComplete,
   onFailure,
+  clinicMode = false,
+  discardRecording = false,
 }: {
   fixedTestId?: MvpTestId;
-  onComplete?: (result: EyeTestResult) => void;
+  onComplete?: (
+    result: EyeTestResult,
+    trace: EyeTrace[],
+    capture: { fps: number | null; durationMs: number | null },
+  ) => void;
   onFailure?: (code: ValidationFailureCode) => void;
+  clinicMode?: boolean;
+  discardRecording?: boolean;
 } = {}) {
   const camera = usePreviewCapture();
   const [testId, setTestId] = useState<MvpTestId>(fixedTestId ?? 'smooth-pursuit');
@@ -153,6 +166,7 @@ export default function StimulusScreen({
     setReport('');
     setResult(null);
     setMessage('Kiểm tra calibration và chuẩn bị ghi hình…');
+    let recordedPath: string | null = null;
     try {
       const mode = modes[index];
       scroll.current?.scrollTo({ y: 0, animated: false });
@@ -170,7 +184,7 @@ export default function StimulusScreen({
         viewportLeft: display.left,
         viewportTop: display.top,
         detectorId: 'percentile-dark',
-        coordinateVersion: 'decoded-roi-v3',
+        coordinateVersion: CALIBRATION_COORDINATE_VERSION,
       };
       const calibration = await loadCalibration();
       if (!diagnostic && (!calibration || !calibrationUsable(calibration, context, Date.now())))
@@ -202,10 +216,13 @@ export default function StimulusScreen({
         start(currentDisplay);
       });
       const session = run.current;
+      recordedPath = captureReport.filePath ?? null;
       stop(captureReport.manualStop);
       await camera.close();
-      if (!mounted.current || session === null || !captureReport.filePath || bridge === null)
+      if (!mounted.current || session === null || !captureReport.filePath || bridge === null) {
+        if (discardRecording) await deleteRecordingFile(captureReport.filePath);
         return;
+      }
       setMessage('Đang tracking → calibration → xử lý tín hiệu → metric. Có thể mất vài phút.');
       const analysis = await completeEyeTestRecording({
         session,
@@ -216,13 +233,23 @@ export default function StimulusScreen({
         context,
         recordedAtMs,
       });
+      if (discardRecording) {
+        await deleteRecordingFile(captureReport.filePath);
+        await deleteRecordingFile(analysis.signal.path);
+      }
       if (mounted.current) {
         setResult(analysis.result);
         setReport(JSON.stringify(analysis, null, 2));
-        setMessage('Đã phân tích và lưu dữ liệu debug.');
-        onComplete?.(analysis.result);
+        setMessage(
+          clinicMode ? 'Đã xử lý. Video gốc đã xóa.' : 'Đã phân tích và lưu dữ liệu debug.',
+        );
+        onComplete?.(analysis.result, analysis.trace, {
+          fps: mode.fpsMax,
+          durationMs: captureReport.manualStop ? null : 10_000,
+        });
       }
     } catch (e) {
+      if (discardRecording) await deleteRecordingFile(recordedPath);
       if (mounted.current) onFailure?.(validationFailureCode(e));
       stop();
       if (mounted.current) {
@@ -307,11 +334,13 @@ export default function StimulusScreen({
       )}
       <Text>Bài đã chọn: {testId}</Text>
       {message !== '' && <Text accessibilityLiveRegion="polite">{message}</Text>}
-      <CameraButton
-        title={running ? 'Dừng mục tiêu' : 'Thử mục tiêu (không ghi video)'}
-        disabled={busy}
-        onPress={() => (running ? stop() : start())}
-      />
+      {!clinicMode && (
+        <CameraButton
+          title={running ? 'Dừng mục tiêu' : 'Thử mục tiêu (không ghi video)'}
+          disabled={busy}
+          onPress={() => (running ? stop() : start())}
+        />
+      )}
       {modes.length === 0 && (
         <CameraButton title="Chuẩn bị camera trước" onPress={() => void loadCamera()} />
       )}
@@ -342,7 +371,7 @@ export default function StimulusScreen({
           />
         </>
       )}
-      {report !== '' && (
+      {!clinicMode && report !== '' && (
         <>
           {result && <EyeTestResults result={result} />}
           <CameraDetails title="Metric, signal & timeline JSON">

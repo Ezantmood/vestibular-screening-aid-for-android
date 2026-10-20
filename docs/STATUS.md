@@ -666,3 +666,22 @@ published privately, with owner verification pending. No phone access or Batch 4
   project with Email/Password enabled. See `.env.example`.
 - Batch 3 builds set `EXPO_PUBLIC_AUTH_REQUIRED=0` and stay offline. Development
   and Metro builds require an account.
+
+## Clinician chart — remaining Must and Should FRs
+
+- On-device encrypted chart: patients, search, history, edit, 30-day soft delete,
+  anonymous tests, clinician profile, admin/clinician roles, audit log.
+- Exam flow: one test or the six-test battery, illustrated instructions, calibration
+  gate, then the existing pursuit and horizontal-saccade recorder. The other
+  protocols record 10 seconds and keep a downsampled trace. Raw video is deleted
+  after a clinician recording. Engineering tools still keep their debug files.
+- Reports show measured numbers, the saved trace, and a screening sentence.
+  PDF/share uses HTML so Vietnamese prints. Compare and replay use the trace,
+  not the deleted video. Language, reference group, training mode, wipe-on-sign-out,
+  and a cloud switch are in settings. The cloud switch does not upload patients.
+- Honest limits, stated in the app: front camera about 120 fps, recording 10 seconds,
+  velocity in viewport or eye-region units, NPC centimetres come from a ruler.
+  Vertical accuracy and anti-saccade error rate are not scored. No diagnosis.
+- Installable file for the owner: `artifacts/phone/vestibular-clinic.apk`.
+  The offline Batch 3 file `artifacts/phone/vestibular.apk` is a different build.
+  Nothing here installs or launches the phone.

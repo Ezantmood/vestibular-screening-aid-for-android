@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../../auth/AuthProvider';
 import { cameraColors, CameraButton } from '../components/CameraUI';
-import HomeScreen from '../screens/HomeScreen';
+import ClinicApp from '../clinic/ClinicApp';
 
 type Mode = 'login' | 'register' | 'reset';
 
@@ -41,31 +41,7 @@ export function AuthFlow() {
           return false;
         }}
       >
-        <View style={styles.accountBar}>
-          <Text style={styles.accountEmail} numberOfLines={1}>
-            {auth.email}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Đăng xuất"
-            onPress={() => void auth.logout()}
-            style={styles.signOut}
-          >
-            <Text style={styles.signOutText}>Đăng xuất</Text>
-          </Pressable>
-        </View>
-        {auth.biometricOfferVisible && (
-          <View style={styles.offer}>
-            <Text style={styles.offerTitle}>Bật đăng nhập nhanh bằng vân tay hoặc khuôn mặt?</Text>
-            <CameraButton title="Bật đăng nhập nhanh" onPress={() => void auth.enableBiometric()} />
-            <CameraButton
-              title="Để sau"
-              tone="secondary"
-              onPress={() => void auth.dismissBiometricPrompt()}
-            />
-          </View>
-        )}
-        <HomeScreen embedded />
+        <ClinicApp />
       </View>
     );
   }
