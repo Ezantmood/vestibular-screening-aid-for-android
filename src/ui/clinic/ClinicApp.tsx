@@ -152,6 +152,7 @@ export default function ClinicApp() {
   const [note, setNote] = useState('');
   const [profileDraft, setProfileDraft] = useState({ name: '', specialty: '', workplace: '' });
   const [banner, setBanner] = useState<string | null>(null);
+  const [calibrationDone, setCalibrationDone] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [armedDelete, setArmedDelete] = useState(false);
 
@@ -322,6 +323,7 @@ export default function ClinicApp() {
     setDraft(null);
     setPending(null);
     setBanner(null);
+    setCalibrationDone(false);
     setScreen({ id: 'setup', patientId, anonymous });
   }
 
@@ -340,7 +342,7 @@ export default function ClinicApp() {
     const testId = draft?.tests[draft.index];
     if (!testId) return;
     const calibration = await loadCalibration();
-    if (!calibration || calibration.verdict !== 'VALID') {
+    if (!calibrationDone && (!calibration || calibration.verdict !== 'VALID')) {
       setBanner(t(lang, 'calibrateFirst'));
       setScreen({ id: 'calibrate' });
       return;
@@ -853,17 +855,12 @@ export default function ClinicApp() {
           onPress={() => setScreen({ id: 'instructions' })}
         />
         <CalibrationScreen
-          onComplete={() => {
-            void (async () => {
-              const calibration = await loadCalibration();
-              const testId = draft?.tests[draft.index];
-              if (!calibration || calibration.verdict !== 'VALID' || !testId) {
-                setBanner(t(lang, 'calRetry'));
-                return;
-              }
-              setBanner(null);
-              setScreen({ id: isCore(testId) ? 'run' : 'extended' });
-            })();
+          onComplete={(result) => {
+            const testId = draft?.tests[draft.index];
+            if (!testId) return;
+            setCalibrationDone(true);
+            setBanner(result.verdict === 'VALID' ? null : t(lang, 'calRetry'));
+            setScreen({ id: isCore(testId) ? 'run' : 'extended' });
           }}
         />
       </View>

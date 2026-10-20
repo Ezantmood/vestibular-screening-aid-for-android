@@ -53,8 +53,10 @@ const vi = {
   oneTest: 'Chọn từng bài',
   instructions: 'Hướng dẫn',
   startRecording: 'Bắt đầu ghi 10 giây',
-  calibrateFirst: 'Cần hiệu chỉnh mắt đạt yêu cầu trước mỗi bài.',
-  calRetry: 'Hiệu chỉnh chưa đạt. Làm lại rồi mới đo.',
+  calibrateFirst:
+    'Trước bài đo, nhìn lần lượt các điểm hiệu chỉnh. Nếu ánh xạ chưa đạt, bài vẫn được ghi và vị trí trên màn hình không được chấm.',
+  calRetry:
+    'Hiệu chỉnh chưa đủ chính xác để chấm vị trí trên màn hình. Bài đo vẫn được ghi. Những số cần ánh xạ này để trống.',
   qualityFraming:
     'Đèn khung mặt có sẵn trên camera: xanh khi mặt vào giữa, vàng khi lệch hoặc quá gần/xa, đỏ khi không thấy mặt. Đó là tư thế, chưa phải lớp đồng tử. App không đo độ sáng bằng số.',
   notDiagnosis: 'Cờ màu là mốc sàng lọc, không phải chẩn đoán.',
@@ -207,8 +209,10 @@ const en: { [K in keyof typeof vi]: string } = {
   oneTest: 'Pick individual tests',
   instructions: 'Instructions',
   startRecording: 'Record 10 seconds',
-  calibrateFirst: 'A usable eye calibration is required before each test.',
-  calRetry: 'Calibration did not pass. Repeat it before testing.',
+  calibrateFirst:
+    'Before the test, look at the calibration points. If the mapping does not pass, the recording still runs and screen position is not scored.',
+  calRetry:
+    'Calibration is not accurate enough to score screen position. The test still records. Numbers that need this mapping stay blank.',
   qualityFraming:
     'The camera already shows a framing lamp: green when the face is centered, yellow when it is off or too near/far, red when no face is seen. That is posture, not a pupil overlay. The app does not measure a light level.',
   notDiagnosis: 'Color flags are screening references, not a diagnosis.',

@@ -187,7 +187,11 @@ export default function StimulusScreen({
         coordinateVersion: CALIBRATION_COORDINATE_VERSION,
       };
       const calibration = await loadCalibration();
-      if (!diagnostic && (!calibration || !calibrationUsable(calibration, context, Date.now())))
+      if (
+        !diagnostic &&
+        !clinicMode &&
+        (!calibration || !calibrationUsable(calibration, context, Date.now()))
+      )
         throw new Error(
           'INVALID — Cần calibration đạt chất lượng cho camera và vùng target này. Quay lại Home → Hiệu chỉnh mắt, rồi thử lại. Có thể ghi debug để kiểm tra tracking; metric sẽ N/A.',
         );
@@ -211,7 +215,11 @@ export default function StimulusScreen({
         bridge = await sampleStimulusClock();
         if (isCancelled()) throw new CaptureCancelled('Đã hủy test.');
         recordedAtMs = Date.now();
-        if (!diagnostic && (!calibration || !calibrationUsable(calibration, context, recordedAtMs)))
+        if (
+          !diagnostic &&
+          !clinicMode &&
+          (!calibration || !calibrationUsable(calibration, context, recordedAtMs))
+        )
           throw new Error('Calibration đã hết hạn. Hãy hiệu chỉnh lại.');
         start(currentDisplay);
       });

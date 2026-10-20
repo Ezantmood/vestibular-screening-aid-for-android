@@ -49,6 +49,16 @@ export interface CalibrationTake {
   samples: EyeObservation[];
   filePath: string;
 }
+/** Why a decoded frame was not kept. Counts are mutually exclusive. */
+export interface SampleBlocks {
+  noPupil: number;
+  lowConfidence: number;
+  noFace: number;
+  outsideFace: number;
+  badTime: number;
+  estimated: number;
+  trimmed: number;
+}
 export interface TargetQuality {
   targetId: string;
   eyeSide: EyeSide;
@@ -61,6 +71,7 @@ export interface TargetQuality {
   y: number | null;
   rejected: number;
   reasons: string[];
+  blocks: SampleBlocks;
 }
 export interface EyeCalibration {
   eyeSide: EyeSide;

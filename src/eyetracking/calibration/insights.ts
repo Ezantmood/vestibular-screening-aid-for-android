@@ -1,5 +1,5 @@
 import { CALIBRATION_TARGETS } from './protocol';
-import type { CalibrationResult } from './types';
+import type { CalibrationResult, SampleBlocks } from './types';
 import { CALIBRATION_POLICY } from './calibration';
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -99,6 +99,30 @@ export function calibrationInsights(value: unknown) {
   });
 }
 
+function addBlocks(total: SampleBlocks, row: SampleBlocks | undefined) {
+  if (!row) return;
+  total.noPupil += row.noPupil;
+  total.lowConfidence += row.lowConfidence;
+  total.noFace += row.noFace;
+  total.outsideFace += row.outsideFace;
+  total.badTime += row.badTime;
+  total.estimated += row.estimated;
+  total.trimmed += row.trimmed;
+}
+function blockText(blocks: SampleBlocks): string {
+  const parts = [
+    blocks.noPupil > 0 ? `không thấy đồng tử ${blocks.noPupil}` : '',
+    blocks.lowConfidence > 0 ? `độ tin cậy dưới 0,5: ${blocks.lowConfidence}` : '',
+    blocks.noFace > 0 ? `không có khung mặt ${blocks.noFace}` : '',
+    blocks.outsideFace > 0 ? `đồng tử ngoài khung mặt ${blocks.outsideFace}` : '',
+    blocks.badTime > 0 ? `thời điểm khung hình lỗi ${blocks.badTime}` : '',
+    blocks.estimated > 0 ? `thời điểm ước lượng ${blocks.estimated}` : '',
+    blocks.trimmed > 0 ? `mẫu lệch bị loại ${blocks.trimmed}` : '',
+  ].filter((part) => part !== '');
+  return parts.length > 0
+    ? `Lý do loại: ${parts.join('; ')}.`
+    : 'Không có mẫu nào bị loại theo các lý do trên.';
+}
 /** Explain observed failures without assigning an unproven physical cause. */
 export function calibrationFeedback(result: CalibrationResult): string[] {
   if (result.verdict === 'VALID') return ['Calibration đạt các ngưỡng hiện tại.'];
@@ -107,9 +131,21 @@ export function calibrationFeedback(result: CalibrationResult): string[] {
     const label = eye === 'left' ? 'Mắt trái trong ảnh' : 'Mắt phải trong ảnh';
     const rows = result.targetQuality.filter((q) => q.eyeSide === eye);
     const weak = rows.filter((q) => q.reasons.includes('INSUFFICIENT_COVERAGE')).length;
-    if (weak)
+    const accepted = rows.reduce((sum, row) => sum + row.accepted, 0);
+    const total = rows.reduce((sum, row) => sum + row.total, 0);
+    const blocks: SampleBlocks = {
+      noPupil: 0,
+      lowConfidence: 0,
+      noFace: 0,
+      outsideFace: 0,
+      badTime: 0,
+      estimated: 0,
+      trimmed: 0,
+    };
+    for (const row of rows) addBlocks(blocks, row.blocks);
+    if (rows.length > 0)
       messages.push(
-        `${label}: ${weak}/${CALIBRATION_TARGETS.length} target thiếu mẫu hợp lệ; cần đạt coverage ≥${CALIBRATION_POLICY.minCoverage * 100}% ở từng target.`,
+        `${label}: giữ ${accepted}/${total} mẫu; ${weak}/${CALIBRATION_TARGETS.length} điểm dưới ${CALIBRATION_POLICY.minCoverage * 100}% mẫu. ${blockText(blocks)}`,
       );
     const model = result.models[eye];
     if (
@@ -127,7 +163,7 @@ export function calibrationFeedback(result: CalibrationResult): string[] {
       messages.push(`${label}: đặc trưng chưa đủ để fit ánh xạ hai chiều.`);
   }
   messages.push(
-    'Đặc trưng là vị trí đồng tử trên khung mặt. Ô mắt bám theo mốc mắt chỉ để tìm đồng tử, không phải tọa độ nhìn. Chưa dùng calibration này cho bài mắt.',
+    'Đặc trưng là vị trí đồng tử trên khung mặt. Ngưỡng sai số 0,08 là ngưỡng kỹ thuật, không phải chẩn đoán. Khi chưa đạt, ánh xạ không được dùng để chấm vị trí trên màn hình; bài đo phòng khám vẫn ghi hình.',
   );
   return messages;
 }

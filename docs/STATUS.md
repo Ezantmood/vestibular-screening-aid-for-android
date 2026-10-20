@@ -671,8 +671,10 @@ published privately, with owner verification pending. No phone access or Batch 4
 
 - On-device encrypted chart: patients, search, history, edit, 30-day soft delete,
   anonymous tests, clinician profile, admin/clinician roles, audit log.
-- Exam flow: one test or the six-test battery, illustrated instructions, calibration
-  gate, then the existing pursuit and horizontal-saccade recorder. The other
+- Exam flow: one test or the six-test battery, illustrated instructions, the fixation
+  step, then the existing pursuit and horizontal-saccade recorder. A calibration that
+  misses the engineering gates does not score screen position, and the recording still
+  runs. The other
   protocols record 10 seconds and keep a downsampled trace. Raw video is deleted
   after a clinician recording. Engineering tools still keep their debug files.
 - Reports show measured numbers, the saved trace, and a screening sentence.

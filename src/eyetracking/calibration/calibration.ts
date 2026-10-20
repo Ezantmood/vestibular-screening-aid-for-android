@@ -7,6 +7,7 @@ import type {
   CalibrationTake,
   EyeCalibration,
   EyeObservation,
+  SampleBlocks,
   TargetQuality,
 } from './types';
 
@@ -52,11 +53,17 @@ function finiteRoi(roi: EyeObservation['roi']): boolean {
     roi.height > 0
   );
 }
-function roiCompatible(roi: EyeObservation['roi'], ref: EyeObservation['roi']): boolean {
+function roiScaleCompatible(roi: EyeObservation['roi'], ref: EyeObservation['roi']): boolean {
   return (
     finiteRoi(roi) &&
+    finiteRoi(ref) &&
     Math.abs(roi.width / ref.width - 1) <= 0.2 &&
-    Math.abs(roi.height / ref.height - 1) <= 0.2 &&
+    Math.abs(roi.height / ref.height - 1) <= 0.2
+  );
+}
+function roiCompatible(roi: EyeObservation['roi'], ref: EyeObservation['roi']): boolean {
+  return (
+    roiScaleCompatible(roi, ref) &&
     Math.hypot(
       (roi.x + roi.width / 2 - ref.x - ref.width / 2) / ref.width,
       (roi.y + roi.height / 2 - ref.y - ref.height / 2) / ref.height,
@@ -112,21 +119,49 @@ function evaluate(c: [number, number, number], x: number, y: number): number {
 }
 type Box = EyeObservation['roi'];
 
+function emptyBlocks(): SampleBlocks {
+  return {
+    noPupil: 0,
+    lowConfidence: 0,
+    noFace: 0,
+    outsideFace: 0,
+    badTime: 0,
+    estimated: 0,
+    trimmed: 0,
+  };
+}
+function pupilInCrop(sample: EyeObservation): boolean {
+  return (
+    sample.x !== null &&
+    sample.y !== null &&
+    [sample.x, sample.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1) &&
+    finiteRoi(sample.roi)
+  );
+}
+/** Why gazeFeature rejected a frame. Time, estimate and confidence are counted
+ * by the fitter before this is called. */
+function featureMiss(sample: EyeObservation): 'noPupil' | 'noFace' | 'outsideFace' {
+  if (!pupilInCrop(sample)) return 'noPupil';
+  if (sample.face !== undefined && (sample.face === null || !finiteRoi(sample.face)))
+    return 'noFace';
+  return 'outsideFace';
+}
 /** Gaze feature. A face box is the head anchor: pupil position in that box.
  * The eye crop follows the landmark, so position inside the crop cancels gaze.
- * Samples with no face field keep the older ROI-normalized feature. */
+ * The crop is larger than the tight face rectangle, so a real pupil may sit
+ * slightly outside 0..1. Values beyond that margin are a coordinate mismatch.
+ * Samples with no face field keep the older ROI-normalized feature.
+ * `box` is the coordinate frame used to compare size, not a position lock. */
 export function gazeFeature(sample: EyeObservation): { x: number; y: number; box: Box } | null {
-  if (sample.x === null || sample.y === null) return null;
-  if (![sample.x, sample.y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1))
-    return null;
-  if (!finiteRoi(sample.roi)) return null;
-  if (sample.face === undefined) return { x: sample.x, y: sample.y, box: sample.roi };
+  if (!pupilInCrop(sample)) return null;
+  if (sample.face === undefined) return { x: sample.x!, y: sample.y!, box: sample.roi };
   if (sample.face === null || !finiteRoi(sample.face)) return null;
-  const frameX = sample.roi.x + sample.x * sample.roi.width;
-  const frameY = sample.roi.y + sample.y * sample.roi.height;
+  const frameX = sample.roi.x + sample.x! * sample.roi.width;
+  const frameY = sample.roi.y + sample.y! * sample.roi.height;
   const x = (frameX - sample.face.x) / sample.face.width;
   const y = (frameY - sample.face.y) / sample.face.height;
-  if (![x, y].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) return null;
+  if (![x, y].every((value) => Number.isFinite(value) && value >= -0.25 && value <= 1.25))
+    return null;
   return { x, y, box: sample.face };
 }
 
@@ -212,6 +247,7 @@ export function fitCalibration(args: {
     for (const take of args.takes) {
       const samples = take.samples.filter((s) => s.eyeSide === side);
       const reasons: string[] = [];
+      const blocks = emptyBlocks();
       let previousPts = -Infinity;
       let previousIndex = -1;
       const usable = samples.flatMap((s) => {
@@ -224,17 +260,28 @@ export function fitCalibration(args: {
         if (s.decodedPtsUs !== null && Number.isFinite(s.decodedPtsUs))
           previousPts = Math.max(previousPts, s.decodedPtsUs);
         previousIndex = Math.max(previousIndex, s.frameIndex);
-        if (!timeValid) reasons.push('INVALID_PTS');
+        if (!timeValid) {
+          reasons.push('INVALID_PTS');
+          blocks.badTime += 1;
+          return [];
+        }
+        if (s.estimated) {
+          blocks.estimated += 1;
+          return [];
+        }
         const feature = gazeFeature(s);
+        if (!feature) {
+          blocks[featureMiss(s)] += 1;
+          return [];
+        }
         if (
-          !timeValid ||
-          s.estimated ||
-          !feature ||
           !Number.isFinite(s.confidence) ||
           s.confidence < policy.minConfidence ||
           s.confidence > 1
-        )
+        ) {
+          blocks.lowConfidence += 1;
           return [];
+        }
         return [{ sample: s, feature }];
       });
       const mx = median(usable.map((row) => row.feature.x));
@@ -245,6 +292,7 @@ export function fitCalibration(args: {
       const accepted = usable.filter(
         (row) => Math.hypot(row.feature.x - mx, row.feature.y - my) <= Math.max(0.015, 3 * mad),
       );
+      blocks.trimmed = usable.length - accepted.length;
       const stable = stableNormalizedPoint(
         accepted.map((row) => ({
           x: row.feature.x,
@@ -277,8 +325,11 @@ export function fitCalibration(args: {
       if (spanUs > take.recordEndNativeUs - take.recordStartNativeUs + 100_000)
         reasons.push('INVALID_PTS_SPAN');
       if (spread === null || spread > policy.maxSpread) reasons.push('UNSTABLE_FIXATION');
-      const ref = accepted.length ? medianBox(accepted.map((row) => row.feature.box)) : null;
-      if (ref && accepted.some((row) => !roiCompatible(row.feature.box, ref)))
+      // The eye crop may move between targets because the landmark follows gaze.
+      // Inside one held target it should stay still. The face box is the feature
+      // origin, so it is not a position lock.
+      const ref = accepted.length ? medianBox(accepted.map((row) => row.sample.roi)) : null;
+      if (ref && accepted.some((row) => !roiCompatible(row.sample.roi, ref)))
         reasons.push('HEAD_OR_ROI_MOVED');
       const quality: TargetQuality = {
         targetId: take.target.id,
@@ -292,14 +343,21 @@ export function fitCalibration(args: {
         x,
         y,
         reasons: [...new Set(reasons)],
+        blocks,
       };
       result.targetQuality.push(quality);
       for (const reason of quality.reasons)
         result.reasons.push(`${reason}:${side}:${take.target.id}`);
-      acceptedBoxes.push(...accepted.map((row) => row.feature.box));
+      acceptedBoxes.push(...accepted.map((row) => row.sample.roi));
     }
     const referenceRoi = medianBox(acceptedBoxes);
-    if (!finiteRoi(referenceRoi) || acceptedBoxes.some((box) => !roiCompatible(box, referenceRoi)))
+    // Size must stay stable across targets. Position may change: the eye
+    // landmark follows gaze, and the face box is already the feature origin.
+    if (
+      acceptedBoxes.length > 0 &&
+      (!finiteRoi(referenceRoi) ||
+        acceptedBoxes.some((box) => !roiScaleCompatible(box, referenceRoi)))
+    )
       result.reasons.push(`HEAD_OR_ROI_MOVED:${side}`);
     const qualities = result.targetQuality.filter(
       (q) => q.eyeSide === side && q.x !== null && q.y !== null,
@@ -504,7 +562,6 @@ function mapObservation(model: EyeCalibration | undefined, observation: EyeObser
     observation.confidence > 1
   )
     return null;
-  if (!roiCompatible(feature.box, model.referenceRoi)) return null;
   const b = model.featureBounds;
   const dx = (b.maxX - b.minX) * 0.1;
   const dy = (b.maxY - b.minY) * 0.1;

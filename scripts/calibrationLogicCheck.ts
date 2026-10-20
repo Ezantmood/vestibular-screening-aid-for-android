@@ -178,8 +178,10 @@ assert.equal(calibrationUsable(result, context, time - 1), false);
 assert.equal(mapCalibration(result, { ...input, estimated: true }, context, time), null);
 assert.equal(mapCalibration(result, { ...input, decodedPtsUs: null }, context, time), null);
 assert.equal(
-  mapCalibration(result, { ...input, roi: { ...input.roi, x: 400 } }, context, time),
-  null,
+  JSON.stringify(
+    mapCalibration(result, { ...input, roi: { ...input.roi, x: 400 } }, context, time + 1000),
+  ),
+  JSON.stringify(mapped),
 );
 assert.equal(mapCalibration(result, { ...input, x: 0.99 }, context, time), null);
 let takes = fixture();
@@ -225,7 +227,10 @@ for (const s of takes[0].samples) s.roi.width *= 1.8;
 assert.ok(fit(takes).reasons.some((r) => r.startsWith('HEAD_OR_ROI_MOVED')));
 takes = fixture();
 for (const s of takes[0].samples) s.confidence = 0.2;
-assert.equal(fit(takes).verdict, 'RETRY');
+const lowConfidence = fit(takes);
+assert.equal(lowConfidence.verdict, 'RETRY');
+assert.ok(lowConfidence.targetQuality[0].blocks.lowConfidence > 0);
+assert.ok(calibrationFeedback(lowConfidence).some((line) => line.includes('độ tin cậy dưới 0,5')));
 const before = JSON.stringify(takes);
 fit(takes);
 assert.equal(JSON.stringify(takes), before);
@@ -323,6 +328,20 @@ const observed = trackingObservations(raw, trackedPupil, anchors);
 assert.ok(observed.every((sample) => sample.x !== null && Math.abs(sample.x - 0.5) < 1e-9));
 assert.ok(Math.abs(gazeFeature(observed[0])!.x - (500 - 200) / 800) < 1e-9);
 assert.ok(Math.abs(gazeFeature(observed[1])!.x - (560 - 200) / 800) < 1e-9);
+const overhang = {
+  ...observed[0],
+  roi: { x: 180, y: 400, width: 40, height: 40 },
+  x: 0,
+  y: 0.5,
+};
+assert.ok(Math.abs(gazeFeature(overhang)!.x - (180 - 200) / 800) < 1e-9);
+const mismatched = {
+  ...observed[0],
+  roi: { x: 5000, y: 400, width: 40, height: 40 },
+  x: 1,
+  y: 0.5,
+};
+assert.equal(gazeFeature(mismatched), null);
 console.log(
   'Calibration checks: PASS (held targets, independent validation, degeneracy, coverage, drift, context, expiry, raw preservation, face anchor)',
 );
