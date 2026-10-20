@@ -48,7 +48,7 @@ import {
   type Sex,
   type VaultData,
 } from '../../clinic/types';
-import { audit, updateVault, wipeClinicalData } from '../../clinic/vault';
+import { audit, discardUnreadableVault, updateVault, wipeClinicalData } from '../../clinic/vault';
 import { loadCalibration } from '../../storage/calibrationStore';
 import type { EyeTestResult } from '../../tests/metrics/types';
 import type { MvpTestId } from '../../tests/types';
@@ -140,7 +140,9 @@ export default function ClinicApp() {
   const [vault, setVault] = useState<VaultData>(emptyVault);
   const [screen, setScreen] = useState<Screen>({ id: 'home' });
   const [booted, setBooted] = useState(false);
+  const [bootAttempt, setBootAttempt] = useState(0);
   const [locked, setLocked] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [nowMs, setNowMs] = useState(0);
   const [query, setQuery] = useState('');
   const [form, setForm] = useState<FormState>(blankForm);
@@ -173,6 +175,7 @@ export default function ClinicApp() {
         setVault(data);
         setNowMs(Date.now());
         setScreen(data.settingsByUid[uid]?.tutorialSeen ? { id: 'home' } : { id: 'tutorial' });
+        setLocked(false);
         setBooted(true);
       } catch {
         if (!live) return;
@@ -183,7 +186,19 @@ export default function ClinicApp() {
     return () => {
       live = false;
     };
-  }, [uid, auth.email]);
+  }, [uid, auth.email, bootAttempt]);
+
+  async function resetVault() {
+    setResetting(true);
+    try {
+      await discardUnreadableVault();
+      setLocked(false);
+      setBooted(false);
+      setBootAttempt((value) => value + 1);
+    } finally {
+      setResetting(false);
+    }
+  }
 
   const profile = uid ? (vault.profiles.find((item) => item.uid === uid) ?? null) : null;
   const role: Role = profile?.role ?? 'clinician';
@@ -1173,7 +1188,17 @@ export default function ClinicApp() {
     return (
       <View style={styles.boot}>
         <Text style={styles.body}>{t(lang, 'vaultLocked')}</Text>
-        <CameraButton title={t(lang, 'signOut')} onPress={() => void auth.logout()} />
+        <Text style={styles.body}>{t(lang, 'vaultResetHint')}</Text>
+        <CameraButton
+          title={t(lang, 'vaultReset')}
+          disabled={resetting}
+          onPress={() => void resetVault()}
+        />
+        <CameraButton
+          title={t(lang, 'signOut')}
+          tone="secondary"
+          onPress={() => void auth.logout()}
+        />
       </View>
     );
   }

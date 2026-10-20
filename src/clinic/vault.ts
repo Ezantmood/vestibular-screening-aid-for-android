@@ -1,3 +1,4 @@
+import { bytesToUtf8, utf8ToBytes } from '@noble/ciphers/utils.js';
 import { File, Paths } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 import { decryptJson, encryptJson, newVaultKey } from './crypto';
@@ -6,13 +7,23 @@ import { purgePatients } from './rules';
 
 const KEY = 'clinic-vault-key-v1';
 let chain: Promise<unknown> = Promise.resolve();
+let keyTask: Promise<string> | null = null;
 
-async function keyHex(): Promise<string> {
-  const existing = await SecureStore.getItemAsync(KEY);
-  if (existing) return existing;
-  const created = newVaultKey();
-  await SecureStore.setItemAsync(KEY, created);
-  return created;
+function keyHex(): Promise<string> {
+  if (!keyTask) {
+    keyTask = SecureStore.getItemAsync(KEY)
+      .then(async (existing) => {
+        if (existing) return existing;
+        const created = newVaultKey();
+        await SecureStore.setItemAsync(KEY, created);
+        return created;
+      })
+      .catch((error: unknown) => {
+        keyTask = null;
+        throw error;
+      });
+  }
+  return keyTask;
 }
 
 function vaultFile(): File {
@@ -23,7 +34,12 @@ async function loadVault(): Promise<{ data: VaultData; writable: boolean }> {
   const file = vaultFile();
   if (!file.exists) return { data: emptyVault(), writable: true };
   try {
-    const json = decryptJson(await keyHex(), await file.text());
+    const stored = await file.bytes();
+    if (stored.byteLength === 0) {
+      file.delete();
+      return { data: emptyVault(), writable: true };
+    }
+    const json = decryptJson(await keyHex(), bytesToUtf8(stored).trim());
     const parsed = JSON.parse(json) as VaultData;
     if (parsed.version !== 1 || !parsed || typeof parsed !== 'object') {
       return { data: emptyVault(), writable: false };
@@ -51,9 +67,15 @@ export async function readVault(): Promise<VaultData> {
 }
 
 async function writeVault(data: VaultData): Promise<void> {
+  const payload = utf8ToBytes(encryptJson(await keyHex(), JSON.stringify(data)));
+  vaultFile().write(payload);
+}
+
+export async function discardUnreadableVault(): Promise<void> {
+  keyTask = null;
   const file = vaultFile();
-  if (!file.exists) file.create();
-  file.write(encryptJson(await keyHex(), JSON.stringify(data)));
+  if (file.exists) file.delete();
+  await SecureStore.deleteItemAsync(KEY).catch(() => undefined);
 }
 
 export function updateVault(change: (data: VaultData) => void): Promise<VaultData> {

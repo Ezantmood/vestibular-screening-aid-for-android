@@ -7,17 +7,43 @@ import {
   bytesToUtf8,
 } from '@noble/ciphers/utils.js';
 
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
 function encode(bytes: Uint8Array): string {
-  let text = '';
-  for (const byte of bytes) text += String.fromCharCode(byte);
-  return btoa(text);
+  let out = '';
+  for (let index = 0; index < bytes.length; index += 3) {
+    const left = bytes.length - index;
+    const a = bytes[index] ?? 0;
+    const b = left > 1 ? (bytes[index + 1] ?? 0) : 0;
+    const c = left > 2 ? (bytes[index + 2] ?? 0) : 0;
+    const chunk = (a << 16) | (b << 8) | c;
+    out += ALPHABET[(chunk >> 18) & 63];
+    out += ALPHABET[(chunk >> 12) & 63];
+    out += left > 1 ? ALPHABET[(chunk >> 6) & 63] : '=';
+    out += left > 2 ? ALPHABET[chunk & 63] : '=';
+  }
+  return out;
 }
 
 function decode(value: string): Uint8Array {
-  const text = atob(value);
-  const bytes = new Uint8Array(text.length);
-  for (let i = 0; i < text.length; i += 1) bytes[i] = text.charCodeAt(i);
-  return bytes;
+  if (value.length === 0 || value.length % 4 !== 0) throw new Error('Bad vault payload.');
+  const out: number[] = [];
+  for (let index = 0; index < value.length; index += 4) {
+    const quad = value.slice(index, index + 4);
+    const pads = quad.endsWith('==') ? 2 : quad.endsWith('=') ? 1 : 0;
+    const chars = [0, 1, 2, 3].map((offset) => {
+      const char = quad[offset] ?? '';
+      if (char === '=') return 0;
+      const found = ALPHABET.indexOf(char);
+      if (found < 0) throw new Error('Bad vault payload.');
+      return found;
+    });
+    const chunk = (chars[0] << 18) | (chars[1] << 12) | (chars[2] << 6) | chars[3];
+    out.push((chunk >> 16) & 255);
+    if (pads < 2) out.push((chunk >> 8) & 255);
+    if (pads < 1) out.push(chunk & 255);
+  }
+  return Uint8Array.from(out);
 }
 
 export function newVaultKey(): string {

@@ -1,3 +1,4 @@
+import './src/clinic/randomPolyfill';
 import { registerRootComponent } from 'expo';
 
 import App from './App';

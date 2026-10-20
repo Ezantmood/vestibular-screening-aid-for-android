@@ -136,6 +136,9 @@ const vi = {
   pdfFailed: 'Chưa tạo được PDF.',
   shareFailed: 'Máy không mở được bảng chia sẻ.',
   vaultLocked: 'Không mở được hồ sơ đã mã hóa. App không ghi đè file đó.',
+  vaultResetHint:
+    'File trên máy này không đọc được. Xóa file sẽ tạo hồ sơ trống. Tài khoản đăng nhập vẫn còn.',
+  vaultReset: 'Xóa file hỏng và tạo hồ sơ trống',
   loading: 'Đang mở hồ sơ trên máy…',
   continueExam: 'Tiếp tục bộ bài',
   skipSave: 'Chuyển bài, không lưu',
@@ -292,6 +295,9 @@ const en: { [K in keyof typeof vi]: string } = {
   pdfFailed: 'The PDF could not be created.',
   shareFailed: 'This phone could not open the share sheet.',
   vaultLocked: 'The encrypted chart could not be opened. The app will not overwrite that file.',
+  vaultResetHint:
+    'The file on this phone cannot be read. Deleting it starts an empty chart. The sign-in account stays.',
+  vaultReset: 'Delete the broken file and start an empty chart',
   loading: 'Opening the on-device chart…',
   continueExam: 'Continue the set',
   skipSave: 'Next test without saving',
