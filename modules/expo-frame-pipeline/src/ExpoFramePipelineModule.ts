@@ -16,6 +16,7 @@ declare class ExpoFramePipelineModule extends NativeModule<Record<string, never>
     expectedFps: number,
     faceSampleCount: number,
     saveDebugFrames: boolean,
+    faceRotationDegrees: number | null,
   ): Promise<FramePipelineReport>;
 }
 
