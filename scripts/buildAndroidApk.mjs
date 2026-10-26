@@ -53,6 +53,7 @@ execFileSync(
   './gradlew',
   [
     `:app:assemble${settings.task}`,
+    ':expo-camera2-high-speed:testDebugUnitTest',
     ':expo-pupil-detector:testDebugUnitTest',
     ':expo-frame-pipeline:testDebugUnitTest',
     '-PreactNativeArchitectures=arm64-v8a',

@@ -163,8 +163,9 @@ class ExpoCamera2HighSpeedModule : Module() {
     AsyncFunction("saveEyeAnalysis") { kind: String, json: String ->
       if (kind != "calibration" && kind != "signal")
         throw CodedException("ERR_ARTIFACT_KIND", "Unsupported artifact kind", null)
-      if (json.length > 16_000_000)
+      val bytes = try { EyeAnalysisPayload.encode(json) } catch (_: IllegalArgumentException) {
         throw CodedException("ERR_ARTIFACT_SIZE", "Eye analysis too large", null)
+      }
       val data = org.json.JSONObject(json)
       if (data.optInt("schemaVersion") != 1)
         throw CodedException("ERR_ARTIFACT_SCHEMA", "Unsupported artifact schema", null)
@@ -172,10 +173,10 @@ class ExpoCamera2HighSpeedModule : Module() {
         ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
       val dir = File(root, "eye-analysis").apply { mkdirs() }
       val file = File(dir, "${kind}_${SystemClock.elapsedRealtimeNanos()}.json")
-      file.writeText(json)
+      file.writeBytes(bytes)
       if (kind == "calibration") {
         val pending = File(dir, "latest-calibration.tmp")
-        pending.writeText(json)
+        pending.writeBytes(bytes)
         if (!pending.renameTo(File(dir, "latest-calibration.json")))
           throw CodedException("ERR_ARTIFACT_WRITE", "Cannot replace calibration", null)
       }
@@ -185,7 +186,7 @@ class ExpoCamera2HighSpeedModule : Module() {
       val root = appContext.reactContext?.filesDir
         ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
       val file = File(root, "eye-analysis/latest-calibration.json")
-      if (file.exists() && file.length() <= 16_000_000) file.readText() else null
+      if (file.exists() && file.length() <= EyeAnalysisPayload.MAX_BYTES) file.readText() else null
     }
     AsyncFunction("invalidateCalibrationResult") {
       val root = appContext.reactContext?.filesDir

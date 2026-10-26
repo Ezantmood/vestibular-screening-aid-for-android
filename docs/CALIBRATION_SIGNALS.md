@@ -148,3 +148,7 @@ sheet containing allowlisted numeric observations and technical summaries,
 without account/patient records, paths, photos or videos. ROI images can be
 shared individually from their enlarged view. Saved numeric evidence and
 image references remain inspectable after reopening, including rejected models.
+
+Eye-analysis JSON uses a shared 64 MB UTF-8 read/write ceiling so contour evidence
+can persist at full precision. Oversized payloads fail explicitly; no samples
+are removed to fit storage. The latest calibration pointer is replaced atomically.
