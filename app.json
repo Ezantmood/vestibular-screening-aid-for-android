@@ -2,7 +2,7 @@
   "expo": {
     "name": "Vestibular Screening Aid",
     "slug": "vestibular-screening-aid",
-    "version": "0.2.9",
+    "version": "0.2.10",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -11,7 +11,7 @@
     },
     "android": {
       "package": "com.vestibular.screeningaid",
-      "versionCode": 12,
+      "versionCode": 13,
       "permissions": ["android.permission.CAMERA"],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",

@@ -98,7 +98,7 @@ class PupilImageDetectorTest {
 
   @Test fun productionSelfChecksPassWithoutAndroid() {
     val results = PupilImageDetector().selfChecks()
-    assertEquals(12, results.size)
+    assertEquals(14, results.size)
     for (result in results) assertEquals(result["id"], "PASS", result["status"])
   }
 

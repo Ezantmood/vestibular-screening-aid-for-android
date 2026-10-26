@@ -1,3 +1,4 @@
+import { shareCalibrationEvidence } from '../../storage/calibrationEvidence';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, PermissionsAndroid, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PipelineDecodeError } from '../../eyetracking/tracking/decodeIntegrity';
@@ -96,10 +97,15 @@ export default function CalibrationScreen({
     const token = runToken.current;
     void (async () => {
       try {
-        const saved = await loadSavedCalibration();
+        const savedJson = await readCalibrationJson();
+        const saved = savedJson ? describeSavedCalibration(savedJson) : null;
         if (!mounted.current || token !== runToken.current) return;
         if (!saved) return;
         previousSaved.current = saved;
+        if (savedJson) {
+          setAuditImages(saved.auditImages);
+          setReport(JSON.stringify({ saved: true, verdict: saved.verdict }));
+        }
         setPhase('result');
         setFeedback(saved.lines);
         setMessage(
@@ -362,6 +368,17 @@ export default function CalibrationScreen({
         </Text>
         {message !== '' && <Text accessibilityLiveRegion="polite">{message}</Text>}
         {error && <Text selectable>{error}</Text>}
+        {phase === 'result' && !busy && (
+          <CameraButton
+            title="Xuất số đo hiệu chỉnh (JSON)"
+            tone="secondary"
+            onPress={() => {
+              void shareCalibrationEvidence().catch((e) =>
+                setError(e instanceof Error ? e.message : String(e)),
+              );
+            }}
+          />
+        )}
         {feedback.map((line, i) => (
           <Text key={i}>{line}</Text>
         ))}
@@ -373,7 +390,12 @@ export default function CalibrationScreen({
               chứng calibration đạt.
             </Text>
             {auditImages.map((row) => (
-              <CameraImageGallery key={row.target} title={`ROI ${row.target}`} paths={row.paths} />
+              <CameraImageGallery
+                key={row.target}
+                title={`ROI ${row.target}`}
+                paths={row.paths}
+                allowShare
+              />
             ))}
           </CameraDetails>
         )}

@@ -1,3 +1,4 @@
+import type { EyeContour } from '../eyetracking/pupil/eyeGeometry';
 // P3 pupil seam — loader + orchestration behind the camera seam.
 // Android-only native module; resolves to null in Expo Go / iOS / web,
 // in which case callers get a "Development Build required" error (no crash).
@@ -153,6 +154,7 @@ export function toPupilDetectionResults(
     roiY: r.roiY,
     roiWidth: r.roiWidth,
     roiHeight: r.roiHeight,
+    eyeContour: r.eyeContour,
     centroidXInRoi: r.centroidXInRoi,
     centroidYInRoi: r.centroidYInRoi,
     centroidXInFrame: r.centroidXInFrame,
@@ -205,6 +207,7 @@ export async function runPupilBatch(args: {
         roiY: eye.y,
         roiWidth: eye.width,
         roiHeight: eye.height,
+        eyeContour: eye.contour,
         condition: args.condition,
       });
     }
@@ -234,6 +237,7 @@ export interface DensePupilRoi {
   roiY: number;
   roiWidth: number;
   roiHeight: number;
+  eyeContour?: EyeContour | null;
   condition: string;
   missingReason: PupilFailureReason | null;
 }
@@ -263,6 +267,7 @@ export async function runDensePupilBatch(args: {
         roiY: roi.roiY,
         roiWidth: roi.roiWidth,
         roiHeight: roi.roiHeight,
+        eyeContour: roi.eyeContour,
         centroidXInRoi: null,
         centroidYInRoi: null,
         centroidXInFrame: null,
@@ -284,6 +289,7 @@ export async function runDensePupilBatch(args: {
       roiY: roi.roiY,
       roiWidth: roi.roiWidth,
       roiHeight: roi.roiHeight,
+      eyeContour: roi.eyeContour,
       condition: roi.condition,
     });
   }

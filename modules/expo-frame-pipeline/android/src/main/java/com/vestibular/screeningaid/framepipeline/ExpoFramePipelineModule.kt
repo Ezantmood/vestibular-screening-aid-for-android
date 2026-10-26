@@ -12,6 +12,7 @@ import android.media.MediaFormat
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import com.google.mlkit.vision.face.FaceContour
 import com.google.mlkit.vision.face.FaceLandmark
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
@@ -62,7 +63,7 @@ class ExpoFramePipelineModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ExpoFramePipeline")
-    Constant("measurementVersion") { "face-pupil-v7" }
+    Constant("measurementVersion") { "eye-contour-pupil-v8" }
 
     AsyncFunction("analyzeVideoFile") { filePath: String, expectedFps: Int,
       faceSampleCount: Int, saveDebugFrames: Boolean, faceRotationDegrees: Int? ->
@@ -980,6 +981,7 @@ class ExpoFramePipelineModule : Module() {
     val options = FaceDetectorOptions.Builder()
       .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
       .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+      .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
       .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
       .build()
     val detector = try {
@@ -1044,6 +1046,8 @@ class ExpoFramePipelineModule : Module() {
           var hitB = 0
           var hitLeft: PointF? = null
           var hitRight: PointF? = null
+          var leftContour: List<PointF>? = null
+          var rightContour: List<PointF>? = null
           var attemptErrors = 0
           for (deg in rotations) {
             val candidate = if (deg == 0) {
@@ -1087,6 +1091,13 @@ class ExpoFramePipelineModule : Module() {
                 hitRight = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position?.let {
                   mapPointToOriginal(it, deg, bmp.width, bmp.height)
                 }
+                fun contour(id: Int): List<PointF>? = face.getContour(id)?.points?.let { points ->
+                  if (points.size != 16) null else points.map {
+                    mapPointToOriginal(it, deg, bmp.width, bmp.height)
+                  }
+                }
+                leftContour = contour(FaceContour.LEFT_EYE)
+                rightContour = contour(FaceContour.RIGHT_EYE)
                 hitDeg = deg
                 break
               }
@@ -1134,14 +1145,19 @@ class ExpoFramePipelineModule : Module() {
           val fw = ((hitR - hitL) * scaleX).toInt().coerceIn(1, frameWidth - fx)
           val fh = ((hitB - hitT) * scaleY).toInt().coerceIn(1, frameHeight - fy)
           val eyeSize = FrameGeometry.eyeSize(fw, fh, hitDeg, EYE_ROI_FACE_FRACTION, MIN_EYE_ROI_PX)
-          fun eyeBox(pos: PointF?, estX: Double, estY: Double): EyeBox {
-            val cx = if (pos != null) {
-              (pos.x * scaleX).toInt()
+          fun eyeBox(pos: PointF?, contour: List<PointF>?, estX: Double, estY: Double): EyeBox {
+            val contourCenter = contour?.takeIf { it.size == 16 }?.let { points ->
+              PointF((points.minOf { it.x } + points.maxOf { it.x }) / 2,
+                (points.minOf { it.y } + points.maxOf { it.y }) / 2)
+            }
+            val measured = contourCenter ?: pos
+            val cx = if (measured != null) {
+              (measured.x * scaleX).toInt()
             } else {
               estX.toInt()
             }
-            val cy = if (pos != null) {
-              (pos.y * scaleY).toInt()
+            val cy = if (measured != null) {
+              (measured.y * scaleY).toInt()
             } else {
               estY.toInt()
             }
@@ -1155,12 +1171,13 @@ class ExpoFramePipelineModule : Module() {
             return EyeBox(
               mapOf(
                 "x" to ex, "y" to ey, "width" to ew, "height" to eh,
-                "usable" to usable, "estimated" to (pos == null),
+                "usable" to usable, "estimated" to (measured == null),
+                "contour" to contour?.map { mapOf("x" to it.x * scaleX, "y" to it.y * scaleY) },
               ),
             )
           }
-          val left = eyeBox(hitLeft, (fx + fw * 0.3).toDouble(), (fy + fh * 0.42).toDouble())
-          val right = eyeBox(hitRight, (fx + fw * 0.7).toDouble(), (fy + fh * 0.42).toDouble())
+          val left = eyeBox(hitLeft, leftContour, (fx + fw * 0.3).toDouble(), (fy + fh * 0.42).toDouble())
+          val right = eyeBox(hitRight, rightContour, (fx + fw * 0.7).toDouble(), (fy + fh * 0.42).toDouble())
           outs.add(
             FaceSampleOut(
               mapOf(

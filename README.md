@@ -9,7 +9,7 @@ chưa được xác nhận độ chính xác lâm sàng; ứng dụng không đ�
 
 ## Tải và cập nhật
 
-**[Bản kiểm thử 0.2.9 beta](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/v0.2.9-beta.1)** ·
+**[Bản kiểm thử 0.2.10 beta](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/v0.2.10-beta.1)** ·
 [Toàn bộ Releases](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases)
 
 APK, mã kiểm tra SHA-256, thay đổi từng phiên bản và kết quả kiểm tra nằm trong
@@ -37,16 +37,16 @@ npm run format
 JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home npm run build:clinic
 ```
 
-| Lệnh                                       | Công việc                                            |
-| ------------------------------------------ | ---------------------------------------------------- |
-| `npm start`                                | Metro LAN + QR cho Development Build do chủ máy mở   |
-| `npm run build:dev`                        | Tạo Development APK                                  |
-| `npm run build:clinic`                     | Tạo APK ứng dụng chính                               |
-| `npm run build:batch3`                     | Tạo APK kiểm thử độc lập                             |
-| `npm run check`                            | TypeScript + ESLint                                  |
-| `npm test`                                 | Kiểm thử logic và mô phỏng                           |
-| `npm run format`                           | Kiểm tra Prettier                                    |
-| `npm run release:prepare -- v0.2.9-beta.1` | Chuẩn bị APK/checksum/manifest từ source commit sạch |
+| Lệnh                                        | Công việc                                            |
+| ------------------------------------------- | ---------------------------------------------------- |
+| `npm start`                                 | Metro LAN + QR cho Development Build do chủ máy mở   |
+| `npm run build:dev`                         | Tạo Development APK                                  |
+| `npm run build:clinic`                      | Tạo APK ứng dụng chính                               |
+| `npm run build:batch3`                      | Tạo APK kiểm thử độc lập                             |
+| `npm run check`                             | TypeScript + ESLint                                  |
+| `npm test`                                  | Kiểm thử logic và mô phỏng                           |
+| `npm run format`                            | Kiểm tra Prettier                                    |
+| `npm run release:prepare -- v0.2.10-beta.1` | Chuẩn bị APK/checksum/manifest từ source commit sạch |
 
 [Development Build và Metro](docs/DEVELOPMENT_BUILD.md) ·
 [Kiểm chứng calibration và hai bài mắt](docs/BATCH3_VALIDATION.md) ·

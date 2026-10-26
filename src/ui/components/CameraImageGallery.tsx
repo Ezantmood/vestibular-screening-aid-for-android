@@ -1,3 +1,4 @@
+import { shareCalibrationImage } from '../../storage/calibrationEvidence';
 import { useState } from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CameraButton, cameraColors } from './CameraUI';
@@ -5,12 +6,15 @@ import { CameraButton, cameraColors } from './CameraUI';
 export default function CameraImageGallery({
   paths,
   title = 'Ảnh kiểm tra trên thiết bị',
+  allowShare = false,
 }: {
   paths: string[];
   title?: string;
+  allowShare?: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
   const images = [...new Set(paths)].slice(0, 16);
   if (images.length === 0) return null;
   const uri = (path: string) => (path.startsWith('file://') ? path : 'file://' + path);
@@ -28,6 +32,7 @@ export default function CameraImageGallery({
             key={path}
             onPress={() => {
               setFailed(false);
+              setShareError(null);
               setSelected(path);
             }}
             accessibilityRole="button"
@@ -58,6 +63,17 @@ export default function CameraImageGallery({
             <Text style={styles.previewTitle}>
               Ảnh không còn trong bộ nhớ tạm. Hãy quay lại một video mới.
             </Text>
+          )}
+          {shareError && <Text style={styles.previewTitle}>{shareError}</Text>}
+          {allowShare && selected && !failed && (
+            <CameraButton
+              title="Chia sẻ ảnh ROI"
+              onPress={() => {
+                void shareCalibrationImage(selected).catch((e) =>
+                  setShareError(e instanceof Error ? e.message : String(e)),
+                );
+              }}
+            />
           )}
           <CameraButton title="Đóng ảnh" onPress={() => setSelected(null)} />
         </View>

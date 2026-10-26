@@ -167,5 +167,5 @@ Official references: [Expo local development](https://docs.expo.dev/guides/local
 Independent offline physical testing/export remains available:
 [Batch 3 verification](BATCH3_VALIDATION.md).
 
-Current calibration audit uses `face-pupil-v7` in both native modules. Rebuild the
+Current calibration audit uses `eye-contour-pupil-v8` in both native modules. Rebuild the
 APK before Fast Refresh, then recalibrate. See [contracts and limits](CALIBRATION_SIGNALS.md).

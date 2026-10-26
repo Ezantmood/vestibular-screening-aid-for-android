@@ -5,7 +5,11 @@ import {
   calibrationFrameProgress,
   calibrationProgress,
 } from '../src/eyetracking/calibration/progress';
-import { syntheticCalibrationTakes, SYNTHETIC_CONTEXT } from '../src/tests/validation/selfChecks';
+import {
+  syntheticCalibrationTakes,
+  syntheticEyeContour,
+  SYNTHETIC_CONTEXT,
+} from '../src/tests/validation/selfChecks';
 import { calibrationTechnicalSummary } from '../src/tests/validation/technicalReport';
 
 const fit = (takes = syntheticCalibrationTakes()) =>
@@ -61,6 +65,7 @@ for (const take of noisy)
   for (const s of take.samples) {
     const noise = s.frameIndex % 2 ? 0.001 : -0.001;
     s.face = { x: 200, y: 200, width: 600, height: 800 };
+    s.eyeContour = syntheticEyeContour(s.face);
     const frameX = 200 + (0.4 + 0.005 * take.target.x + noise) * 600;
     const frameY = 200 + (0.4 + 0.005 * take.target.y + noise) * 800;
     s.roi = { x: frameX - 90, y: frameY - 90, width: 180, height: 180 };

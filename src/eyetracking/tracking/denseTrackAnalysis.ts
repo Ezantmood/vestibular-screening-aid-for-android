@@ -254,6 +254,7 @@ export async function analyzeFileForTracking(args: {
   saveAuditOverlays?: boolean;
   auditFrameLimit?: number;
   faceRotationDegrees?: number;
+  requireEyeContour?: boolean;
 }): Promise<ReplayRunResult> {
   const analysis = await analyzeVideoFile({
     filePath: args.filePath,
@@ -272,6 +273,7 @@ export async function analyzeFileForTracking(args: {
       ptsCount: analysis.decodedPtsUs.length,
     });
   const rois = propagateRois({
+    requireEyeContour: args.requireEyeContour,
     faceSamples: analysis.faceSamples,
     decodedPtsUsList: analysis.decodedPtsUs,
     frameCount: analysis.decodedFrameCount,

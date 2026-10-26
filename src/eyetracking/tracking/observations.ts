@@ -35,6 +35,7 @@ export function trackingObservations(
       y: valid ? (t.trackedCentroidY! - roi.y) / roi.height : null,
       confidence: t.trackingConfidence,
       roi,
+      eyeContour: r?.eyeContour,
       face,
       faceRotation: face?.rotationApplied,
       estimated: t.ptsEstimated,

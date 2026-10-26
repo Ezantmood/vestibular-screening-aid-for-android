@@ -1,6 +1,7 @@
+import type { EyeContour } from '../pupil/eyeGeometry';
 import type { EyeSide } from '../pupil/pupilTypes';
 
-export const CALIBRATION_COORDINATE_VERSION = 'face-pupil-v7' as const;
+export const CALIBRATION_COORDINATE_VERSION = 'eye-contour-pupil-v8' as const;
 export const CALIBRATION_MODEL_VERSION = 'target-cv-ridge-v1' as const;
 export const currentPupilMeasurement = (version: unknown): boolean =>
   version === CALIBRATION_COORDINATE_VERSION;
@@ -38,6 +39,7 @@ export interface EyeObservation {
    * Omitted means legacy data; it cannot fit or use the current model. */
   face?: { x: number; y: number; width: number; height: number } | null;
   faceRotation?: number | null;
+  eyeContour?: EyeContour | null;
   estimated: boolean;
 }
 /** Target remains committed before recorder start until AFTER finalization.
@@ -58,6 +60,7 @@ export interface SampleBlocks {
   noPupil: number;
   lowConfidence: number;
   noFace: number;
+  noEyeContour: number;
   outsideFace: number;
   badTime: number;
   estimated: number;

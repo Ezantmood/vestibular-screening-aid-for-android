@@ -1,3 +1,4 @@
+import { sameEyeContour } from './eyeGeometry';
 import type { PupilDetectionResult, PupilDetectorId, PupilRoiRequest } from './pupilTypes';
 
 const key = (slot: Pick<PupilRoiRequest, 'frameIndex' | 'eyeSide'>) =>
@@ -17,6 +18,7 @@ function failure(
     roiY: Math.trunc(request.roiY),
     roiWidth: Math.trunc(request.roiWidth),
     roiHeight: Math.trunc(request.roiHeight),
+    eyeContour: request.eyeContour,
     centroidXInRoi: null,
     centroidYInRoi: null,
     centroidXInFrame: null,
@@ -52,7 +54,8 @@ export function reconcilePupilBatch(
       result.roiX !== Math.trunc(request.roiX) ||
       result.roiY !== Math.trunc(request.roiY) ||
       result.roiWidth !== Math.trunc(request.roiWidth) ||
-      result.roiHeight !== Math.trunc(request.roiHeight)
+      result.roiHeight !== Math.trunc(request.roiHeight) ||
+      !sameEyeContour(request.eyeContour, result.eyeContour)
     )
       return failure(request, detectorId, 'INVALID_GEOMETRY');
     // Native failure confidence/candidate size are still real diagnostic evidence.

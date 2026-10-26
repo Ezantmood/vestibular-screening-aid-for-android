@@ -1,3 +1,4 @@
+import type { EyeContour } from './eyeGeometry';
 // P3 pupil detection — shared result / failure types.
 //
 // Coordinate conventions (see `coordinates.ts` for the math):
@@ -62,6 +63,8 @@ export interface PupilDetectionResult {
   roiY: number;
   roiWidth: number;
   roiHeight: number;
+  /** Anatomical search mask; never a pupil position or a motion prediction. */
+  eyeContour?: EyeContour | null;
   centroidXInRoi: number | null;
   centroidYInRoi: number | null;
   centroidXInFrame: number | null;
@@ -85,6 +88,8 @@ export interface PupilRoiRequest {
   roiY: number;
   roiWidth: number;
   roiHeight: number;
+  /** Anatomical search mask; never a pupil position or a motion prediction. */
+  eyeContour?: EyeContour | null;
   /** Free-form test-condition label echoed into reports (e.g. `center`). */
   condition: string;
 }

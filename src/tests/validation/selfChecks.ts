@@ -53,6 +53,8 @@ export const SELF_CHECK_IDS = [
   'framing-current-sample-readiness',
   'target-board-fully-visible',
   'calibration-sensor-direction',
+  'calibration-canthi-anchor',
+  'calibration-missing-contour',
   'calibration-requires-face-anchor',
   'calibration-head-movement-rejected',
   'rotated-face-rect-roundtrip',
@@ -86,6 +88,13 @@ export const SYNTHETIC_CONTEXT: CalibrationContext = {
   detectorId: 'percentile-dark',
   coordinateVersion: CALIBRATION_COORDINATE_VERSION,
 };
+/** Synthetic anatomical boundary, deliberately independent of the pupil. */
+export function syntheticEyeContour(box: { x: number; y: number; width: number; height: number }) {
+  return Array.from({ length: 16 }, (_, i) => ({
+    x: box.x + box.width / 2 + (box.width / 2) * Math.cos((i * Math.PI) / 8),
+    y: box.y + box.height / 2 + box.width * 0.16 * Math.sin((i * Math.PI) / 8),
+  }));
+}
 export function syntheticCalibrationTakes(): CalibrationTake[] {
   return CALIBRATION_TARGETS.map((target, j) => ({
     target: { ...target },
@@ -106,6 +115,7 @@ export function syntheticCalibrationTakes(): CalibrationTake[] {
         confidence: 0.9,
         roi: { x: 100, y: 200, width: 100, height: 100 },
         face: { x: 100, y: 200, width: 100, height: 100 },
+        eyeContour: syntheticEyeContour({ x: 100, y: 200, width: 100, height: 100 }),
         estimated: false,
       })),
     ),
@@ -168,6 +178,7 @@ function pipeline(testId: MvpTestId, rejected = false, blink = false) {
           confidence: 0.9,
         },
       });
+      r.eyeContour = syntheticEyeContour({ x: 100, y: 200, width: 100, height: 100 });
       seq.push(
         blink && seconds > 1.18 && seconds < 1.23
           ? {
@@ -337,6 +348,7 @@ export async function runBatch3SelfChecks(): Promise<SelfCheckResult[]> {
         for (const s of t.samples) {
           const noise = s.frameIndex % 2 ? 0.001 : -0.001;
           s.face = { x: 200, y: 200, width: 600, height: 800 };
+          s.eyeContour = syntheticEyeContour(s.face);
           s.roi = {
             x: 200 + (0.4 + 0.005 * t.target.x + noise) * 600 - 90,
             y: 200 + (0.4 + 0.005 * t.target.y + noise) * 800 - 90,
@@ -361,6 +373,23 @@ export async function runBatch3SelfChecks(): Promise<SelfCheckResult[]> {
       const bounds = { left: 0, top: 24, width: 412, height: 820 };
       ensure(!targetViewportVisible({ left: 16, top: 310, width: 380, height: 697 }, bounds));
       ensure(targetViewportVisible({ left: 16, top: 40, width: 380, height: 720 }, bounds));
+    },
+    'calibration-canthi-anchor': () => {
+      const c = syntheticFit();
+      const s = syntheticCalibrationTakes()[4].samples[0];
+      const before = mapCalibration(c, s, SYNTHETIC_CONTEXT, 1000);
+      const after = mapCalibration(
+        c,
+        { ...s, face: { ...s.face!, x: s.face!.x + 8 } },
+        SYNTHETIC_CONTEXT,
+        1000,
+      );
+      ensure(before !== null && JSON.stringify(before) === JSON.stringify(after));
+    },
+    'calibration-missing-contour': () => {
+      const takes = syntheticCalibrationTakes();
+      for (const t of takes) for (const s of t.samples) s.eyeContour = [];
+      ensure(syntheticFit(takes).verdict === 'RETRY');
     },
     'calibration-sensor-direction': () => {
       const takes = syntheticCalibrationTakes();

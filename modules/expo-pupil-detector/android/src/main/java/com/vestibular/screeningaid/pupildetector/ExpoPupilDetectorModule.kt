@@ -43,7 +43,7 @@ import kotlin.math.sqrt
  *    label, so false detections stay visually auditable.
  *
  * Detectors (both pure Android-SDK, no OpenCV, no ML model):
- * - `percentile-dark`: light blur → 12th-percentile dark gate → connected
+ * - `percentile-dark`: light blur → aperture 4th-percentile dark gate → connected
  *   components → evidence scoring.
  * - `contrast-normalized`: percentile contrast stretch → relative gate +
  *   morphological open → same component machinery with shape-heavy weights.
@@ -66,7 +66,7 @@ class ExpoPupilDetectorModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ExpoPupilDetector")
-    Constant("measurementVersion") { "face-pupil-v7" }
+    Constant("measurementVersion") { "eye-contour-pupil-v8" }
 
     AsyncFunction("runPupilSelfChecks") { imageDetector.selfChecks() }
 
@@ -103,6 +103,7 @@ class ExpoPupilDetectorModule : Module() {
     val roiWidth: Int,
     val roiHeight: Int,
     val condition: String,
+    val eyeContour: List<EyeAperture.Point>?,
     /** P4 hinted second pass: prior centroid in ROI px + search radius px. */
     val priorXInRoi: Double?,
     val priorYInRoi: Double?,
@@ -414,6 +415,12 @@ class ExpoPupilDetectorModule : Module() {
               roiWidth = o.getInt("roiWidth"),
               roiHeight = o.getInt("roiHeight"),
               condition = o.optString("condition", "unspecified"),
+              eyeContour = if (o.isNull("eyeContour")) null else o.getJSONArray("eyeContour").let { points ->
+                require(points.length() <= 16) { "Invalid eye contour" }
+                List(points.length()) { j -> points.getJSONObject(j).let {
+                  EyeAperture.Point(it.getDouble("x"), it.getDouble("y"))
+                } }
+              },
               priorXInRoi = if (o.isNull("priorXInRoi")) null else o.optDouble("priorXInRoi"),
               priorYInRoi = if (o.isNull("priorYInRoi")) null else o.optDouble("priorYInRoi"),
               searchRadiusPx = if (o.isNull("searchRadiusPx")) null else o.optDouble("searchRadiusPx"),
@@ -448,6 +455,7 @@ class ExpoPupilDetectorModule : Module() {
       "roiY" to req.roiY,
       "roiWidth" to req.roiWidth,
       "roiHeight" to req.roiHeight,
+      "eyeContour" to req.eyeContour?.map { mapOf("x" to it.x, "y" to it.y) },
       "centroidXInRoi" to cxRoi,
       "centroidYInRoi" to cyRoi,
       "centroidXInFrame" to if (cxRoi != null && cyRoi != null) req.roiX + cxRoi else null,
@@ -579,7 +587,7 @@ class ExpoPupilDetectorModule : Module() {
         gray[y * rw + x] = (yPlane[(req.roiY + y) * frameW + (req.roiX + x)].toInt() and 0xFF).toDouble()
       }
     }
-    return imageDetector.detectWithPrior(gray, rw, rh, priorX, priorY, radiusPx, detectorId)
+    return imageDetector.detectWithPrior(gray, rw, rh, priorX, priorY, radiusPx, detectorId, req.eyeContour?.map { EyeAperture.Point(it.x - req.roiX, it.y - req.roiY) })
   }
 
   private fun detectInFrame(
@@ -603,7 +611,7 @@ class ExpoPupilDetectorModule : Module() {
         gray[y * rw + x] = (yPlane[(req.roiY + y) * frameW + (req.roiX + x)].toInt() and 0xFF).toDouble()
       }
     }
-    return imageDetector.detect(gray, rw, rh, detectorId)
+    return imageDetector.detect(gray, rw, rh, detectorId, req.eyeContour?.map { EyeAperture.Point(it.x - req.roiX, it.y - req.roiY) })
   }
 
   // ---------- Debug overlays (device-local only) ----------
@@ -626,6 +634,14 @@ class ExpoPupilDetectorModule : Module() {
       val crop = Bitmap.createBitmap(frameBmp, cx, cy, cw, ch)
       val marked = crop.copy(Bitmap.Config.ARGB_8888, true)
       val canvas = Canvas(marked)
+      req.eyeContour?.let { contour ->
+        val paint = Paint().apply { color = Color.CYAN; style = Paint.Style.STROKE; strokeWidth = 1.5f }
+        for (i in contour.indices) {
+          val a = contour[i]; val b = contour[(i + 1) % contour.size]
+          canvas.drawLine((a.x - req.roiX).toFloat(), (a.y - req.roiY).toFloat(),
+            (b.x - req.roiX).toFloat(), (b.y - req.roiY).toFloat(), paint)
+        }
+      }
       val label = if (outcome.success) {
         "conf=${String.format("%.2f", outcome.confidence)}"
       } else {

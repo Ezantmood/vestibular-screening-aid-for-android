@@ -1,3 +1,4 @@
+import { syntheticEyeContour } from '../src/tests/validation/selfChecks';
 import assert from './assert';
 import { analyzeEyeTest } from '../src/tests/metrics/analysis';
 import {
@@ -341,7 +342,7 @@ check('fitted calibration → observed ROI sample → calibrated signal → purs
     viewportLeft: 16,
     viewportTop: 100,
     detectorId: 'percentile-dark',
-    coordinateVersion: 'face-pupil-v7',
+    coordinateVersion: 'eye-contour-pupil-v8',
   };
   const roi = { x: 100, y: 200, width: 100, height: 80 };
   const calibration = fitCalibration({
@@ -367,6 +368,7 @@ check('fitted calibration → observed ROI sample → calibrated signal → purs
           confidence: 0.9,
           roi,
           face: roi,
+          eyeContour: syntheticEyeContour(roi),
           estimated: false,
         })),
       ),
@@ -385,6 +387,7 @@ check('fitted calibration → observed ROI sample → calibrated signal → purs
         confidence: 0.9,
         roi,
         face: roi,
+        eyeContour: syntheticEyeContour(roi),
         estimated: false,
       };
       const mapped = mapCalibration(calibration, observation, context, 2000);

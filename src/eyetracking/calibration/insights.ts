@@ -119,6 +119,7 @@ function addBlocks(total: SampleBlocks, row: SampleBlocks | undefined) {
   total.noPupil += row.noPupil;
   total.lowConfidence += row.lowConfidence;
   total.noFace += row.noFace;
+  total.noEyeContour += row.noEyeContour ?? 0;
   total.outsideFace += row.outsideFace;
   total.badTime += row.badTime;
   total.estimated += row.estimated;
@@ -129,7 +130,8 @@ function blockText(blocks: SampleBlocks): string {
     blocks.noPupil > 0 ? `không thấy đồng tử ${blocks.noPupil}` : '',
     blocks.lowConfidence > 0 ? `độ tin cậy dưới 0,5: ${blocks.lowConfidence}` : '',
     blocks.noFace > 0 ? `không có khung mặt ${blocks.noFace}` : '',
-    blocks.outsideFace > 0 ? `đồng tử ngoài khung mặt ${blocks.outsideFace}` : '',
+    blocks.noEyeContour > 0 ? `thiếu đường viền mắt ${blocks.noEyeContour}` : '',
+    blocks.outsideFace > 0 ? `đặc trưng ngoài vùng mắt hợp lệ ${blocks.outsideFace}` : '',
     blocks.badTime > 0 ? `thời điểm khung hình lỗi ${blocks.badTime}` : '',
     blocks.estimated > 0 ? `thời điểm ước lượng ${blocks.estimated}` : '',
     blocks.trimmed > 0 ? `mẫu lệch bị loại ${blocks.trimmed}` : '',
@@ -155,7 +157,7 @@ export function calibrationFeedback(result: CalibrationResult): string[] {
     );
     if (f.rmse !== null && f.rmse > CALIBRATION_POLICY.maxValidationRmse)
       messages.push(
-        `${label}: sai số từng frame RMSE ${f.rmse.toFixed(3)} vượt mức tham chiếu ${CALIBRATION_POLICY.maxValidationRmse}. Trung vị đạt không xác nhận độ chính xác từng frame; xem ROI và độ rung trước khi dùng số đo.`,
+        `${label}: sai số từng frame RMSE ${f.rmse.toFixed(3)} vượt mức tham chiếu ${CALIBRATION_POLICY.maxValidationRmse}. Số đo trung vị không xác nhận độ chính xác từng frame; xem ROI và độ rung trước khi dùng số đo.`,
       );
   }
   if (result.verdict === 'VALID') return [...messages, 'Calibration đạt các ngưỡng hiện tại.'];
@@ -169,6 +171,7 @@ export function calibrationFeedback(result: CalibrationResult): string[] {
       noPupil: 0,
       lowConfidence: 0,
       noFace: 0,
+      noEyeContour: 0,
       outsideFace: 0,
       badTime: 0,
       estimated: 0,
@@ -261,7 +264,7 @@ export function calibrationFeedback(result: CalibrationResult): string[] {
     );
   messages.push(`Mã kiểm tra: ${codes.join(', ')}.`);
   messages.push(
-    'Đặc trưng là vị trí đồng tử trên khung mặt. Ngưỡng sai số 0,08 là ngưỡng kỹ thuật, không phải chẩn đoán. Khi chưa đạt, ánh xạ không được dùng để chấm vị trí trên màn hình; bài đo phòng khám vẫn ghi hình.',
+    'Đặc trưng là vị trí đồng tử so với hai khóe mắt; đường viền mắt giới hạn vùng tìm đồng tử. Ngưỡng sai số 0,08 là ngưỡng kỹ thuật, không phải chẩn đoán. Khi chưa đạt, ánh xạ không được dùng để chấm vị trí trên màn hình; bài đo phòng khám vẫn ghi hình.',
   );
   return messages;
 }

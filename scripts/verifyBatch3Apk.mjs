@@ -22,7 +22,7 @@ const tools = resolve(root, version);
 const badging = execFileSync(resolve(tools, 'aapt'), ['dump', 'badging', apk], {
   encoding: 'utf8',
 });
-assert.ok(badging.includes("name='com.vestibular.screeningaid' versionCode='12'"));
+assert.ok(badging.includes("name='com.vestibular.screeningaid' versionCode='13'"));
 assert.ok(!/\bsplit=/.test(badging.split('\n')[0]), 'Supply a single APK, not a split package');
 assert.ok(badging.includes("sdkVersion:'24'"), 'Unexpected minimum Android API');
 assert.ok(/^native-code:.*'arm64-v8a'/m.test(badging), 'Redmi arm64 libraries missing');
@@ -58,11 +58,11 @@ const measurementBundle = execFileSync('unzip', ['-p', apk, 'assets/index.androi
   maxBuffer: 64 * 1024 * 1024,
 });
 assert.ok(
-  measurementBundle.includes(Buffer.from('face-pupil-v7')),
+  measurementBundle.includes(Buffer.from('eye-contour-pupil-v8')),
   'Current JS coordinate contract missing',
 );
 assert.ok(
-  measurementBundle.includes(Buffer.from('batch3-20261026-visible-targets-v9')),
+  measurementBundle.includes(Buffer.from('batch3-20261026-eye-contours-v10')),
   'Current diagnostic build missing',
 );
 assert.ok(
@@ -73,7 +73,7 @@ const dexEntries = entries.split('\n').filter((entry) => /^classes\d*\.dex$/.tes
 assert.ok(
   dexEntries.some((entry) =>
     execFileSync('unzip', ['-p', apk, entry], { maxBuffer: 64 * 1024 * 1024 }).includes(
-      Buffer.from('face-pupil-v7'),
+      Buffer.from('eye-contour-pupil-v8'),
     ),
   ),
   'Current native measurement contract missing',

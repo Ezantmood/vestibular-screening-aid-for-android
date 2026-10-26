@@ -1,3 +1,4 @@
+import { pupilInEyeFrame } from '../pupil/eyeGeometry';
 import { CALIBRATION_TARGETS } from './protocol';
 import { CALIBRATION_MODEL_VERSION, currentPupilMeasurement } from './types';
 import {
@@ -110,6 +111,7 @@ function emptyBlocks(): SampleBlocks {
     noPupil: 0,
     lowConfidence: 0,
     noFace: 0,
+    noEyeContour: 0,
     outsideFace: 0,
     badTime: 0,
     estimated: 0,
@@ -126,27 +128,32 @@ function pupilInCrop(sample: EyeObservation): boolean {
 }
 /** Why gazeFeature rejected a frame. Time, estimate and confidence are counted
  * by the fitter before this is called. */
-function featureMiss(sample: EyeObservation): 'noPupil' | 'noFace' | 'outsideFace' {
+function featureMiss(
+  sample: EyeObservation,
+): 'noPupil' | 'noFace' | 'noEyeContour' | 'outsideFace' {
   if (!pupilInCrop(sample)) return 'noPupil';
   if (!sample.face || !finiteRoi(sample.face)) return 'noFace';
+  if (!sample.eyeContour) return 'noEyeContour';
   return 'outsideFace';
 }
-/** Gaze feature. A face box is the head anchor: pupil position in that box.
- * The eye crop follows the landmark, so position inside the crop cancels gaze.
- * The crop is larger than the tight face rectangle, so a real pupil may sit
- * slightly outside 0..1. Values beyond that margin are a coordinate mismatch.
- * Missing face anchors fail closed; legacy crop features cannot enter this model.
- * `box` is the coordinate frame used to compare size, not a position lock. */
-export function gazeFeature(sample: EyeObservation): { x: number; y: number; box: Box } | null {
-  if (!pupilInCrop(sample)) return null;
-  if (!sample.face || !finiteRoi(sample.face)) return null;
-  const frameX = sample.roi.x + sample.x! * sample.roi.width;
-  const frameY = sample.roi.y + sample.y! * sample.roi.height;
-  const x = (frameX - sample.face.x) / sample.face.width;
-  const y = (frameY - sample.face.y) / sample.face.height;
-  if (![x, y].every((value) => Number.isFinite(value) && value >= -0.25 && value <= 1.25))
+/** Pupil relative to the measured eyelid's canthi. The whole-face rectangle is
+ * retained for the existing head-movement guard, never subtracted from gaze.
+ * Missing/closed contours fail closed instead of silently using the old feature. */
+export function gazeFeature(
+  sample: EyeObservation,
+): { x: number; y: number; box: Box; unitPx: number } | null {
+  if (!pupilInCrop(sample) || !sample.face || !finiteRoi(sample.face) || !sample.eyeContour)
     return null;
-  return { x, y, box: sample.face };
+  const feature = pupilInEyeFrame(
+    {
+      x: sample.roi.x + sample.x! * sample.roi.width,
+      y: sample.roi.y + sample.y! * sample.roi.height,
+    },
+    sample.eyeContour,
+    sample.faceRotation ?? 0,
+  );
+  if (!feature || ![feature.x, feature.y].every((v) => v >= -0.25 && v <= 1.25)) return null;
+  return { ...feature, box: sample.face };
 }
 
 function medianBox(boxes: readonly Box[]): Box {
@@ -230,6 +237,7 @@ export function fitCalibration(args: {
   for (const side of ['left', 'right'] as const) {
     const acceptedBoxes: Box[] = [];
     const acceptedCrops: Box[] = [];
+    const acceptedEyeWidths: number[] = [];
     const acceptedFeatures = new Map<string, { x: number; y: number }[]>();
     const rotations = new Set<number>();
     for (const take of args.takes) {
@@ -338,6 +346,7 @@ export function fitCalibration(args: {
         result.reasons.push(`${reason}:${side}:${take.target.id}`);
       acceptedBoxes.push(...accepted.map((row) => row.feature.box));
       acceptedCrops.push(...accepted.map((row) => row.sample.roi));
+      acceptedEyeWidths.push(...accepted.map((row) => row.feature.unitPx));
     }
     const referenceRoi = medianBox(acceptedBoxes);
     if (
@@ -376,15 +385,15 @@ export function fitCalibration(args: {
     const varY = featureY.reduce((a, y) => a + (y - meanY) ** 2, 0);
     const cov = featureX.reduce((a, x, i) => a + (x - meanX) * (featureY[i] - meanY), 0);
     // Preserve the original 1e-4 observability floor in its original eye-crop
-    // units. Face-normalized variance must be converted to reference-crop units;
+    // units. Canthus-normalized variance is converted to reference-crop units;
     // otherwise the larger coordinate frame alone rejects sufficient motion.
     // Separately standardize the solve to avoid unit-dependent conditioning.
     const sx = Math.sqrt(varX / fits.length);
     const sy = Math.sqrt(varY / fits.length);
     const epsilon = Number.EPSILON * Math.max(1, Math.abs(meanX), Math.abs(meanY));
     const referenceCrop = medianBox(acceptedCrops);
-    const cropVarianceX = varX * (referenceRoi.width / referenceCrop.width) ** 2;
-    const cropVarianceY = varY * (referenceRoi.height / referenceCrop.height) ** 2;
+    const cropVarianceX = varX * (median(acceptedEyeWidths) / referenceCrop.width) ** 2;
+    const cropVarianceY = varY * (median(acceptedEyeWidths) / referenceCrop.height) ** 2;
     if (
       cropVarianceX < 1e-4 ||
       cropVarianceY < 1e-4 ||

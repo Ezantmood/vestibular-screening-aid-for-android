@@ -25,6 +25,8 @@ export interface FramePipelineEyeBox {
   width: number;
   height: number;
   usable: boolean;
+  /** Anatomical eyelid boundary in original decoded pixels; absent in legacy data. */
+  contour?: { x: number; y: number }[] | null;
   /** True when estimated from face-box proportions (no ML Kit landmark). */
   estimated: boolean;
 }

@@ -1,3 +1,4 @@
+import { CALIBRATION_TARGETS } from './protocol';
 import { calibrationUsable } from './calibration';
 import { CALIBRATION_MODEL_VERSION, currentPupilMeasurement } from './types';
 import { calibrationFeedback } from './insights';
@@ -14,6 +15,7 @@ export type SavedCalibrationView = {
   verdict: 'VALID' | 'RETRY';
   atMs: number;
   lines: string[];
+  auditImages: { target: string; paths: string[] }[];
 };
 
 function asResult(value: unknown): CalibrationResult | null {
@@ -55,5 +57,39 @@ export function describeSavedCalibration(json: string): SavedCalibrationView | n
   } catch {
     lines = [];
   }
-  return { verdict: result.verdict, atMs: result.createdAtMs, lines };
+  return {
+    verdict: result.verdict,
+    atMs: result.createdAtMs,
+    lines,
+    auditImages: savedCalibrationAuditImages(parsed),
+  };
+}
+
+/** Restore only known target ROI images from the app's pupildebug cache. */
+export function savedCalibrationAuditImages(value: unknown): { target: string; paths: string[] }[] {
+  if (!value || typeof value !== 'object' || !('replays' in value) || !Array.isArray(value.replays))
+    return [];
+  const replays = value.replays;
+  return CALIBRATION_TARGETS.flatMap((target) => {
+    const replay: unknown = replays.find(
+      (r: unknown) =>
+        r !== null && typeof r === 'object' && 'condition' in r && r.condition === target.id,
+    );
+    if (
+      !replay ||
+      typeof replay !== 'object' ||
+      !('auditOverlays' in replay) ||
+      !Array.isArray(replay.auditOverlays)
+    )
+      return [];
+    const paths = replay.auditOverlays
+      .filter(
+        (p): p is string =>
+          typeof p === 'string' &&
+          /^(?:file:\/\/)?\//.test(p) &&
+          /\/pupildebug\/[^/]+\.jpg$/.test(p),
+      )
+      .slice(0, 16);
+    return paths.length ? [{ target: target.id, paths }] : [];
+  });
 }

@@ -38,17 +38,28 @@ P4 tracking and stores artifacts through the camera/storage seams.
   retains requested rotation and observed rotation counts. Unknown metadata
   blocks core capture. Legacy/debug files may still infer directions and warn;
   a detector direction change is not proof that the owner rotated the phone.
-- The gaze feature is the tracked pupil in the head face box, normalized by that frame's measured face size. The eye crop still follows the eye landmark so the
-  pupil can be found, but position inside that moving crop is not the feature:
-  it cancels gaze. Frames with no measured face are rejected. Predictions and
-  estimated timestamps are excluded. Robust medians trim distant samples; every
-  target/eye needs at least 30 accepted samples, 60% coverage, 250 ms PTS span
-  and RMS spread <=0.04 of the face box.
-- Measurement context `face-pupil-v7` keeps the current dark-core detector: exact
-  connected-component pixels, quantized percentile cutoff, and no center-closeness
-  penalty. The eye crop is 0.30 of the face width. v1–v6 measurements cannot activate.
-  Native guards for both frame geometry and pupil detection prevent mixed measurements. A detector
-  SUCCESS does not establish an eligible calibration observation.
+- The pupil is measured only inside the anatomical 16-point eyelid contour from
+  [ML Kit](https://developers.google.com/ml-kit/vision/face-detection/android).
+  The crop is centered on that contour. Its dark cutoff uses aperture pixels;
+  components touching the lid boundary are rejected rather than reporting a
+  biased partial centroid. Missing/closed/malformed contours fail closed in the
+  calibration and recorded-eye-test paths. Legacy engineering crop probes may
+  still run unmasked and cannot establish a usable calibration.
+- The gaze feature is pupil position relative to the two canthi, using the
+  longest contour chord and its perpendicular, normalized by chord length.
+  Whole-face boxes remain head-movement guards and never define gaze. Eye crops
+  remain search windows, not gaze references. Contours/crops are propagated only
+  between adjacent valid, same-orientation keyframes using real PTS; every pupil
+  is still detected from that decoded frame's pixels, never interpolated.
+  Predictions and estimated timestamps are excluded. Every target/eye needs
+  > =30 accepted samples, >=60% coverage, >=250 ms PTS span and RMS spread <=0.04
+  > canthus lengths. This spread gate is stricter in pixels than the old face-box
+  > units; screen-error gates are unchanged.
+- Measurement context `eye-contour-pupil-v8` keeps exact component pixels,
+  quantized percentile inclusion and the existing confidence gate, and adds the
+  anatomical mask/canthus reference. v1–v7 measurements cannot activate. Native
+  contracts and echoed mask geometry prevent mixing masked/unmasked results.
+  Confidence and detector SUCCESS still do not establish a correct pupil.
 - Model contract `target-cv-ridge-v1` selects affine, affine-ridge or quadratic-ridge
   using leave-one-target-out CV on the nine fit medians only. Each fold recomputes
   its own centering/scaling; λ is one of 0.001/0.01/0.1/1 for ridge candidates.
@@ -85,7 +96,7 @@ P4 tracking and stores artifacts through the camera/storage seams.
   Mapping rejects face-box scale changes >20%, center changes >0.3 of the face,
   unsupported feature extrapolation and off-viewport output. Recalibrate after
   changing framing, lighting, device position or session conditions. Face
-  normalization reduces head translation; it does not establish head-pose or
+  canthus normalization reduces translation/roll/scale effects; it does not establish head-pose or
   illumination invariance.
 - Recorded Pursuit/Saccade now requires a usable calibration; target-only preview
   remains available. Captured eye signals are saved with the calibration ID and
@@ -131,3 +142,9 @@ Per-version changes and verified evidence:
 Regression candidates are supported as an engineering approach by
 [Severitt et al.](https://bop.unibe.ch/JEMR/article/view/9261); performance on this
 phone still requires owner-operated physical validation.
+
+The calibration result has **Xuất số đo hiệu chỉnh (JSON)** for a local share
+sheet containing allowlisted numeric observations and technical summaries,
+without account/patient records, paths, photos or videos. ROI images can be
+shared individually from their enlarged view. Saved numeric evidence and
+image references remain inspectable after reopening, including rejected models.

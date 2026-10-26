@@ -24,7 +24,7 @@ import {
 } from './failures';
 import type { SavedCalibrationRead } from './diagnosticRun';
 
-export const BATCH3_BUILD = 'batch3-20261026-visible-targets-v9';
+export const BATCH3_BUILD = 'batch3-20261026-eye-contours-v10';
 export const NATIVE_CHECK_IDS = [
   'native-component-isolation-percentile-dark',
   'native-center-percentile-dark',
@@ -35,6 +35,8 @@ export const NATIVE_CHECK_IDS = [
   'native-quantized-plateau-contrast-normalized',
   'native-eccentric-contrast-normalized',
   'native-missing-is-null',
+  'native-eyelid-excludes-false-lock',
+  'native-eyelid-preserves-pupil',
   'native-hinted-isolation',
   'native-invalid-geometry',
   'native-uniform-and-ambiguous',
@@ -226,6 +228,7 @@ export function calibrationTechnicalSummary(artifact: unknown) {
             'noPupil',
             'lowConfidence',
             'noFace',
+            'noEyeContour',
             'outsideFace',
             'badTime',
             'estimated',

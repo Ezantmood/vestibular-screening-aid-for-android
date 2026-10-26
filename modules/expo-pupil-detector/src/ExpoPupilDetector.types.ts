@@ -1,3 +1,4 @@
+import type { EyeContour } from '../../../src/eyetracking/pupil/eyeGeometry';
 import type { PupilImageDiagnostics } from '../../../src/eyetracking/pupil/pupilTypes';
 // P3 pupil detector — native module surface types.
 //
@@ -23,6 +24,8 @@ export interface PupilRoiRequest {
   roiY: number;
   roiWidth: number;
   roiHeight: number;
+  /** Anatomical search mask; never a pupil position or a motion prediction. */
+  eyeContour?: EyeContour | null;
   /** Free-form test-condition label echoed into the report. */
   condition: string;
   /**
@@ -43,6 +46,8 @@ export interface PupilResultOut {
   roiY: number;
   roiWidth: number;
   roiHeight: number;
+  /** Anatomical search mask; never a pupil position or a motion prediction. */
+  eyeContour?: EyeContour | null;
   centroidXInRoi: number | null;
   centroidYInRoi: number | null;
   centroidXInFrame: number | null;

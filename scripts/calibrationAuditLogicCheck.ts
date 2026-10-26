@@ -1,5 +1,9 @@
 import assert from './assert';
-import { syntheticCalibrationTakes, SYNTHETIC_CONTEXT } from '../src/tests/validation/selfChecks';
+import {
+  syntheticCalibrationTakes,
+  syntheticEyeContour,
+  SYNTHETIC_CONTEXT,
+} from '../src/tests/validation/selfChecks';
 import {
   fitCalibration,
   mapCalibration,
@@ -69,6 +73,7 @@ for (const take of takes)
     s.x! += [-0.002, 0, 0.002][phase];
     s.roi = { x: 100, y: 200, width: size, height: size };
     s.face = { ...s.roi };
+    s.eyeContour = syntheticEyeContour(s.roi);
   }
 const resized = fit(takes);
 assert.equal(resized.verdict, 'VALID', resized.reasons.join(','));
@@ -173,6 +178,7 @@ for (const amplitude of [0.25, 0.005, 0.00005]) {
       s.x = 0.5;
       s.y = 0.5;
       s.face = face;
+      s.eyeContour = syntheticEyeContour(face);
       s.roi = { x: frameX - 90, y: frameY - 90, width: 180, height: 180 };
     }
   const result = fit(takes);

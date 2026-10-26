@@ -1,3 +1,4 @@
+import { eyeCoordinateFrame, type EyeContour } from '../pupil/eyeGeometry';
 // P4 ROI propagation — dense per-frame eye boxes from sparse ML Kit
 // keyframes. Pure; no native calls, no detection, no clinical logic.
 //
@@ -132,6 +133,7 @@ export interface PropagatedRoi {
   roiHeight: number;
   /** Set when no box exists: explicit upstream failure (never fabricated). */
   missingReason: PupilFailureReason | null;
+  eyeContour?: EyeContour | null;
 }
 
 interface EyeBox {
@@ -139,9 +141,14 @@ interface EyeBox {
   y: number;
   width: number;
   height: number;
+  contour?: EyeContour | null;
 }
 
-function usableEye(sample: FramePipelineFaceSample, eyeSide: EyeSide): EyeBox | null {
+function usableEye(
+  sample: FramePipelineFaceSample,
+  eyeSide: EyeSide,
+  requireContour: boolean,
+): EyeBox | null {
   if (!sample.faceDetected) {
     return null;
   }
@@ -150,6 +157,7 @@ function usableEye(sample: FramePipelineFaceSample, eyeSide: EyeSide): EyeBox | 
     eye === null ||
     eye.usable !== true ||
     eye.estimated !== false ||
+    (requireContour && !eyeCoordinateFrame(eye.contour, sample.rotationApplied ?? 0)) ||
     ![eye.x, eye.y, eye.width, eye.height].every(Number.isFinite) ||
     eye.x < 0 ||
     eye.y < 0 ||
@@ -158,7 +166,7 @@ function usableEye(sample: FramePipelineFaceSample, eyeSide: EyeSide): EyeBox | 
   ) {
     return null;
   }
-  return { x: eye.x, y: eye.y, width: eye.width, height: eye.height };
+  return { x: eye.x, y: eye.y, width: eye.width, height: eye.height, contour: eye.contour };
 }
 
 function missingKind(sample: FramePipelineFaceSample | undefined): PupilFailureReason {
@@ -178,6 +186,7 @@ export function propagateRois(args: {
   faceSamples: FramePipelineFaceSample[];
   decodedPtsUsList: (number | null)[];
   frameCount: number;
+  requireEyeContour?: boolean;
 }): PropagatedRoi[] {
   const { faceSamples, decodedPtsUsList, frameCount } = args;
   const ordered = [...faceSamples].sort((a, b) => a.frameIndex - b.frameIndex);
@@ -191,7 +200,7 @@ export function propagateRois(args: {
       rotation: number | null;
     }[] = [];
     for (const s of ordered) {
-      const box = usableEye(s, eyeSide);
+      const box = usableEye(s, eyeSide, args.requireEyeContour ?? false);
       if (
         box !== null &&
         Number.isInteger(s.frameIndex) &&
@@ -222,6 +231,7 @@ export function propagateRois(args: {
           roiY: exact.box.y,
           roiWidth: exact.box.width,
           roiHeight: exact.box.height,
+          eyeContour: exact.box.contour,
           missingReason: null,
         });
         continue;
@@ -295,6 +305,13 @@ export function propagateRois(args: {
         roiY: Math.round(lo.box.y + (hi.box.y - lo.box.y) * alpha),
         roiWidth: Math.round(lo.box.width + (hi.box.width - lo.box.width) * alpha),
         roiHeight: Math.round(lo.box.height + (hi.box.height - lo.box.height) * alpha),
+        eyeContour:
+          lo.box.contour?.length === 16 && hi.box.contour?.length === 16
+            ? lo.box.contour.map((p, i) => ({
+                x: p.x + (hi!.box.contour![i].x - p.x) * alpha,
+                y: p.y + (hi!.box.contour![i].y - p.y) * alpha,
+              }))
+            : null,
         missingReason: null,
       });
     }

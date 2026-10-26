@@ -6,9 +6,12 @@
   eye-test instructions/recording, saved traces, report and PDF.
 - Active engineering scope remains Batch 3: calibration, Smooth Pursuit and
   Horizontal Saccade. Batch 4 is not started.
-- Calibration uses `face-pupil-v7` measurements and `target-cv-ridge-v1` models.
+- Calibration uses `eye-contour-pupil-v8` measurements and `target-cv-ridge-v1` models.
   Fit-target-only CV selects affine/ridge/quadratic mapping. Held-out target and
   frame-error checks must pass for both eyes; old models require recalibration.
+- Pupil search is restricted to anatomical eyelid contours; gaze is relative to
+  the canthi. Face rectangles only guard head movement. Local numeric calibration
+  export and individual ROI sharing are available on the result screen.
 - Decoder geometry/PTS integrity, explicit missing observations, native/JS
   contract checks and camera release/cancellation guards remain enforced.
 - Portrait framing accepts sufficient height or width, with current-sample hints
@@ -17,18 +20,20 @@
 
 ## Evidence and next acceptance
 
-The owner can now reach the green framing lamp and complete a recording, but
-calibration remains RETRY. The next observed blocker was clipped lower targets:
-the old board used window height without subtracting clinician chrome. A shared
-full-screen stage with native safe-area insets and a four-edge visibility guard
-replace that layout. Portrait
-camera metadata now fixes face-analysis direction across all frames/targets;
-legacy detector fallback could change directions independently of phone motion.
-Computer regression checks are distinct from physical acceptance. No fresh Redmi
-result after these repairs, physical VALID or clinical accuracy is established.
+The latest owner screenshots remain RETRY after the viewport/rotation repair:
+70/100 rubric, nearly 99% overall retained samples, but only 2/871 left and
+1/875 right held-out frames within tolerance. This is an unusable mapping, not
+70% gaze accuracy. Screenshots alone cannot identify the pixels being tracked.
 
-Next owner acceptance: use a current APK, run in-app self-checks, repeat fresh
-calibration, inspect pupil overlays and export the aggregate technical report.
+Computer regressions reproduce high-confidence dark blobs outside the eye and
+face-box wobble overwhelming small pupil excursions. The current contour/canthus
+path repairs these software weaknesses. Whether either caused this particular
+Redmi failure, and the new physical accuracy, remain unverified. No physical
+VALID or clinical accuracy is established.
+
+Next owner acceptance: install the current APK, inspect cyan eyelid boundaries
+and red pupil markers, perform fresh calibration, and use **Xuất số đo hiệu chỉnh
+(JSON)** plus individual ROI sharing when investigating a rejection.
 Only proceed to reliable moving-test metrics when calibration, synchronization
 and signal quality independently pass. See [verification workflow](BATCH3_VALIDATION.md).
 

@@ -1,3 +1,4 @@
+import { syntheticEyeContour } from '../src/tests/validation/selfChecks';
 import assert from './assert';
 import {
   fitCalibration,
@@ -40,7 +41,7 @@ const context: CalibrationContext = {
   viewportLeft: 16,
   viewportTop: 100,
   detectorId: 'percentile-dark',
-  coordinateVersion: 'face-pupil-v7',
+  coordinateVersion: 'eye-contour-pupil-v8',
 };
 const time = 100_000;
 function fixture(): CalibrationTake[] {
@@ -64,6 +65,7 @@ function fixture(): CalibrationTake[] {
         confidence: 0.85,
         roi: { x: 100, y: 200, width: 100, height: 80 },
         face: { x: 100, y: 200, width: 100, height: 80 },
+        eyeContour: syntheticEyeContour({ x: 100, y: 200, width: 100, height: 80 }),
         estimated: false,
       })),
     ),
@@ -76,7 +78,8 @@ assert.equal(currentPupilMeasurement(undefined), false);
 assert.equal(currentPupilMeasurement('decoded-roi-v3'), false);
 assert.equal(currentPupilMeasurement('decoded-roi-v4'), false);
 assert.equal(currentPupilMeasurement('face-pupil-v6'), false);
-assert.equal(currentPupilMeasurement('face-pupil-v7'), true);
+assert.equal(currentPupilMeasurement('face-pupil-v7'), false);
+assert.equal(currentPupilMeasurement('eye-contour-pupil-v8'), true);
 const stable = stableNormalizedPoint([
   { x: 0.6, y: 0.5, roi: { width: 100, height: 100 } },
   { x: 0.55, y: 0.5, roi: { width: 200, height: 100 } },
@@ -135,6 +138,7 @@ const rawResults = observations.map((s) =>
     },
   }),
 );
+for (let i = 0; i < rawResults.length; i++) rawResults[i].eyeContour = observations[i].eyeContour;
 const tracks = finalTrack(rawResults);
 const replay = {
   rawResults,
@@ -200,7 +204,12 @@ assert.equal(
   JSON.stringify(
     mapCalibration(
       result,
-      { ...input, roi: { ...input.roi, x: 110 }, face: { ...input.face!, x: 110 } },
+      {
+        ...input,
+        roi: { ...input.roi, x: 110 },
+        face: { ...input.face!, x: 110 },
+        eyeContour: input.eyeContour!.map((p) => ({ ...p, x: p.x + 10 })),
+      },
       context,
       time + 1000,
     ),
@@ -299,6 +308,7 @@ const chased = fit(
           confidence: 0.9,
           roi,
           face,
+          eyeContour: syntheticEyeContour(face),
           estimated: false,
         })),
       ),
@@ -327,6 +337,8 @@ const raw = pupil.map((x, frameIndex) =>
     },
   }),
 );
+for (const r of raw)
+  r.eyeContour = syntheticEyeContour({ x: 200, y: 100, width: 800, height: 900 });
 const trackedPupil: PupilTrackingResult[] = pupil.map((x, frameIndex) => ({
   frameIndex,
   decodedPtsUs: frameIndex,
@@ -473,6 +485,7 @@ function geometricTakes(faceHeightFraction: number): CalibrationTake[] {
           confidence: 0.9,
           roi,
           face,
+          eyeContour: syntheticEyeContour(face),
           estimated: false,
         })),
       ),

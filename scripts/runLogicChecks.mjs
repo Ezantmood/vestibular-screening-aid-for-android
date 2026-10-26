@@ -13,6 +13,7 @@ const checks = [
   'stimulusLogicCheck',
   'calibrationLogicCheck',
   'calibrationAuditLogicCheck',
+  'eyeGeometryLogicCheck',
   'calibrationProgressLogicCheck',
   'calibrationRegressionLogicCheck',
   'signalLogicCheck',

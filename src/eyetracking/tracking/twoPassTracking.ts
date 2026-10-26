@@ -1,3 +1,4 @@
+import { sameEyeContour } from '../pupil/eyeGeometry';
 // P4 two-pass tracking orchestration: standard P3 batch → hinted rescue of
 // failed slots → final temporal track. Pure orchestration (no native calls
 // here; the caller runs the batches via `src/camera/pupilDetector.ts`).
@@ -115,6 +116,7 @@ export function buildRescueHints(inputs: PupilDetectionResult[]): HintedPupilReq
         roiY: r.roiY,
         roiWidth: r.roiWidth,
         roiHeight: r.roiHeight,
+        eyeContour: r.eyeContour,
         condition: (r as { condition?: string }).condition ?? 'unspecified',
         priorXInRoi,
         priorYInRoi,
@@ -155,7 +157,8 @@ export function mergeRescuedResults(
       hit.roiX === r.roiX &&
       hit.roiY === r.roiY &&
       hit.roiWidth === r.roiWidth &&
-      hit.roiHeight === r.roiHeight
+      hit.roiHeight === r.roiHeight &&
+      sameEyeContour(hit.eyeContour, r.eyeContour)
       ? { ...hit, rescued: true }
       : r;
   });
