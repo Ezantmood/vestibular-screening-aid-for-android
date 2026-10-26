@@ -25,6 +25,8 @@ P4 tracking and stores artifacts through the camera/storage seams.
   MediaRecorder start still does not establish individual frame exposure times.
 - Calibration and Pursuit/Saccade share a native full-screen target window;
   account headers, banners, results and preview scrolling remain underneath.
+  A modal-local native SafeAreaProvider/View excludes status/navigation bars and
+  display cutouts, including enforced edge-to-edge Android windows.
   The board flexes into the actual remaining area, reserving a fixed text/control
   footer. No target is placed by a fraction of the whole application window.
   Before each recorder start, require two stable native measurements inside the

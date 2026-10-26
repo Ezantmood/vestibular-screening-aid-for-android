@@ -42,12 +42,24 @@ async function check() {
   for (const width of [320, 393, 412, 600]) {
     for (const height of [480, 640, 820, 960]) {
       for (const footer of [60, 120, 160]) {
-        const bounds = { left: 0, top: 24, width, height };
-        const board = { left: 16, top: 40, width: width - 32, height: height - footer - 32 };
-        assert.ok(targetViewportVisible(board, bounds));
-        for (const p of CALIBRATION_TARGETS) {
-          assert.ok(p.x * board.width >= 10 && (1 - p.x) * board.width >= 10);
-          assert.ok(p.y * board.height >= 10 && (1 - p.y) * board.height >= 10);
+        for (const [top, bottom] of [
+          [0, 0],
+          [24, 24],
+          [48, 48],
+          [60, 96],
+        ]) {
+          const bounds = { left: 0, top, width, height: height - top - bottom };
+          const board = {
+            left: 16,
+            top: top + 16,
+            width: width - 32,
+            height: bounds.height - footer - 32,
+          };
+          assert.ok(targetViewportVisible(board, bounds));
+          for (const p of CALIBRATION_TARGETS) {
+            assert.ok(p.x * board.width >= 10 && (1 - p.x) * board.width >= 10);
+            assert.ok(p.y * board.height >= 10 && (1 - p.y) * board.height >= 10);
+          }
         }
       }
     }
@@ -141,7 +153,7 @@ async function check() {
   release(visible);
   await rejected(() => pending, true);
   console.log(
-    'Viewport checks: PASS (clipped lower targets rejected, 192 stage/font geometry cases, sensor metadata, scroll race, movement, timeout, cancellation)',
+    'Viewport checks: PASS (clipped lower targets rejected, 768 stage/font/inset geometry cases, sensor metadata, scroll race, movement, timeout, cancellation)',
   );
 }
 void check();

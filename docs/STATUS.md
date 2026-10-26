@@ -20,7 +20,8 @@
 The owner can now reach the green framing lamp and complete a recording, but
 calibration remains RETRY. The next observed blocker was clipped lower targets:
 the old board used window height without subtracting clinician chrome. A shared
-full-screen stage and four-edge visibility guard replace that layout. Portrait
+full-screen stage with native safe-area insets and a four-edge visibility guard
+replace that layout. Portrait
 camera metadata now fixes face-analysis direction across all frames/targets;
 legacy detector fallback could change directions independently of phone motion.
 Computer regression checks are distinct from physical acceptance. No fresh Redmi
