@@ -1,4 +1,5 @@
 import { CALIBRATION_TARGETS } from './protocol';
+import { currentPupilMeasurement } from './types';
 import { calibrationTechnicalSummary } from '../../tests/validation/technicalReport';
 
 const object = (value: unknown): Record<string, unknown> =>
@@ -28,9 +29,22 @@ export function calibrationEvidence(value: unknown) {
     const take = matches[0];
     if (matches.length !== 1 || !Array.isArray(take.samples) || take.samples.length > 40_000)
       throw new Error('Dữ liệu từng chấm không hợp lệ để xuất.');
+    const storedTarget = object(take.target);
+    const x = number(storedTarget.x),
+      y = number(storedTarget.y);
+    if (
+      x === null ||
+      y === null ||
+      x < 0 ||
+      x > 1 ||
+      y < 0 ||
+      y > 1 ||
+      storedTarget.role !== target.role
+    )
+      throw new Error('Tọa độ chấm đã lưu không hợp lệ để xuất.');
     const bridge = object(take.bridge);
     return {
-      target: { ...target },
+      target: { id: target.id, x, y, role: target.role },
       presentedJsUs: number(take.presentedJsUs),
       releasedJsUs: number(take.releasedJsUs),
       recordStartNativeUs: number(take.recordStartNativeUs),
@@ -85,7 +99,20 @@ export function calibrationEvidence(value: unknown) {
         'viewportTop',
       ].map((key) => [key, number(context[key])]),
     ),
-    technical: calibrationTechnicalSummary(artifact),
+    // Never reinterpret legacy features/target geometry with the current rubric.
+    technical: currentPupilMeasurement(version) ? calibrationTechnicalSummary(artifact) : null,
+    storedModelErrors: (['left', 'right'] as const).map((eye) => {
+      const model = object(object(result.models)[eye]);
+      return {
+        eye,
+        fitRmse: number(model.fitRmse),
+        fitCvRmse: number(model.fitCvRmse),
+        validationRmse: number(model.validationRmse),
+        validationMaxError: number(model.validationMaxError),
+        validationFrameRmse: number(model.validationFrameRmse),
+        validationFrameP95Error: number(model.validationFrameP95Error),
+      };
+    }),
     takes,
   };
 }

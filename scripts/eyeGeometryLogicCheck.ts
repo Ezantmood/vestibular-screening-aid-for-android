@@ -189,6 +189,15 @@ assert.equal(
   0,
 );
 assert.equal(savedCalibrationAuditImages({ replays: null }).length, 0);
+// Old target grids must be exported as recorded, never relabeled with the current grid.
+const legacy = structuredClone(artifact);
+legacy.result.context.coordinateVersion =
+  'decoded-roi-v1' as typeof legacy.result.context.coordinateVersion;
+legacy.takes[0].target.x = 0.18;
+const legacyExport = calibrationEvidence(legacy);
+assert.equal(legacyExport.takes[0].target.x, 0.18);
+assert.equal(legacyExport.technical, null);
+assert.equal(legacyExport.storedModelErrors[0].fitRmse, legacy.result.models.left!.fitRmse);
 console.log(
   JSON.stringify({
     eyeGeometryChecks: 'PASS',
