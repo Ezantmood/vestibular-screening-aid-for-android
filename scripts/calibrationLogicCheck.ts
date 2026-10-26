@@ -40,7 +40,7 @@ const context: CalibrationContext = {
   viewportLeft: 16,
   viewportTop: 100,
   detectorId: 'percentile-dark',
-  coordinateVersion: 'face-pupil-v6',
+  coordinateVersion: 'face-pupil-v7',
 };
 const time = 100_000;
 function fixture(): CalibrationTake[] {
@@ -75,7 +75,8 @@ const result = fit();
 assert.equal(currentPupilMeasurement(undefined), false);
 assert.equal(currentPupilMeasurement('decoded-roi-v3'), false);
 assert.equal(currentPupilMeasurement('decoded-roi-v4'), false);
-assert.equal(currentPupilMeasurement('face-pupil-v6'), true);
+assert.equal(currentPupilMeasurement('face-pupil-v6'), false);
+assert.equal(currentPupilMeasurement('face-pupil-v7'), true);
 const stable = stableNormalizedPoint([
   { x: 0.6, y: 0.5, roi: { width: 100, height: 100 } },
   { x: 0.55, y: 0.5, roi: { width: 200, height: 100 } },

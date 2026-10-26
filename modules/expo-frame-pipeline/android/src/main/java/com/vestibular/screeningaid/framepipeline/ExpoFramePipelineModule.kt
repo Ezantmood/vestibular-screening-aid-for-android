@@ -62,11 +62,11 @@ class ExpoFramePipelineModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ExpoFramePipeline")
-    Constant("measurementVersion") { "face-pupil-v6" }
+    Constant("measurementVersion") { "face-pupil-v7" }
 
     AsyncFunction("analyzeVideoFile") { filePath: String, expectedFps: Int,
-      faceSampleCount: Int, saveDebugFrames: Boolean ->
-      analyzeVideoFile(filePath, expectedFps, faceSampleCount, saveDebugFrames)
+      faceSampleCount: Int, saveDebugFrames: Boolean, faceRotationDegrees: Int? ->
+      analyzeVideoFile(filePath, expectedFps, faceSampleCount, saveDebugFrames, faceRotationDegrees)
     }
   }
 
@@ -101,7 +101,9 @@ class ExpoFramePipelineModule : Module() {
     expectedFps: Int,
     faceSampleCount: Int,
     saveDebugFrames: Boolean,
+    faceRotationDegrees: Int?,
   ): Map<String, Any?> {
+    FrameGeometry.detectionRotations(faceRotationDegrees) // validate before decoding
     if (expectedFps <= 0 || expectedFps > 1000) {
       throw CodedException("ERR_INVALID_FPS", "expectedFps must be within (0, 1000].", null)
     }
@@ -146,6 +148,7 @@ class ExpoFramePipelineModule : Module() {
       frameWidth = decoded.width,
       frameHeight = decoded.height,
       warnings = warnings,
+      faceRotationDegrees = faceRotationDegrees,
     )
 
     // --- 6. Debug artifacts (device-local cache only). ---
@@ -205,6 +208,7 @@ class ExpoFramePipelineModule : Module() {
 
     return mapOf(
       "filePath" to filePath,
+      "requestedFaceRotation" to faceRotationDegrees,
       "fileSizeBytes" to try {
         src.length()
       } catch (_: Exception) {
@@ -959,6 +963,7 @@ class ExpoFramePipelineModule : Module() {
     frameWidth: Int,
     frameHeight: Int,
     warnings: MutableList<String>,
+    faceRotationDegrees: Int?,
   ): FaceOut {
     if (samples.isEmpty()) {
       return FaceOut("FAILED", "No face samples decoded.", emptyList(), null, null)
@@ -997,6 +1002,10 @@ class ExpoFramePipelineModule : Module() {
       )
     }
     val outs = mutableListOf<FaceSampleOut>()
+    val rotations = FrameGeometry.detectionRotations(faceRotationDegrees)
+    warnings.add(if (faceRotationDegrees == null)
+      "Legacy/debug input: face orientation inferred per sample; not a sensor measurement."
+      else "Face orientation fixed at ${faceRotationDegrees}deg from portrait camera metadata; no per-frame fallback.")
     var status = "AVAILABLE"
     var detail: String? = null
     var notedRotation = false
@@ -1020,7 +1029,10 @@ class ExpoFramePipelineModule : Module() {
         try {
           // High-speed video is recorded at sensor (landscape) orientation with
           // no orientation hint, so a portrait-held phone yields sideways
-          // faces. Try 0° first, then 90°/270° CW physical rotations; winning
+          // faces. Core recordings use one known sensor rotation for every
+          // frame and every target. Only legacy/debug files try alternatives;
+          // a miss at the expected orientation remains missing, never a new box.
+          // Winning
           // boxes/landmarks are mapped back to original frame coords.
           // Left/right labels are positional in the analyzed frame
           // (front-camera mirroring may swap anatomy) — ROI feasibility only.
@@ -1033,7 +1045,7 @@ class ExpoFramePipelineModule : Module() {
           var hitLeft: PointF? = null
           var hitRight: PointF? = null
           var attemptErrors = 0
-          for (deg in intArrayOf(0, 90, 270)) {
+          for (deg in rotations) {
             val candidate = if (deg == 0) {
               bmp
             } else {
@@ -1094,7 +1106,7 @@ class ExpoFramePipelineModule : Module() {
                   "frameIndex" to s.frameIndex, "ptsUs" to s.ptsUs, "faceDetected" to false,
                   "faceBox" to null, "leftEye" to null, "rightEye" to null,
                   "rotationApplied" to null,
-                  "error" to if (attemptErrors >= 3) "detection-error" else null,
+                  "error" to if (attemptErrors >= rotations.size) "detection-error" else null,
                 ),
                 null, null,
               ),
@@ -1268,6 +1280,7 @@ class ExpoFramePipelineModule : Module() {
   /** Map a landmark point from a deg-CW-rotated candidate back to original. */
   private fun mapPointToOriginal(p: PointF, deg: Int, w: Int, h: Int): PointF = when (deg) {
     90 -> PointF(p.y, (h - 1 - p.x))
+    180 -> PointF((w - 1 - p.x), (h - 1 - p.y))
     270 -> PointF((w - 1 - p.y), p.x)
     else -> PointF(p.x, p.y)
   }

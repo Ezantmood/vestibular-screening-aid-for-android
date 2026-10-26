@@ -15,7 +15,7 @@ and acceptance procedures; do not add dated Batch 3 run logs to the source tree.
 ```bash
 JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home npm run build:clinic
 JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home npm run build:batch3
-npm run release:prepare -- v0.2.8-beta.1
+npm run release:prepare -- v0.2.9-beta.1
 ```
 
 Preparation requires matching clean source commits and current verified APKs.

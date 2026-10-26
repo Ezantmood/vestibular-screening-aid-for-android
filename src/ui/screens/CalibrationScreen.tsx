@@ -1,16 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import {
-  AppState,
-  PermissionsAndroid,
-  ScrollView,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { AppState, PermissionsAndroid, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PipelineDecodeError } from '../../eyetracking/tracking/decodeIntegrity';
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
-import { collectFixedModes, type FixedMode } from '../../camera/fixedModes';
+import { collectFixedModes, portraitFaceRotation, type FixedMode } from '../../camera/fixedModes';
 import { readCalibrationJson, invalidateCalibration } from '../../camera/eyeAnalysisStorage';
 import { assertCurrentPupilDetector } from '../../camera/pupilDetector';
 import {
@@ -51,11 +43,10 @@ import {
   CALIBRATION_PREVIEW_ASPECT,
   calibrationFramingHint,
 } from '../../eyetracking/calibration/geometry';
-import { targetBoardHeight } from '../targetBoard';
+import TargetStage from '../components/TargetStage';
 import { useEyeAnalysisAwake } from '../hooks/useEyeAnalysisAwake';
 
 const nowUs = () => performance.now() * 1000;
-const restingBoardHeight = 96;
 
 async function loadSavedCalibration(): Promise<SavedCalibrationView | null> {
   const json = await readCalibrationJson();
@@ -69,8 +60,6 @@ export default function CalibrationScreen({
   onFailure?: (code: ValidationFailureCode, decode?: ValidationFailure['decode']) => void;
 } = {}) {
   const camera = usePreviewCapture();
-  const windowSize = useWindowDimensions();
-  const boardHeight = targetBoardHeight(windowSize.height);
   const [modes, setModes] = useState<FixedMode[]>([]);
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -89,9 +78,8 @@ export default function CalibrationScreen({
   const committed = useRef<{ id: string; jsUs: number } | null>(null);
   const viewport = useRef(size);
   const scroll = useRef<ScrollView>(null);
-  const scrollOffset = useRef(0);
   const board = useRef<View>(null);
-  const laidOut = useRef(size);
+  const bounds = useRef<View>(null);
   const lockLayout = useRef(false);
   const runToken = useRef(0);
   const previousSaved = useRef<SavedCalibrationView | null>(null);
@@ -176,7 +164,7 @@ export default function CalibrationScreen({
   }
   async function calibrate() {
     const mode = modes[index];
-    if (!mode || lock.current || size.width <= 0) return;
+    if (!mode || lock.current) return;
     lock.current = true;
     cancelled.current = false;
     runToken.current += 1;
@@ -195,32 +183,18 @@ export default function CalibrationScreen({
       previousSaved.current = await loadSavedCalibration();
       await invalidateCalibration();
       lockLayout.current = false;
-      const deadline = Date.now() + 2000;
-      while (mounted.current && !cancelled.current && Date.now() < deadline) {
-        const laid = laidOut.current;
-        if (laid.width > 0 && Math.abs(laid.height - boardHeight) < 1) break;
-        await new Promise((resolve) => setTimeout(resolve, 30));
-      }
-      if (!mounted.current || cancelled.current) {
-        await showInterrupted('stopped');
-        return;
-      }
-      if (laidOut.current.width <= 0 || Math.abs(laidOut.current.height - boardHeight) >= 1) {
-        throw new Error('Vùng target chưa mở hết. Hãy thử calibration lại.');
-      }
-      viewport.current = { ...laidOut.current };
-      lockLayout.current = true;
-      scroll.current?.scrollTo({ y: 0, animated: false });
       const viewportOptions = {
-        ready: () => Math.abs(scrollOffset.current) < 0.5,
         cancelled: () => cancelled.current || !mounted.current,
       };
-      const display = await measureTargetViewport(board, viewportOptions);
+      const display = await measureTargetViewport(board, viewportOptions, bounds);
+      viewport.current = { width: display.width, height: display.height };
+      lockLayout.current = true;
       const context: CalibrationContext = {
         cameraId: mode.cameraId,
         width: mode.width,
         height: mode.height,
         fps: mode.fpsMax,
+        faceRotationDegrees: portraitFaceRotation(mode),
         viewportWidth: display.width,
         viewportHeight: display.height,
         viewportLeft: display.left,
@@ -246,10 +220,14 @@ export default function CalibrationScreen({
           mode,
           CALIBRATION_TAKE_SECONDS,
           async (isCancelled) => {
-            const current = await measureTargetViewport(board, {
-              ...viewportOptions,
-              cancelled: () => viewportOptions.cancelled() || isCancelled(),
-            });
+            const current = await measureTargetViewport(
+              board,
+              {
+                ...viewportOptions,
+                cancelled: () => viewportOptions.cancelled() || isCancelled(),
+              },
+              bounds,
+            );
             if (
               !sameCalibrationContext(context, {
                 ...context,
@@ -343,126 +321,92 @@ export default function CalibrationScreen({
       if (mounted.current) setBusy(false);
     }
   }
-  const shownBoardHeight =
-    phase === 'capture' || phase === 'ready' ? boardHeight : restingBoardHeight;
+  function cancel() {
+    cancelled.current = true;
+    setTarget(null);
+    void camera.stop();
+  }
   return (
-    <ScrollView
-      ref={scroll}
-      style={styles.screen}
-      scrollEnabled={calibrationPageScrolls(phase)}
-      scrollEventThrottle={16}
-      onScroll={(event) => {
-        scrollOffset.current = event.nativeEvent.contentOffset.y;
-      }}
-      contentContainerStyle={styles.content}
-      testID="calibration-screen"
-    >
-      <View
-        ref={board}
-        style={[styles.board, { height: shownBoardHeight }]}
-        testID="calibration-board"
-        onLayout={(e) => {
-          const layout = e.nativeEvent.layout;
-          laidOut.current = { width: layout.width, height: layout.height };
+    <>
+      <TargetStage
+        visible={phase === 'capture'}
+        boardRef={board}
+        boundsRef={bounds}
+        target={target}
+        size={size}
+        message={
+          camera.stage === 'countdown' ? `Bắt đầu sau ${camera.countdown}… Giữ đầu yên.` : message
+        }
+        onCancel={cancel}
+        onLayout={(layout) => {
           if (
             lockLayout.current &&
             (viewport.current.width !== layout.width || viewport.current.height !== layout.height)
           ) {
-            cancelled.current = true;
-            lockLayout.current = false;
-            setTarget(null);
-            void camera.stop();
+            cancel();
           }
           setSize({ width: layout.width, height: layout.height });
         }}
+      />
+      <ScrollView
+        ref={scroll}
+        style={styles.screen}
+        scrollEnabled={calibrationPageScrolls(phase)}
+        contentContainerStyle={styles.content}
+        testID="calibration-screen"
       >
-        {target ? (
-          <View
-            testID="calibration-target"
-            style={[
-              styles.target,
-              { left: target.x * size.width - 10, top: target.y * size.height - 10 },
-            ]}
-          />
-        ) : (
-          <Text style={styles.wait}>Chấm xuất hiện khi bắt đầu calibration.</Text>
+        <Text style={styles.title}>Hiệu chỉnh mắt</Text>
+        <Text>
+          Nhìn vào từng chấm vàng, chỉ xoay mắt. Khi bắt đầu, bảng chấm mở riêng và mọi điểm đều nằm
+          trong màn hình; không cần cuộn. Giữ nguyên điện thoại, đầu và ánh sáng.
+        </Text>
+        {message !== '' && <Text accessibilityLiveRegion="polite">{message}</Text>}
+        {error && <Text selectable>{error}</Text>}
+        {feedback.map((line, i) => (
+          <Text key={i}>{line}</Text>
+        ))}
+        {report !== '' && (
+          <CameraDetails title="Calibration quality & signal">
+            <Text selectable>{report}</Text>
+            <Text>
+              Ảnh ROI chỉ lưu trên máy. Dấu đỏ là detector đo lại, không phải ground truth hay bằng
+              chứng calibration đạt.
+            </Text>
+            {auditImages.map((row) => (
+              <CameraImageGallery key={row.target} title={`ROI ${row.target}`} paths={row.paths} />
+            ))}
+          </CameraDetails>
         )}
-      </View>
-      <Text style={styles.title}>Hiệu chỉnh mắt</Text>
-      <Text>
-        Nhìn đúng vào từng chấm, chỉ xoay mắt. Chấm đi gần hết màn hình; một bảng nhỏ làm mắt dịch
-        vài pixel, nhỏ hơn nhiễu camera. Giữ nguyên điện thoại, đầu và ánh sáng.
-      </Text>
-      {message !== '' && <Text accessibilityLiveRegion="polite">{message}</Text>}
-      {error && <Text selectable>{error}</Text>}
-      {feedback.map((line, i) => (
-        <Text key={i}>{line}</Text>
-      ))}
-      {report !== '' && (
-        <CameraDetails title="Calibration quality & signal">
-          <Text selectable>{report}</Text>
-          <Text>
-            Ảnh ROI chỉ lưu trên máy. Dấu đỏ là detector đo lại, không phải ground truth hay bằng
-            chứng calibration đạt.
-          </Text>
-          {auditImages.map((row) => (
-            <CameraImageGallery key={row.target} title={`ROI ${row.target}`} paths={row.paths} />
-          ))}
-        </CameraDetails>
-      )}
-      {busy && (
-        <CameraButton
-          title="Hủy calibration"
-          tone="danger"
-          onPress={() => {
-            cancelled.current = true;
-            setTarget(null);
-            void camera.stop();
-          }}
-        />
-      )}
-      {modes.length === 0 ? (
-        <CameraButton title="Chuẩn bị camera trước" onPress={() => void prepare()} />
-      ) : (
-        <CameraCapturePanel
-          camera={camera}
-          modes={modes}
-          selectedIndex={index}
-          onSelect={setIndex}
-          busy={busy}
-          phase="analyzing"
-          duration={CALIBRATION_TAKE_SECONDS}
-          instruction="Căn đủ mặt và hai mắt trong khung, chừa khoảng trống ở mép. Khi thấy “Giữ nguyên vị trí”, dừng di chuyển để đèn xác nhận rồi bắt đầu."
-          framingGates={CALIBRATION_FRAMING_GATES}
-          framingHints={{
-            TOO_FAR: calibrationFramingHint('TOO_FAR'),
-            TOO_CLOSE: calibrationFramingHint('TOO_CLOSE'),
-            FACE_PARTIAL: calibrationFramingHint('FACE_PARTIAL'),
-            READY: calibrationFramingHint('READY'),
-          }}
-          previewAspect={CALIBRATION_PREVIEW_ASPECT}
-          onCapture={() => void calibrate()}
-        />
-      )}
-    </ScrollView>
+        {busy && <CameraButton title="Hủy calibration" tone="danger" onPress={cancel} />}
+        {modes.length === 0 ? (
+          <CameraButton title="Chuẩn bị camera trước" onPress={() => void prepare()} />
+        ) : (
+          <CameraCapturePanel
+            camera={camera}
+            modes={modes}
+            selectedIndex={index}
+            onSelect={setIndex}
+            busy={busy}
+            phase="analyzing"
+            duration={CALIBRATION_TAKE_SECONDS}
+            instruction="Căn đủ mặt và hai mắt trong khung, chừa khoảng trống ở mép. Khi thấy “Giữ nguyên vị trí”, dừng di chuyển để đèn xác nhận rồi bắt đầu."
+            framingGates={CALIBRATION_FRAMING_GATES}
+            framingHints={{
+              TOO_FAR: calibrationFramingHint('TOO_FAR'),
+              TOO_CLOSE: calibrationFramingHint('TOO_CLOSE'),
+              FACE_PARTIAL: calibrationFramingHint('FACE_PARTIAL'),
+              READY: calibrationFramingHint('READY'),
+            }}
+            previewAspect={CALIBRATION_PREVIEW_ASPECT}
+            onCapture={() => void calibrate()}
+          />
+        )}
+      </ScrollView>
+    </>
   );
 }
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, gap: 12, paddingBottom: 160 },
   title: { fontSize: 24, fontWeight: '700' },
-  board: {
-    backgroundColor: '#142D3D',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  target: {
-    position: 'absolute',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#FFE066',
-  },
-  wait: { color: '#FFF' },
 });

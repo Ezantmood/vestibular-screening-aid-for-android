@@ -10,7 +10,23 @@ class FrameGeometryTest {
       val (l, t, r, b) = box
       assertArrayEquals(box, FrameGeometry.boxToOriginal(h - b, l, h - t, r, 90, w, h))
       assertArrayEquals(box, FrameGeometry.boxToOriginal(t, w - r, b, w - l, 270, w, h))
+      assertArrayEquals(box, FrameGeometry.boxToOriginal(w - r, h - b, w - l, h - t, 180, w, h))
     }
+  }
+
+  @Test fun knownSensorOrientationNeverFallsBackToAnotherDirection() {
+    for (degrees in listOf(0, 90, 180, 270)) {
+      val attempts = FrameGeometry.detectionRotations(degrees)
+      assertArrayEquals(intArrayOf(degrees), attempts)
+      // A miss in the correct direction cannot become a rotated false face.
+      assertFalse(attempts.any { it == (degrees + 90) % 360 })
+    }
+    assertArrayEquals(intArrayOf(0, 90, 270), FrameGeometry.detectionRotations(null))
+  }
+
+  @Test(expected = IllegalArgumentException::class)
+  fun invalidSensorOrientationIsRejected() {
+    FrameGeometry.detectionRotations(45)
   }
   @Test fun eyeCropUsesUprightFaceWidthForPortraitAndLandscape() {
     assertEquals(180, FrameGeometry.eyeSize(600, 800, 0, 0.30, 30))

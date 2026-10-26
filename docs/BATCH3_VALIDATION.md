@@ -37,11 +37,17 @@ Neither command connects to a phone. [Release packaging](RELEASING.md).
 
 1. Keep/export any existing technical report needed for comparison. Install the
    current update and confirm its build tag on screen 09 against the Release.
-2. Run **Chạy self-test tự động**: 27 JS simulations and 12 production native
+2. Run **Chạy self-test tự động**: 29 JS simulations and 12 production native
    CV self-checks. These do not open the camera or establish human gaze accuracy.
 3. Start Calibration → Pursuit → Saccade. Choose front 1920×1080 at its probed
    fixed 120 fps, frame both eyes in portrait, keep the phone/head steady and
-   follow all 14 stationary targets. Allow capture finalization before moving.
+   follow all 14 stationary targets. The target window opens separately: verify
+   both top and bottom rows are fully visible with normal/large system text,
+   without scrolling; the Cancel button must remain accessible. The preview
+   must stay available after cancellation/retry. Allow finalization before moving.
+   Check requestedFaceRotation against the probed portrait sensor orientation;
+   observed directions must stay consistent. Inspect ROI before attributing any
+   residual head-box instability to physical movement.
    The lamp accepts sufficient face height OR width while preserving clipping,
    eye visibility and centering checks. On **Giữ nguyên vị trí**, stop adjusting
    and wait for stable green. A green lamp establishes framing only; calibration

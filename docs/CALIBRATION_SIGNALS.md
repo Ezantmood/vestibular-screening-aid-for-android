@@ -23,21 +23,28 @@ P4 tracking and stores artifacts through the camera/storage seams.
   for an entire 1.5-second recording through recorder finalization. Clock bridge
   RTT must fit both hold boundaries. This avoids a moving-target exposure join;
   MediaRecorder start still does not establish individual frame exposure times.
-- Before capture, wait for native scroll offset zero and two consecutive stable,
-  non-negative viewport measurements, with a two-second deadline and cancellation.
-  Use measured dimensions/origin for context, lock scrolling while busy, and
-  recheck identical geometry before every recorder start. A queued `scrollTo`
-  alone does not establish the target's display position. Pursuit/Saccade use
-  the same guard, including the post-countdown measurement.
+- Calibration and Pursuit/Saccade share a native full-screen target window;
+  account headers, banners, results and preview scrolling remain underneath.
+  The board flexes into the actual remaining area, reserving a fixed text/control
+  footer. No target is placed by a fraction of the whole application window.
+  Before each recorder start, require two stable native measurements inside the
+  measured visible container (all four edges), at least 128×128 dp, with timeout
+  and cancellation. A resize cancels the take. Capture never requires scrolling.
+- Upright portrait capture passes the probed Camera2 sensor orientation through
+  the context into offline face analysis. Every frame/target uses that one CW
+  correction (0/90/180/270); no rotated fallback may replace a miss. The report
+  retains requested rotation and observed rotation counts. Unknown metadata
+  blocks core capture. Legacy/debug files may still infer directions and warn;
+  a detector direction change is not proof that the owner rotated the phone.
 - The gaze feature is the tracked pupil in the head face box, normalized by that frame's measured face size. The eye crop still follows the eye landmark so the
   pupil can be found, but position inside that moving crop is not the feature:
   it cancels gaze. Frames with no measured face are rejected. Predictions and
   estimated timestamps are excluded. Robust medians trim distant samples; every
   target/eye needs at least 30 accepted samples, 60% coverage, 250 ms PTS span
   and RMS spread <=0.04 of the face box.
-- Measurement context `face-pupil-v6` keeps the current dark-core detector: exact
+- Measurement context `face-pupil-v7` keeps the current dark-core detector: exact
   connected-component pixels, quantized percentile cutoff, and no center-closeness
-  penalty. The eye crop is 0.30 of the face width. v1–v5 models cannot activate.
+  penalty. The eye crop is 0.30 of the face width. v1–v6 measurements cannot activate.
   Native guards for both frame geometry and pupil detection prevent mixed measurements. A detector
   SUCCESS does not establish an eligible calibration observation.
 - Model contract `target-cv-ridge-v1` selects affine, affine-ridge or quadratic-ridge
@@ -60,7 +67,7 @@ P4 tracking and stores artifacts through the camera/storage seams.
   rotations and mirrors. Quadratic runtime features cannot extrapolate outside
   that rectangle; affine retains its existing 10% feature margin. Saved-model
   activation recomputes fit-only selection/coefficients/errors and checks frame
-  summaries. Old model contracts cannot activate, even with current v6 pixels.
+  summaries. Old model contracts cannot activate, even with current v7 pixels.
 - Checklist v2 counts 28 sample-quality bundles plus six mapping gates per eye
   (40 total). Legacy v1 keeps its 34-item rubric. Missing evidence is not success.
   Checklist points are not percent-correct gaze or a substitute for activation.

@@ -5,7 +5,7 @@
 // Spaces:
 // - Frame: original decoded-frame pixels (landscape sensor space for
 //   high-speed video). ROI boxes from P2 are already mapped back from the
-//   0°/90°/270° detection fallback, so the pupil stage works axis-aligned.
+//   corrected sensor orientation, so the pupil stage works axis-aligned.
 // - ROI: pixels relative to the ROI top-left corner.
 // - Normalized: ROI position divided by ROI size, normally in [0,1].
 //
@@ -117,7 +117,7 @@ export function buildSuccessResult(args: {
 /**
  * Map a point from a CW-rotated detection candidate back to original (W×H)
  * frame coords. Mirrors the P2 native `mapPointToOriginal` so rotation
- * handling stays testable in pure TS. Only 0/90/270 are valid.
+ * handling stays testable in pure TS. Only 0/90/180/270 are valid.
  */
 export function mapPointFromRotatedToOriginal(
   x: number,
@@ -132,6 +132,7 @@ export function mapPointFromRotatedToOriginal(
   if (rotationDeg === 270) {
     return { x: frameWidth - 1 - y, y: x };
   }
+  if (rotationDeg === 180) return { x: frameWidth - 1 - x, y: frameHeight - 1 - y };
   return { x, y };
 }
 
@@ -150,6 +151,13 @@ export function mapBoxFromRotatedToOriginal(
 ): { left: number; top: number; right: number; bottom: number } {
   const clampX = (v: number): number => Math.min(Math.max(v, 0), frameWidth);
   const clampY = (v: number): number => Math.min(Math.max(v, 0), frameHeight);
+  if (rotationDeg === 180)
+    return {
+      left: clampX(frameWidth - right),
+      top: clampY(frameHeight - bottom),
+      right: clampX(frameWidth - left),
+      bottom: clampY(frameHeight - top),
+    };
   if (rotationDeg === 90) {
     return {
       left: clampX(top),

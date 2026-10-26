@@ -15,6 +15,8 @@ export interface FramePipelineParams {
   faceSampleCount?: number;
   /** Save begin/middle/end JPEGs + eye crops to app cache (debug only). */
   saveDebugFrames?: boolean;
+  /** Camera2 sensor orientation for upright portrait; omit only for legacy/debug files. */
+  faceRotationDegrees?: number;
 }
 
 export interface FramePipelineEyeBox {
@@ -34,7 +36,7 @@ export interface FramePipelineFaceSample {
   faceBox: { x: number; y: number; width: number; height: number } | null;
   leftEye: FramePipelineEyeBox | null;
   rightEye: FramePipelineEyeBox | null;
-  /** Physical CW rotation (0/90/270) applied before detection, if any. */
+  /** Physical CW rotation (0/90/180/270) applied before detection, if any. */
   rotationApplied: number | null;
   headPose?: { pitch: number; yaw: number; roll: number } | null;
   error: string | null;
@@ -45,6 +47,7 @@ export type FaceDetectorStatus = 'AVAILABLE' | 'UNAVAILABLE' | 'FAILED';
 /** Full offline report returned by the native module. */
 export interface FramePipelineReport {
   filePath: string;
+  requestedFaceRotation?: number | null;
   fileSizeBytes: number | null;
   mime: string | null;
   width: number;

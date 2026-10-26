@@ -90,6 +90,8 @@ function validContext(context: CalibrationContext): boolean {
     typeof context.cameraId === 'string' &&
     context.cameraId.length > 0 &&
     context.detectorId === 'percentile-dark' &&
+    (context.faceRotationDegrees === undefined ||
+      [0, 90, 180, 270].includes(context.faceRotationDegrees)) &&
     currentPupilMeasurement(context.coordinateVersion) &&
     [context.viewportLeft, context.viewportTop].every((n) => Number.isFinite(n) && n >= 0) &&
     [
@@ -338,7 +340,12 @@ export function fitCalibration(args: {
       acceptedCrops.push(...accepted.map((row) => row.sample.roi));
     }
     const referenceRoi = medianBox(acceptedBoxes);
-    if (rotations.size > 1) result.reasons.push(`ORIENTATION_CHANGED:${side}`);
+    if (
+      rotations.size > 1 ||
+      (args.context.faceRotationDegrees !== undefined &&
+        (rotations.size !== 1 || !rotations.has(args.context.faceRotationDegrees)))
+    )
+      result.reasons.push(`ORIENTATION_CHANGED:${side}`);
     // Reuse the same existing 20% scale / 0.3 center-displacement guards in
     // fitting and mapping. Face normalization does not establish pose invariance.
     if (
@@ -622,6 +629,8 @@ export function calibrationUsable(
         const model = result.models[side];
         return (
           !!model &&
+          (context.faceRotationDegrees === undefined ||
+            model.referenceRotation === context.faceRotationDegrees) &&
           savedErrorsMatch(result, model, side) &&
           validRegression(model) &&
           [

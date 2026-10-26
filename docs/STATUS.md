@@ -6,7 +6,7 @@
   eye-test instructions/recording, saved traces, report and PDF.
 - Active engineering scope remains Batch 3: calibration, Smooth Pursuit and
   Horizontal Saccade. Batch 4 is not started.
-- Calibration uses `face-pupil-v6` measurements and `target-cv-ridge-v1` models.
+- Calibration uses `face-pupil-v7` measurements and `target-cv-ridge-v1` models.
   Fit-target-only CV selects affine/ridge/quadratic mapping. Held-out target and
   frame-error checks must pass for both eyes; old models require recalibration.
 - Decoder geometry/PTS integrity, explicit missing observations, native/JS
@@ -17,11 +17,14 @@
 
 ## Evidence and next acceptance
 
-The latest owner attempt was blocked by conflicting near/far framing guidance;
-the last completed calibration remains RETRY. The height-only dead zone and
-delayed-hint behavior are reproduced and repaired on computer fixtures. Physical
-green-lamp behavior after this repair remains an owner check. No physical VALID
-or clinical accuracy is established; simulations verify software behavior only.
+The owner can now reach the green framing lamp and complete a recording, but
+calibration remains RETRY. The next observed blocker was clipped lower targets:
+the old board used window height without subtracting clinician chrome. A shared
+full-screen stage and four-edge visibility guard replace that layout. Portrait
+camera metadata now fixes face-analysis direction across all frames/targets;
+legacy detector fallback could change directions independently of phone motion.
+Computer regression checks are distinct from physical acceptance. No fresh Redmi
+result after these repairs, physical VALID or clinical accuracy is established.
 
 Next owner acceptance: use a current APK, run in-app self-checks, repeat fresh
 calibration, inspect pupil overlays and export the aggregate technical report.

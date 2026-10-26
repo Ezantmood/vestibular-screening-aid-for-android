@@ -24,7 +24,7 @@ import {
 } from './failures';
 import type { SavedCalibrationRead } from './diagnosticRun';
 
-export const BATCH3_BUILD = 'batch3-20261026-framing-fix-v8';
+export const BATCH3_BUILD = 'batch3-20261026-visible-targets-v9';
 export const NATIVE_CHECK_IDS = [
   'native-component-isolation-percentile-dark',
   'native-center-percentile-dark',
@@ -270,7 +270,9 @@ export function calibrationTechnicalSummary(artifact: unknown) {
             'measuredEyePairs',
             'rotation0',
             'rotation90',
+            'rotation180',
             'rotation270',
+            'requestedFaceRotation',
             'poseSamples',
             'pitchRangeDeg',
             'yawRangeDeg',

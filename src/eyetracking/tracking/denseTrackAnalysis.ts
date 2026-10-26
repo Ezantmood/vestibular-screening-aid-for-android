@@ -253,12 +253,14 @@ export async function analyzeFileForTracking(args: {
   expectedFps: number;
   saveAuditOverlays?: boolean;
   auditFrameLimit?: number;
+  faceRotationDegrees?: number;
 }): Promise<ReplayRunResult> {
   const analysis = await analyzeVideoFile({
     filePath: args.filePath,
     expectedFps: args.expectedFps,
     faceSampleCount: args.faceSampleCount,
     saveDebugFrames: false,
+    faceRotationDegrees: args.faceRotationDegrees,
   });
   const decodeFailure = trackingDecodeFailure(analysis);
   if (decodeFailure)

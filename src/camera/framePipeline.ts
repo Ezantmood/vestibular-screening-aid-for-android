@@ -19,6 +19,7 @@ interface ExpoFramePipelineNativeModule {
     expectedFps: number,
     faceSampleCount: number,
     saveDebugFrames: boolean,
+    faceRotationDegrees: number | null,
   ): Promise<FramePipelineReport>;
 }
 
@@ -32,7 +33,7 @@ export function isFramePipelineAvailable(): boolean {
 export function assertCurrentFramePipeline(): void {
   if (!isFramePipelineAvailable() || !currentPupilMeasurement(nativeModule?.measurementVersion))
     throw new Error(
-      'Cần cập nhật APK có frame geometry face-pupil-v6. Fast Refresh không cập nhật native.',
+      'Cần cập nhật APK có frame geometry face-pupil-v7. Fast Refresh không cập nhật native.',
     );
 }
 
@@ -44,6 +45,7 @@ export interface AnalyzeVideoOptions {
   expectedFps: number;
   faceSampleCount?: number;
   saveDebugFrames?: boolean;
+  faceRotationDegrees?: number;
 }
 
 /**
@@ -58,8 +60,12 @@ export async function analyzeVideoFile(options: AnalyzeVideoOptions): Promise<Fr
         'Build with the development profile and run on-device.',
     );
   }
-  const params: Required<Omit<FramePipelineParams, 'filePath' | 'expectedFps'>> &
-    Pick<FramePipelineParams, 'filePath' | 'expectedFps'> = {
+  if (
+    options.faceRotationDegrees !== undefined &&
+    ![0, 90, 180, 270].includes(options.faceRotationDegrees)
+  )
+    throw new Error('Invalid face rotation metadata.');
+  const params = {
     filePath: options.filePath,
     expectedFps: options.expectedFps,
     faceSampleCount: options.faceSampleCount ?? DEFAULT_FACE_SAMPLE_COUNT,
@@ -71,6 +77,7 @@ export async function analyzeVideoFile(options: AnalyzeVideoOptions): Promise<Fr
       params.expectedFps,
       params.faceSampleCount,
       params.saveDebugFrames,
+      options.faceRotationDegrees ?? null,
     );
   } catch (e) {
     throw new Error(

@@ -186,11 +186,11 @@ export function calibrationFeedback(result: CalibrationResult): string[] {
       );
     if (result.reasons.some((r) => r.startsWith(`HEAD_OR_ROI_MOVED:${eye}`)))
       messages.push(
-        `${label}: khung mặt đổi quá 20% kích thước hoặc 0,3 độ rộng khung. Cố định điện thoại và đầu, rồi hiệu chỉnh lại.`,
+        `${label}: khung detector đổi quá 20% kích thước hoặc 0,3 độ rộng khung. Có thể do chuyển động hoặc nhận diện sai; xem ảnh ROI trước khi kết luận.`,
       );
     if (result.reasons.includes(`ORIENTATION_CHANGED:${eye}`))
       messages.push(
-        `${label}: hướng nhận diện khuôn mặt đổi giữa các khung. Giữ cùng tư thế điện thoại và kiểm tra ảnh ROI.`,
+        `${label}: hướng xử lý ảnh của detector không nhất quán. Chưa thể kết luận điện thoại đã xoay; kiểm tra metadata hướng ảnh và ROI.`,
       );
     if (result.reasons.includes(`UNSAFE_MAPPING:${eye}`))
       messages.push(

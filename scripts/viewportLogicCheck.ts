@@ -1,5 +1,11 @@
 import assert from './assert';
-import { stableTargetViewport, type TargetViewport } from '../src/tests/stimulus/viewport';
+import {
+  stableTargetViewport,
+  targetViewportVisible,
+  type TargetViewport,
+} from '../src/tests/stimulus/viewport';
+import { CALIBRATION_TARGETS } from '../src/eyetracking/calibration/protocol';
+import { portraitFaceRotation, type FixedMode } from '../src/camera/fixedModes';
 import { CaptureCancelled } from '../src/camera/recordingPreparation';
 
 const visible: TargetViewport = { left: 16, top: 100, width: 374.6666666666667, height: 180 };
@@ -14,6 +20,57 @@ async function rejected(run: () => Promise<unknown>, cancelled = false) {
   }
 }
 async function check() {
+  // Reproduce the clinician layout: even a positive, stable origin hid the
+  // bottom fit row under the navigation bar. A scroll lock cannot repair it.
+  const window = { left: 0, top: 0, width: 412, height: 820 };
+  const oldBoard = { left: 16, top: 310, width: 380, height: 697 };
+  assert.equal(targetViewportVisible(oldBoard, window), false);
+  assert.ok(oldBoard.top + oldBoard.height * 0.88 > window.height);
+  let time = 0;
+  await rejected(() =>
+    stableTargetViewport(
+      async () => {
+        time += 10;
+        return oldBoard;
+      },
+      { bounds: () => window, now: () => time, timeoutMs: 35 },
+    ),
+  );
+  // Native stage bounds are independent of account/banner/header heights.
+  // All 14 dots, including their full radius, fit on short/tall windows and
+  // when a larger footer is reserved for accessibility text.
+  for (const width of [320, 393, 412, 600]) {
+    for (const height of [480, 640, 820, 960]) {
+      for (const footer of [60, 120, 160]) {
+        const bounds = { left: 0, top: 24, width, height };
+        const board = { left: 16, top: 40, width: width - 32, height: height - footer - 32 };
+        assert.ok(targetViewportVisible(board, bounds));
+        for (const p of CALIBRATION_TARGETS) {
+          assert.ok(p.x * board.width >= 10 && (1 - p.x) * board.width >= 10);
+          assert.ok(p.y * board.height >= 10 && (1 - p.y) * board.height >= 10);
+        }
+      }
+    }
+  }
+  for (const bad of [
+    { ...visible, left: 40, width: 400 },
+    { ...visible, top: 700, height: 180 },
+    { ...visible, height: NaN },
+  ])
+    assert.equal(targetViewportVisible(bad, window), false);
+  const mode: FixedMode = {
+    cameraId: '1',
+    lensFacing: 'FRONT',
+    width: 1920,
+    height: 1080,
+    fpsMin: 120,
+    fpsMax: 120,
+    label: 'fixture',
+  };
+  for (const rotation of [0, 90, 180, 270])
+    assert.equal(portraitFaceRotation({ ...mode, sensorOrientation: rotation }), rotation);
+  for (const rotation of [null, undefined, 45, NaN, 360])
+    assert.throws(() => portraitFaceRotation({ ...mode, sensorOrientation: rotation }));
   // Reproduce the actual -201 dp origin while native scrollTo is still queued.
   let samples = 0;
   const result = await stableTargetViewport(
@@ -84,7 +141,7 @@ async function check() {
   release(visible);
   await rejected(() => pending, true);
   console.log(
-    'Viewport checks: PASS (real negative-origin race, scroll readiness, movement, invalid geometry, missing callback timeout, cancellation)',
+    'Viewport checks: PASS (clipped lower targets rejected, 192 stage/font geometry cases, sensor metadata, scroll race, movement, timeout, cancellation)',
   );
 }
 void check();

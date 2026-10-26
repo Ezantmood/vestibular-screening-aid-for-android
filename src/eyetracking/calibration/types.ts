@@ -1,6 +1,6 @@
 import type { EyeSide } from '../pupil/pupilTypes';
 
-export const CALIBRATION_COORDINATE_VERSION = 'face-pupil-v6' as const;
+export const CALIBRATION_COORDINATE_VERSION = 'face-pupil-v7' as const;
 export const CALIBRATION_MODEL_VERSION = 'target-cv-ridge-v1' as const;
 export const currentPupilMeasurement = (version: unknown): boolean =>
   version === CALIBRATION_COORDINATE_VERSION;
@@ -10,6 +10,8 @@ export interface CalibrationContext {
   width: number;
   height: number;
   fps: number;
+  /** CW correction of sensor pixels for the portrait-locked capture. */
+  faceRotationDegrees?: number;
   viewportWidth: number;
   viewportHeight: number;
   viewportLeft: number;

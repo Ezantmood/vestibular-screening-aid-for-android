@@ -42,6 +42,7 @@ export async function analyzeCalibrationTakes(args: {
       expectedFps: args.context.fps,
       saveAuditOverlays: true,
       auditFrameLimit: 6,
+      faceRotationDegrees: args.context.faceRotationDegrees,
     });
     takes.push({
       ...take,
@@ -121,6 +122,7 @@ export async function analyzeEyeRecording(
     detectorId: 'percentile-dark',
     expectedFps: fps,
     saveAuditOverlays: false,
+    faceRotationDegrees: context?.faceRotationDegrees,
   });
   // Offline processing may take minutes. Reuse is evaluated at capture time;
   // a valid take must not expire merely because the decoder was slow.

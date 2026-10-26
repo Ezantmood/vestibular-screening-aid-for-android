@@ -27,7 +27,7 @@ import {
   recordPresentation,
   targetAt,
 } from '../stimulus/engine';
-import { stableTargetViewport } from '../stimulus/viewport';
+import { stableTargetViewport, targetViewportVisible } from '../stimulus/viewport';
 import type { MvpTestId } from '../types';
 import { trackingDecodeFailure } from '../../eyetracking/tracking/decodeIntegrity';
 import { propagateRois } from '../../eyetracking/tracking/roiPropagation';
@@ -51,6 +51,8 @@ export const SELF_CHECK_IDS = [
   'calibration-model-contract',
   'framing-wide-face-reachable',
   'framing-current-sample-readiness',
+  'target-board-fully-visible',
+  'calibration-sensor-direction',
   'calibration-requires-face-anchor',
   'calibration-head-movement-rejected',
   'rotated-face-rect-roundtrip',
@@ -354,6 +356,22 @@ export async function runBatch3SelfChecks(): Promise<SelfCheckResult[]> {
       const c = syntheticFit();
       delete (c as Partial<typeof c>).modelVersion;
       ensure(!calibrationUsable(c, SYNTHETIC_CONTEXT, 1000));
+    },
+    'target-board-fully-visible': () => {
+      const bounds = { left: 0, top: 24, width: 412, height: 820 };
+      ensure(!targetViewportVisible({ left: 16, top: 310, width: 380, height: 697 }, bounds));
+      ensure(targetViewportVisible({ left: 16, top: 40, width: 380, height: 720 }, bounds));
+    },
+    'calibration-sensor-direction': () => {
+      const takes = syntheticCalibrationTakes();
+      for (const t of takes) for (const s of t.samples) s.faceRotation = 90;
+      const c = fitCalibration({
+        id: 'synthetic-direction',
+        createdAtMs: 1000,
+        context: { ...SYNTHETIC_CONTEXT, faceRotationDegrees: 270 },
+        takes,
+      });
+      ensure(c.verdict === 'RETRY' && c.reasons.includes('ORIENTATION_CHANGED:left'));
     },
     'framing-wide-face-reachable': () => {
       ensure(

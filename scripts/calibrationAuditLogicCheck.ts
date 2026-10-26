@@ -33,6 +33,27 @@ for (const [l, t, r, b] of [
 }
 const good = fit();
 assert.equal(good.verdict, 'VALID', good.reasons.join(','));
+const orientedTakes = syntheticCalibrationTakes();
+for (const t of orientedTakes) for (const s of t.samples) s.faceRotation = 270;
+const orientedContext = { ...SYNTHETIC_CONTEXT, faceRotationDegrees: 270 };
+const oriented = fitCalibration({
+  id: 'orientation-fixture',
+  createdAtMs: 1000,
+  context: orientedContext,
+  takes: orientedTakes,
+});
+assert.equal(oriented.verdict, 'VALID', oriented.reasons.join(','));
+assert.ok(calibrationUsable(oriented, orientedContext, 1000));
+const wrongDirection = fitCalibration({
+  id: 'wrong-direction',
+  createdAtMs: 1000,
+  context: { ...orientedContext, faceRotationDegrees: 90 },
+  takes: orientedTakes,
+});
+assert.equal(wrongDirection.verdict, 'RETRY');
+assert.ok(wrongDirection.reasons.includes('ORIENTATION_CHANGED:left'));
+oriented.models.left!.referenceRotation = 90;
+assert.equal(calibrationUsable(oriented, orientedContext, 1000), false);
 let takes = syntheticCalibrationTakes();
 for (const take of takes) for (const s of take.samples) delete s.face;
 const noHead = fit(takes);

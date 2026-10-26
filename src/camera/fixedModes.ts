@@ -13,6 +13,15 @@ export interface FixedMode {
   fpsMin: number;
   fpsMax: number;
   label: string;
+  sensorOrientation?: number | null;
+}
+
+/** App orientation is locked to upright portrait. Use Camera2 metadata rather
+ * than asking a face detector to guess a different image direction per frame. */
+export function portraitFaceRotation(mode: FixedMode): number {
+  const rotation = mode.sensorOrientation;
+  if (rotation === 0 || rotation === 90 || rotation === 180 || rotation === 270) return rotation;
+  throw new Error('Chưa đọc được hướng cảm biến camera. Chuẩn bị lại camera trước khi ghi.');
 }
 
 /** P2 architecture correction: FRONT 1920×1080 @ fixed 120fps is primary. */
@@ -53,6 +62,7 @@ export function collectFixedModes(cameras: Camera2ProbeResult[]): FixedMode[] {
           label:
             `Cam ${camera.cameraId} ${camera.lensFacing} ` +
             `${entry.width}x${entry.height} [${range.min},${range.max}]`,
+          sensorOrientation: camera.sensorOrientation,
         });
       }
     }

@@ -7,11 +7,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
-import { collectFixedModes, type FixedMode } from '../../camera/fixedModes';
+import { collectFixedModes, portraitFaceRotation, type FixedMode } from '../../camera/fixedModes';
 import { isLivePreviewAvailable } from '../../camera/livePreview';
 import { assertCurrentPupilDetector } from '../../camera/pupilDetector';
 import {
@@ -49,7 +48,7 @@ import {
   CALIBRATION_PREVIEW_ASPECT,
   calibrationFramingHint,
 } from '../../eyetracking/calibration/geometry';
-import { targetBoardHeight } from '../targetBoard';
+import TargetStage from '../components/TargetStage';
 import { CameraButton, CameraDetails } from '../components/CameraUI';
 import { CaptureCancelled, usePreviewCapture } from '../hooks/usePreviewCapture';
 import { measureTargetViewport } from '../hooks/measureTargetViewport';
@@ -74,8 +73,6 @@ export default function StimulusScreen({
   discardRecording?: boolean;
 } = {}) {
   const camera = usePreviewCapture();
-  const windowSize = useWindowDimensions();
-  const boardHeight = targetBoardHeight(windowSize.height);
   const [testId, setTestId] = useState<MvpTestId>(fixedTestId ?? 'smooth-pursuit');
   const [modes, setModes] = useState<FixedMode[]>([]);
   const [index, setIndex] = useState(0);
@@ -96,9 +93,11 @@ export default function StimulusScreen({
   const viewport = useRef({ width: 0, height: 0 });
   const mounted = useRef(true);
   const lock = useRef(false);
+  const cancelled = useRef(false);
   const scroll = useRef<ScrollView>(null);
-  const scrollOffset = useRef(0);
   const board = useRef<View>(null);
+  const bounds = useRef<View>(null);
+  const layoutLocked = useRef(false);
 
   function stop(cancelled = true) {
     if (raf.current !== null) cancelAnimationFrame(raf.current);
@@ -112,7 +111,10 @@ export default function StimulusScreen({
   useEffect(() => {
     mounted.current = true;
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') stop();
+      if (state !== 'active') {
+        cancelled.current = true;
+        stop();
+      }
     });
     return () => {
       mounted.current = false;
@@ -134,7 +136,6 @@ export default function StimulusScreen({
     viewport.current = { width: display.width, height: display.height };
     run.current = beginStimulus(defaultStimulus(testId), nowUs());
     setRunning(true);
-    scroll.current?.scrollTo({ y: 0, animated: false });
     const tick = () => {
       const current = run.current;
       if (!mounted.current || !current || current.outcome !== 'running') return;
@@ -171,8 +172,10 @@ export default function StimulusScreen({
   async function capture(diagnostic = false) {
     if (lock.current || !modes[index]) return;
     lock.current = true;
+    cancelled.current = false;
     setBusy(true);
     setScrollLocked(true);
+    layoutLocked.current = false;
     setError(null);
     setReport('');
     setResult(null);
@@ -180,16 +183,21 @@ export default function StimulusScreen({
     let recordedPath: string | null = null;
     try {
       const mode = modes[index];
-      scroll.current?.scrollTo({ y: 0, animated: false });
-      const display = await measureTargetViewport(board, {
-        ready: () => Math.abs(scrollOffset.current) < 0.5,
-        cancelled: () => !mounted.current,
-      });
+      const display = await measureTargetViewport(
+        board,
+        {
+          cancelled: () => cancelled.current || !mounted.current,
+        },
+        bounds,
+      );
+      viewport.current = { width: display.width, height: display.height };
+      layoutLocked.current = true;
       const context: CalibrationContext = {
         cameraId: mode.cameraId,
         width: mode.width,
         height: mode.height,
         fps: mode.fpsMax,
+        faceRotationDegrees: portraitFaceRotation(mode),
         viewportWidth: display.width,
         viewportHeight: display.height,
         viewportLeft: display.left,
@@ -209,11 +217,14 @@ export default function StimulusScreen({
       let bridge: ClockBridge | null = null;
       let recordedAtMs = Date.now();
       const captureReport = await camera.capture(mode, 10, async (isCancelled) => {
-        const currentDisplay = await measureTargetViewport(board, {
-          ready: () => Math.abs(scrollOffset.current) < 0.5,
-          cancelled: isCancelled,
-        });
-        if (isCancelled()) throw new CaptureCancelled('Đã hủy test.');
+        const currentDisplay = await measureTargetViewport(
+          board,
+          {
+            cancelled: () => isCancelled() || cancelled.current || !mounted.current,
+          },
+          bounds,
+        );
+        if (isCancelled() || cancelled.current) throw new CaptureCancelled('Đã hủy test.');
         const currentContext: CalibrationContext = {
           ...context,
           viewportWidth: currentDisplay.width,
@@ -224,7 +235,7 @@ export default function StimulusScreen({
         if (!sameCalibrationContext(context, currentContext))
           throw new Error('Vùng target đã thay đổi khi đếm ngược. Căn lại màn hình và thử lại.');
         bridge = await sampleStimulusClock();
-        if (isCancelled()) throw new CaptureCancelled('Đã hủy test.');
+        if (isCancelled() || cancelled.current) throw new CaptureCancelled('Đã hủy test.');
         recordedAtMs = Date.now();
         if (
           !diagnostic &&
@@ -237,14 +248,21 @@ export default function StimulusScreen({
       const session = run.current;
       recordedPath = captureReport.filePath ?? null;
       stop(captureReport.manualStop);
+      layoutLocked.current = false;
       await camera.close();
       if (mounted.current) {
         setScrollLocked(false);
         requestAnimationFrame(() => {
-          scroll.current?.scrollTo({ y: boardHeight, animated: false });
+          scroll.current?.scrollTo({ y: 0, animated: false });
         });
       }
-      if (!mounted.current || session === null || !captureReport.filePath || bridge === null) {
+      if (
+        cancelled.current ||
+        !mounted.current ||
+        session === null ||
+        !captureReport.filePath ||
+        bridge === null
+      ) {
         if (discardRecording) await deleteRecordingFile(captureReport.filePath);
         return;
       }
@@ -284,6 +302,7 @@ export default function StimulusScreen({
         if (!(e instanceof CaptureCancelled)) setError(String(e));
       }
     } finally {
+      layoutLocked.current = false;
       lock.current = false;
       if (mounted.current) {
         setBusy(false);
@@ -291,150 +310,155 @@ export default function StimulusScreen({
       }
     }
   }
+  async function previewTargets() {
+    cancelled.current = false;
+    if (running) {
+      stop();
+      return;
+    }
+    setScrollLocked(true);
+    try {
+      const display = await measureTargetViewport(
+        board,
+        { cancelled: () => cancelled.current || !mounted.current },
+        bounds,
+      );
+      start(display);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setScrollLocked(false);
+    }
+  }
+  function cancel() {
+    cancelled.current = true;
+    stop(true);
+    setScrollLocked(false);
+    void camera.stop();
+  }
   return (
-    <ScrollView
-      ref={scroll}
-      style={styles.screen}
-      scrollEnabled={!running && !scrollLocked}
-      scrollEventThrottle={16}
-      onScroll={(event) => {
-        scrollOffset.current = event.nativeEvent.contentOffset.y;
-      }}
-      contentContainerStyle={styles.content}
-      testID="stimulus-screen"
-    >
-      <View
-        ref={board}
-        style={[styles.board, { height: boardHeight }]}
-        onLayout={(e) => {
+    <>
+      <TargetStage
+        visible={scrollLocked || running}
+        boardRef={board}
+        boundsRef={bounds}
+        target={target}
+        size={size}
+        message={
+          camera.stage === 'countdown'
+            ? `Bắt đầu sau ${camera.countdown}… Giữ đầu yên.`
+            : 'Giữ đầu yên, nhìn theo chấm vàng.'
+        }
+        onCancel={cancel}
+        onLayout={(layout) => {
           if (
-            running &&
-            size.width > 0 &&
-            (size.width !== e.nativeEvent.layout.width ||
-              size.height !== e.nativeEvent.layout.height)
-          ) {
-            stop();
-            void camera.stop();
-          }
-          setSize(e.nativeEvent.layout);
+            layoutLocked.current &&
+            (viewport.current.width !== layout.width || viewport.current.height !== layout.height)
+          )
+            cancel();
+          setSize({ width: layout.width, height: layout.height });
         }}
-        testID="stimulus-board"
+      />
+      <ScrollView
+        ref={scroll}
+        style={styles.screen}
+        scrollEnabled={!running && !scrollLocked}
+        contentContainerStyle={styles.content}
+        testID="stimulus-screen"
       >
-        {target && (
-          <View
-            testID="stimulus-target"
-            style={[
-              styles.target,
-              { left: target.x * size.width - 10, top: target.y * size.height - 10 },
-            ]}
+        {busy && ['countdown', 'recording'].includes(camera.stage) && (
+          <CameraButton
+            title={
+              camera.stage === 'countdown' ? 'Hủy đếm ngược' : 'Dừng và lưu test (không hợp lệ)'
+            }
+            tone="danger"
+            onPress={() => {
+              stop(true);
+              void camera.stop();
+            }}
           />
         )}
-        {!target && <Text style={styles.wait}>Mục tiêu sẽ xuất hiện khi bắt đầu.</Text>}
-      </View>
-      {busy && ['countdown', 'recording'].includes(camera.stage) && (
-        <CameraButton
-          title={camera.stage === 'countdown' ? 'Hủy đếm ngược' : 'Dừng và lưu test (không hợp lệ)'}
-          tone="danger"
-          onPress={() => {
-            stop(true);
-            void camera.stop();
-          }}
-        />
-      )}
-      <Text style={styles.title}>Smooth Pursuit & Horizontal Saccade</Text>
-      <Text>Giữ đầu ổn định và nhìn theo chấm vàng trong 10 giây.</Text>
-      <Text>
-        Ghi bài mắt yêu cầu calibration đạt chất lượng, còn hạn và cùng camera/vùng target. Hiệu
-        chỉnh trước tại Home.
-      </Text>
-      {!fixedTestId && (
-        <>
+        <Text style={styles.title}>Smooth Pursuit & Horizontal Saccade</Text>
+        <Text>Giữ đầu ổn định và nhìn theo chấm vàng trong 10 giây.</Text>
+        <Text>
+          Ghi bài mắt yêu cầu calibration đạt chất lượng, còn hạn và cùng camera/vùng target. Hiệu
+          chỉnh trước tại Home.
+        </Text>
+        {!fixedTestId && (
+          <>
+            <CameraButton
+              title="Smooth Pursuit"
+              disabled={busy || running}
+              onPress={() => setTestId('smooth-pursuit')}
+            />
+            <CameraButton
+              title="Horizontal Saccade"
+              disabled={busy || running}
+              onPress={() => setTestId('horizontal-saccades')}
+            />
+          </>
+        )}
+        <Text>Bài đã chọn: {testId}</Text>
+        {message !== '' && <Text accessibilityLiveRegion="polite">{message}</Text>}
+        {!clinicMode && (
           <CameraButton
-            title="Smooth Pursuit"
-            disabled={busy || running}
-            onPress={() => setTestId('smooth-pursuit')}
+            title={running ? 'Dừng mục tiêu' : 'Thử mục tiêu (không ghi video)'}
+            disabled={busy}
+            onPress={() => void previewTargets()}
           />
+        )}
+        {modes.length === 0 && (
+          <CameraButton title="Chuẩn bị camera trước" onPress={() => void loadCamera()} />
+        )}
+        {modes.length > 0 && (
+          <CameraCapturePanel
+            camera={camera}
+            modes={modes}
+            selectedIndex={index}
+            onSelect={setIndex}
+            onCapture={() => void capture()}
+            busy={busy || running}
+            phase={busy ? 'analyzing' : 'ready'}
+            framingGates={CALIBRATION_FRAMING_GATES}
+            framingHints={{
+              TOO_FAR: calibrationFramingHint('TOO_FAR'),
+              TOO_CLOSE: calibrationFramingHint('TOO_CLOSE'),
+              FACE_PARTIAL: calibrationFramingHint('FACE_PARTIAL'),
+              READY: calibrationFramingHint('READY'),
+            }}
+            previewAspect={CALIBRATION_PREVIEW_ASPECT}
+          />
+        )}
+        {!fixedTestId && modes.length > 0 && (
           <CameraButton
-            title="Horizontal Saccade"
-            disabled={busy || running}
-            onPress={() => setTestId('horizontal-saccades')}
+            title="Ghi debug (cho phép thiếu calibration)"
+            disabled={busy || running || camera.stage !== 'preview'}
+            onPress={() => void capture(true)}
           />
-        </>
-      )}
-      <Text>Bài đã chọn: {testId}</Text>
-      {message !== '' && <Text accessibilityLiveRegion="polite">{message}</Text>}
-      {!clinicMode && (
-        <CameraButton
-          title={running ? 'Dừng mục tiêu' : 'Thử mục tiêu (không ghi video)'}
-          disabled={busy}
-          onPress={() => (running ? stop() : start())}
-        />
-      )}
-      {modes.length === 0 && (
-        <CameraButton title="Chuẩn bị camera trước" onPress={() => void loadCamera()} />
-      )}
-      {modes.length > 0 && (
-        <CameraCapturePanel
-          camera={camera}
-          modes={modes}
-          selectedIndex={index}
-          onSelect={setIndex}
-          onCapture={() => void capture()}
-          busy={busy || running}
-          phase={busy ? 'analyzing' : 'ready'}
-          framingGates={CALIBRATION_FRAMING_GATES}
-          framingHints={{
-            TOO_FAR: calibrationFramingHint('TOO_FAR'),
-            TOO_CLOSE: calibrationFramingHint('TOO_CLOSE'),
-            FACE_PARTIAL: calibrationFramingHint('FACE_PARTIAL'),
-            READY: calibrationFramingHint('READY'),
-          }}
-          previewAspect={CALIBRATION_PREVIEW_ASPECT}
-        />
-      )}
-      {!fixedTestId && modes.length > 0 && (
-        <CameraButton
-          title="Ghi debug (cho phép thiếu calibration)"
-          disabled={busy || running || camera.stage !== 'preview'}
-          onPress={() => void capture(true)}
-        />
-      )}
-      {error && (
-        <>
-          <Text selectable>{error}</Text>
-          <CameraButton
-            title="Mở cài đặt quyền camera"
-            onPress={() => void Linking.openSettings()}
-          />
-        </>
-      )}
-      {!clinicMode && report !== '' && (
-        <>
-          {result && <EyeTestResults result={result} />}
-          <CameraDetails title="Metric, signal & timeline JSON">
-            <Text selectable>{report}</Text>
-          </CameraDetails>
-        </>
-      )}
-    </ScrollView>
+        )}
+        {error && (
+          <>
+            <Text selectable>{error}</Text>
+            <CameraButton
+              title="Mở cài đặt quyền camera"
+              onPress={() => void Linking.openSettings()}
+            />
+          </>
+        )}
+        {!clinicMode && report !== '' && (
+          <>
+            {result && <EyeTestResults result={result} />}
+            <CameraDetails title="Metric, signal & timeline JSON">
+              <Text selectable>{report}</Text>
+            </CameraDetails>
+          </>
+        )}
+      </ScrollView>
+    </>
   );
 }
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, gap: 12, paddingBottom: 160 },
   title: { fontSize: 24, fontWeight: '700' },
-  board: {
-    backgroundColor: '#142D3D',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  target: {
-    position: 'absolute',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#FFE066',
-  },
-  wait: { color: '#FFF' },
 });

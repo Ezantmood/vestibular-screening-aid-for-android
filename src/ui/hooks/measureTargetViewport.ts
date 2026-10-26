@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import type { View } from 'react-native';
+import { Dimensions, type View } from 'react-native';
 import {
   stableTargetViewport,
   type TargetViewport,
@@ -11,19 +11,27 @@ import { CaptureCancelled } from '../../camera/recordingPreparation';
 export async function measureTargetViewport(
   ref: RefObject<View | null>,
   options: Omit<ViewportReadOptions, 'now'> = {},
+  container?: RefObject<View | null>,
 ) {
+  let bounds: TargetViewport | null = null;
+  const measure = (view: View) =>
+    new Promise<TargetViewport>((resolve) => {
+      view.measureInWindow((left, top, width, height) => resolve({ left, top, width, height }));
+    });
   const read = async () => {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     if (options.cancelled?.()) throw new CaptureCancelled('Đã hủy chuẩn bị vùng target.');
-    return new Promise<TargetViewport>((resolve, reject) => {
-      if (!ref.current) {
-        reject(new Error('Vùng target chưa sẵn sàng.'));
-        return;
-      }
-      ref.current.measureInWindow((left, top, width, height) => {
-        resolve({ left, top, width, height });
-      });
-    });
+    if (!ref.current || (container && !container.current))
+      return { left: 0, top: 0, width: 0, height: 0 };
+    const window = Dimensions.get('window');
+    const [current, visible] = await Promise.all([
+      measure(ref.current),
+      container?.current
+        ? measure(container.current)
+        : Promise.resolve({ left: 0, top: 0, width: window.width, height: window.height }),
+    ]);
+    bounds = visible;
+    return current;
   };
-  return stableTargetViewport(read, options);
+  return stableTargetViewport(read, { ...options, bounds: () => bounds });
 }

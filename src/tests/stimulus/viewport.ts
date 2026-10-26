@@ -12,6 +12,27 @@ export interface ViewportReadOptions {
   cancelled?: () => boolean;
   timeoutMs?: number;
   now?: () => number;
+  /** Actual visible native container, including the space reserved for controls. */
+  bounds?: () => TargetViewport | null;
+}
+
+export function targetViewportVisible(current: TargetViewport, bounds: TargetViewport): boolean {
+  return (
+    [current, bounds].every(
+      (v) =>
+        [v.left, v.top, v.width, v.height].every(Number.isFinite) &&
+        v.left >= 0 &&
+        v.top >= 0 &&
+        v.width > 0 &&
+        v.height > 0,
+    ) &&
+    current.width >= 128 &&
+    current.height >= 128 &&
+    current.left >= bounds.left &&
+    current.top >= bounds.top &&
+    current.left + current.width <= bounds.left + bounds.width + 0.5 &&
+    current.top + current.height <= bounds.top + bounds.height + 0.5
+  );
 }
 
 /** Require consecutive stable, visible measurements AFTER the scroll settles.
@@ -27,10 +48,12 @@ async function readStableViewport(
   while (now() <= deadline) {
     if (options.cancelled?.()) throw new CaptureCancelled('Đã hủy chuẩn bị vùng target.');
     const current = await read();
+    const bounds = options.bounds?.();
     if (options.cancelled?.()) throw new CaptureCancelled('Đã hủy chuẩn bị vùng target.');
     if (now() > deadline) break;
     if (
       options.ready?.() === false ||
+      (options.bounds !== undefined && (!bounds || !targetViewportVisible(current, bounds))) ||
       ![current.left, current.top, current.width, current.height].every(Number.isFinite) ||
       current.left < 0 ||
       current.top < 0 ||
@@ -50,7 +73,7 @@ async function readStableViewport(
       return { ...current };
     previous = { ...current };
   }
-  throw new Error('Vùng target chưa ổn định. Cuộn về đầu màn hình và thử lại.');
+  throw new Error('Vùng target chưa ổn định hoặc bị khuất. Hãy mở lại bài đo.');
 }
 
 export async function stableTargetViewport(
