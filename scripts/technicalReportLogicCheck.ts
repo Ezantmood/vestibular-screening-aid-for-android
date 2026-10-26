@@ -11,6 +11,11 @@ import { fitCalibration } from '../src/eyetracking/calibration/calibration';
 import { calibrationDiagnostics } from '../src/tests/validation/calibrationDiagnostics';
 
 const takes = syntheticCalibrationTakes();
+assert.equal(
+  calibrationTechnicalSummary({ result: { models: { left: { family: ['affine'] } } } }).eyes[0]
+    .modelFamily,
+  null,
+);
 const result = fitCalibration({
   id: 'PERSONAL_SENTINEL',
   createdAtMs: 1791346313820,
@@ -151,3 +156,42 @@ assert.ok(!JSON.stringify(failures).includes('PERSONAL_SENTINEL'));
 console.log(
   'Technical report checks: PASS (allowlist privacy, malformed evidence, stage counts, metric guards, old model version, safe stage failures)',
 );
+
+// Newly added diagnostic subtrees remain allowlisted, including malformed native data.
+const richStages = calibrationDiagnostics(result, [], takes);
+const rich = richStages[0] as unknown as Record<string, unknown>;
+rich.pipeline = { frameWidth: 1920, effectiveFps: 119.5, patientName: 'PERSONAL_SENTINEL' };
+rich.image = {
+  meanY: { count: 1, min: 70, median: 80, max: 90, note: 'PERSONAL_SENTINEL' },
+  patientName: 'PERSONAL_SENTINEL',
+};
+rich.hold = {
+  roundTripUs: 1000,
+  settleMarginUs: -50,
+  releaseMarginUs: 2000,
+  timestamp: 'PERSONAL_SENTINEL',
+};
+const richReport = calibrationTechnicalSummary({ ...artifact, diagnostics: richStages });
+assert.equal(richReport.stageCounts[0].pipeline.frameWidth, 1920);
+assert.equal(richReport.stageCounts[0].image.meanY.median, 80);
+assert.equal(richReport.stageCounts[0].hold.settleMarginUs, -50);
+assert.ok(!JSON.stringify(richReport).includes('PERSONAL_SENTINEL'));
+
+const failedDecode = buildTechnicalReport({
+  failures: [
+    {
+      stage: 'calibration',
+      code: 'FRAME_COUNT_MISMATCH',
+      decode: {
+        stage: 'pupil-decode',
+        encoded: 180,
+        decoded: 179,
+        width: 1920,
+        height: 1080,
+        patientName: 'PERSONAL_SENTINEL',
+      } as NonNullable<ValidationFailure['decode']>,
+    },
+  ],
+});
+assert.equal(failedDecode.physicalWorkflow.failures[0].decode?.decoded, 179);
+assert.ok(!JSON.stringify(failedDecode).includes('PERSONAL_SENTINEL'));

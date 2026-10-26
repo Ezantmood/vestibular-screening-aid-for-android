@@ -76,8 +76,9 @@ for (const det of [percentileDarkDetector, contrastNormalizedDetector]) {
     JSON.stringify(out),
   );
 }
-// Off-center pupil.
+// Off-center pupil. Acceptance confidence must not punish gaze displacement.
 {
+  const centered = percentileDarkDetector.detect(syntheticEye(120, 120, 60, 60, 16));
   const out = percentileDarkDetector.detect(syntheticEye(140, 100, 95, 30, 14));
   check(
     'percentile-dark finds off-center pupil',
@@ -85,8 +86,11 @@ for (const det of [percentileDarkDetector, contrastNormalizedDetector]) {
       out.centroidXInRoi !== null &&
       approx(out.centroidXInRoi, 95, 3) &&
       out.centroidYInRoi !== null &&
-      approx(out.centroidYInRoi, 30, 3),
-    JSON.stringify(out),
+      approx(out.centroidYInRoi, 30, 3) &&
+      out.confidence >= 0.5 &&
+      centered.success &&
+      Math.abs(out.confidence - centered.confidence) <= 0.08,
+    JSON.stringify({ out, centered }),
   );
 }
 
@@ -267,10 +271,7 @@ for (const det of [percentileDarkDetector, contrastNormalizedDetector]) {
   const b90 = mapBoxFromRotatedToOriginal(10, 20, 30, 40, 90, 1920, 1080);
   check(
     'rot90 box maps',
-    b90.left === 20 &&
-      b90.right === 40 &&
-      b90.top === 1080 - 1 - 30 &&
-      b90.bottom === 1080 - 1 - 10,
+    b90.left === 20 && b90.right === 40 && b90.top === 1080 - 30 && b90.bottom === 1080 - 10,
     JSON.stringify(b90),
   );
   const ident = mapPointFromRotatedToOriginal(5, 6, 0, 1920, 1080);

@@ -3,6 +3,7 @@
 // in which case callers get a "Development Build required" error (no crash).
 
 import { requireOptionalNativeModule } from 'expo';
+import { currentPupilMeasurement } from '../eyetracking/calibration/types';
 
 import type {
   FramePipelineParams,
@@ -12,6 +13,7 @@ import type {
 export type { FramePipelineParams, FramePipelineReport };
 
 interface ExpoFramePipelineNativeModule {
+  readonly measurementVersion?: string;
   analyzeVideoFile(
     filePath: string,
     expectedFps: number,
@@ -25,6 +27,13 @@ const nativeModule =
 
 export function isFramePipelineAvailable(): boolean {
   return nativeModule !== null && typeof nativeModule?.analyzeVideoFile === 'function';
+}
+
+export function assertCurrentFramePipeline(): void {
+  if (!isFramePipelineAvailable() || !currentPupilMeasurement(nativeModule?.measurementVersion))
+    throw new Error(
+      'Cần cập nhật APK có frame geometry face-pupil-v6. Fast Refresh không cập nhật native.',
+    );
 }
 
 /** Default offline face subset: 9 evenly-spaced frames (no 120fps realtime). */

@@ -1,7 +1,7 @@
 # Calibration and signal contracts
 
 `src/eyetracking/calibration/` owns calibration types, fixed target protocol,
-quality gates and per-eye affine mapping. `src/signals/` owns offline filtering,
+quality gates and per-eye CV-selected mapping. `src/signals/` owns offline filtering,
 validity, segments and velocity. `src/tests/eyeAnalysis.ts` orchestrates existing
 P4 tracking and stores artifacts through the camera/storage seams.
 
@@ -9,7 +9,7 @@ P4 tracking and stores artifacts through the camera/storage seams.
 
 - Nine fit targets, four independent validation targets, repeated center for
   drift. Coordinates are fractions of the target viewport, not visual degrees.
-  Image-space eye labels remain unchanged; the measured affine relation learns
+  Image-space eye labels remain unchanged; the measured relation learns
   rotation/sign without assuming anatomical sides or mirroring raw analysis.
 - Each target is React-committed, settles at least 600 ms, then remains stationary
   for an entire 1.5-second recording through recorder finalization. Clock bridge
@@ -21,22 +21,43 @@ P4 tracking and stores artifacts through the camera/storage seams.
   recheck identical geometry before every recorder start. A queued `scrollTo`
   alone does not establish the target's display position. Pursuit/Saccade use
   the same guard, including the post-countdown measurement.
-- The gaze feature is the tracked pupil in the head face box, divided by that
-  take's median face size. The eye crop still follows the eye landmark so the
+- The gaze feature is the tracked pupil in the head face box, normalized by that frame's measured face size. The eye crop still follows the eye landmark so the
   pupil can be found, but position inside that moving crop is not the feature:
   it cancels gaze. Frames with no measured face are rejected. Predictions and
   estimated timestamps are excluded. Robust medians trim distant samples; every
   target/eye needs at least 30 accepted samples, 60% coverage, 250 ms PTS span
   and RMS spread <=0.04 of the face box.
-- Measurement context `face-pupil-v5` keeps the v4 detector: exact
+- Measurement context `face-pupil-v6` keeps the current dark-core detector: exact
   connected-component pixels, quantized percentile cutoff, and no center-closeness
-  penalty. The eye crop is 0.30 of the face width. v1–v4 models cannot activate.
-  A native version guard prevents mixed JS/native measurements. A detector
+  penalty. The eye crop is 0.30 of the face width. v1–v5 models cannot activate.
+  Native guards for both frame geometry and pupil detection prevent mixed measurements. A detector
   SUCCESS does not establish an eligible calibration observation.
+- Model contract `target-cv-ridge-v1` selects affine, affine-ridge or quadratic-ridge
+  using leave-one-target-out CV on the nine fit medians only. Each fold recomputes
+  its own centering/scaling; λ is one of 0.001/0.01/0.1/1 for ridge candidates.
+  Prefer affine unless a more complex model improves CV by at least 10%. Five
+  held-out targets never tune/select a model; a failed check cannot trigger
+  shopping for another candidate. Fits use Householder QR with augmented ridge
+  rows. The original 1e-4 variance floor in reference-eye-crop units and 0.02
+  correlation margin remain enforced.
 - Both eyes must pass. Degenerate/correlated feature geometry, missing targets,
   invalid PTS, unstable fixation, head/ROI changes or poor held-out prediction
-  produce `RETRY`. Fit/validation RMSE <=0.08 and validation maximum <=0.15
-  viewport fraction are engineering gates, never clinical cutoffs.
+  produce `RETRY`. Fit, fit-CV and held-out median RMSE must each be ≤0.08;
+  held-out median maximum must be ≤0.15 viewport fraction. Every held-out target
+  must also have accepted-frame RMS ≤0.08 and p95 error ≤0.15, before filtering
+  or clipping. A good median cannot hide noisy frames. These are engineering
+  gates, never clinical cutoffs.
+- Quadratic Jacobian determinant extrema over the fitted feature rectangle
+  must retain a nonzero sign, rejecting folds/flat mappings while allowing
+  rotations and mirrors. Quadratic runtime features cannot extrapolate outside
+  that rectangle; affine retains its existing 10% feature margin. Saved-model
+  activation recomputes fit-only selection/coefficients/errors and checks frame
+  summaries. Old model contracts cannot activate, even with current v6 pixels.
+- Checklist v2 counts 28 sample-quality bundles plus six mapping gates per eye
+  (40 total). Legacy v1 keeps its 34-item rubric. Missing evidence is not success.
+  Checklist points are not percent-correct gaze or a substitute for activation.
+  Accepted-frame percentages describe agreement with instructed fixation and must
+  be read with coverage/target counts; neighboring frames are correlated.
 - A retry/cancel invalidates the previous active result. Versioned result,
   coefficients, provenance, per-target quality, raw detections/tracks, normalized
   observations and processed signals persist in app-private `files/eye-analysis/`.
@@ -87,3 +108,9 @@ P4 tracking and stores artifacts through the camera/storage seams.
 Verification and measured limitations: [device evidence](device-probes/CALIBRATION_SIGNALS.md).
 
 Independent APK testing and aggregate export: [Batch 3 verification](BATCH3_VALIDATION.md).
+
+Per-version changes and verified evidence:
+[GitHub Releases](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases).
+Regression candidates are supported as an engineering approach by
+[Severitt et al.](https://bop.unibe.ch/JEMR/article/view/9261); performance on this
+phone still requires owner-operated physical validation.

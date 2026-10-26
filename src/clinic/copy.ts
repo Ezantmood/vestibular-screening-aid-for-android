@@ -57,8 +57,15 @@ const vi = {
     'Trước bài đo, nhìn lần lượt các điểm hiệu chỉnh. Nếu ánh xạ chưa đạt, bài vẫn được ghi và vị trí trên màn hình không được chấm.',
   calRetry:
     'Hiệu chỉnh chưa đủ chính xác để chấm vị trí trên màn hình. Bài đo vẫn được ghi. Những số cần ánh xạ này để trống.',
+  continueAfterCalibration: 'Đã xem kết quả, tiếp tục bài đo',
+  calibrationKept: 'Lần hiệu chỉnh vừa lưu vẫn nằm trên máy và hiện lại ở trang này.',
+  calibrationLeft:
+    'Đã rời khi lần hiệu chỉnh này chưa lưu xong. Lần đã lưu trước đó, nếu có, vẫn hiện bên dưới.',
+  savedCalibrationValid: 'Hiệu chỉnh đã lưu ({n}): đạt kiểm tra chất lượng.',
+  savedCalibrationRetry:
+    'Hiệu chỉnh đã lưu ({n}): chưa đạt. Ánh xạ không được dùng để chấm vị trí.',
   qualityFraming:
-    'Đèn khung mặt có sẵn trên camera: xanh khi mặt vào giữa, vàng khi lệch hoặc quá gần/xa, đỏ khi không thấy mặt. Đó là tư thế, chưa phải lớp đồng tử. App không đo độ sáng bằng số.',
+    'Đèn khung mặt xanh khi mặt đủ gần và còn trọn trong khung ghi hình. Vàng khi quá xa, lệch, hoặc sắp tràn khung. Đỏ khi không thấy mặt. Mặt chỉ chiếm một phần nhỏ khung thì đồng tử dịch quá ít, bài hiệu chỉnh không đạt. Đó là tư thế, chưa phải lớp đồng tử.',
   notDiagnosis: 'Cờ màu là mốc sàng lọc, không phải chẩn đoán.',
   traceCaption:
     'Đường vị trí mắt đã xử lý, không phải độ. Hai bài chuẩn dùng khung nhìn đã hiệu chỉnh. Bài khác dùng vùng mắt.',
@@ -70,7 +77,8 @@ const vi = {
   limitUnits: 'Vận tốc để ở phần khung nhìn mỗi giây và không được chấm theo độ/giây.',
   limitNpc: 'Số cm của NPC là số người khám đo bằng thước. Camera không đo được centimet.',
   tutorialHold: 'Cầm điện thoại thẳng, camera trước nhìn vào mặt, màn hình hướng về người được đo.',
-  tutorialDistance: 'Giữ một khoảng cố định, đủ thấy cả mặt. Đừng đưa máy tới lui trong lúc quay.',
+  tutorialDistance:
+    'Khi hiệu chỉnh, đưa máy lại gần cho đến khi đèn khung chuyển xanh: mặt chiếm phần lớn khung. Giữ đúng khoảng cách đó trong suốt bài đo, đừng lùi ra.',
   tutorialLight: 'Ngồi chỗ sáng đều. Tránh ngược sáng và bóng đổ trên mắt.',
   tutorialStill: 'Giữ đầu yên. Chỉ mắt đi theo mục tiêu.',
   poorQuality: 'Chất lượng chưa tốt. Nên đo lại.',
@@ -213,8 +221,16 @@ const en: { [K in keyof typeof vi]: string } = {
     'Before the test, look at the calibration points. If the mapping does not pass, the recording still runs and screen position is not scored.',
   calRetry:
     'Calibration is not accurate enough to score screen position. The test still records. Numbers that need this mapping stay blank.',
+  continueAfterCalibration: 'Result reviewed, continue the test',
+  calibrationKept:
+    'The calibration just saved stays on this phone and is shown again on this page.',
+  calibrationLeft:
+    'You left before this calibration finished saving. An earlier saved one, if any, is still shown below.',
+  savedCalibrationValid: 'Saved calibration ({n}): passed the quality check.',
+  savedCalibrationRetry:
+    'Saved calibration ({n}): not accepted. Screen position is not scored from it.',
   qualityFraming:
-    'The camera already shows a framing lamp: green when the face is centered, yellow when it is off or too near/far, red when no face is seen. That is posture, not a pupil overlay. The app does not measure a light level.',
+    'The framing lamp is green only when the face is close enough and still fully inside the recorded frame. Yellow means too far, off-center, or about to leave the frame. Red means no face. A small face moves the pupil by too few pixels for calibration to pass. The lamp is posture, not a pupil overlay.',
   notDiagnosis: 'Color flags are screening references, not a diagnosis.',
   traceCaption:
     'Processed eye position, not degrees. The two core tests use the calibrated viewport. Other tests use the eye region.',
@@ -230,7 +246,7 @@ const en: { [K in keyof typeof vi]: string } = {
   tutorialHold:
     'Hold the phone upright, front camera toward the face, screen toward the person being tested.',
   tutorialDistance:
-    'Keep one fixed distance that shows the whole face. Do not move the phone during the recording.',
+    'For calibration, move the phone closer until the framing lamp turns green: the face fills most of the frame. Keep that same distance for the whole recording.',
   tutorialLight: 'Use even light. Avoid backlight and shadows across the eyes.',
   tutorialStill: 'Keep the head still. Only the eyes follow the target.',
   poorQuality: 'Quality is poor. Repeat the test.',

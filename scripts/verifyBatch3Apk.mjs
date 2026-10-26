@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -21,7 +22,7 @@ const tools = resolve(root, version);
 const badging = execFileSync(resolve(tools, 'aapt'), ['dump', 'badging', apk], {
   encoding: 'utf8',
 });
-assert.ok(badging.includes("name='com.vestibular.screeningaid' versionCode='7'"));
+assert.ok(badging.includes("name='com.vestibular.screeningaid' versionCode='10'"));
 assert.ok(!/\bsplit=/.test(badging.split('\n')[0]), 'Supply a single APK, not a split package');
 assert.ok(badging.includes("sdkVersion:'24'"), 'Unexpected minimum Android API');
 assert.ok(/^native-code:.*'arm64-v8a'/m.test(badging), 'Redmi arm64 libraries missing');
@@ -52,6 +53,30 @@ const entries = execFileSync('unzip', ['-Z', '-1', apk], { encoding: 'utf8' });
 assert.ok(
   entries.split('\n').includes('assets/index.android.bundle'),
   'Embedded JS bundle missing',
+);
+const measurementBundle = execFileSync('unzip', ['-p', apk, 'assets/index.android.bundle'], {
+  maxBuffer: 64 * 1024 * 1024,
+});
+assert.ok(
+  measurementBundle.includes(Buffer.from('face-pupil-v6')),
+  'Current JS coordinate contract missing',
+);
+assert.ok(
+  measurementBundle.includes(Buffer.from('batch3-20261026-calibration-ridge-v7')),
+  'Current diagnostic build missing',
+);
+assert.ok(
+  measurementBundle.includes(Buffer.from('target-cv-ridge-v1')),
+  'Current calibration model contract missing',
+);
+const dexEntries = entries.split('\n').filter((entry) => /^classes\d*\.dex$/.test(entry));
+assert.ok(
+  dexEntries.some((entry) =>
+    execFileSync('unzip', ['-p', apk, entry], { maxBuffer: 64 * 1024 * 1024 }).includes(
+      Buffer.from('face-pupil-v6'),
+    ),
+  ),
+  'Current native measurement contract missing',
 );
 execFileSync(resolve(tools, 'apksigner'), ['verify', apk], { stdio: 'inherit' });
 console.log(

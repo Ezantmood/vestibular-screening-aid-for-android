@@ -44,6 +44,11 @@ import type { EyeTestResult } from '../../tests/metrics/types';
 import { validationFailureCode, type ValidationFailureCode } from '../../tests/validation/failures';
 import EyeTestResults from '../components/EyeTestResults';
 import CameraCapturePanel from '../components/CameraCapturePanel';
+import {
+  CALIBRATION_FRAMING_GATES,
+  CALIBRATION_PREVIEW_ASPECT,
+  calibrationFramingHint,
+} from '../../eyetracking/calibration/geometry';
 import { targetBoardHeight } from '../targetBoard';
 import { CameraButton, CameraDetails } from '../components/CameraUI';
 import { CaptureCancelled, usePreviewCapture } from '../hooks/usePreviewCapture';
@@ -75,6 +80,7 @@ export default function StimulusScreen({
   const [modes, setModes] = useState<FixedMode[]>([]);
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [scrollLocked, setScrollLocked] = useState(false);
   useEyeAnalysisAwake(busy);
   const [running, setRunning] = useState(false);
   const [target, setTarget] = useState<(TargetPosition & { requestedElapsedUs: number }) | null>(
@@ -166,6 +172,7 @@ export default function StimulusScreen({
     if (lock.current || !modes[index]) return;
     lock.current = true;
     setBusy(true);
+    setScrollLocked(true);
     setError(null);
     setReport('');
     setResult(null);
@@ -231,6 +238,12 @@ export default function StimulusScreen({
       recordedPath = captureReport.filePath ?? null;
       stop(captureReport.manualStop);
       await camera.close();
+      if (mounted.current) {
+        setScrollLocked(false);
+        requestAnimationFrame(() => {
+          scroll.current?.scrollTo({ y: boardHeight, animated: false });
+        });
+      }
       if (!mounted.current || session === null || !captureReport.filePath || bridge === null) {
         if (discardRecording) await deleteRecordingFile(captureReport.filePath);
         return;
@@ -272,13 +285,17 @@ export default function StimulusScreen({
       }
     } finally {
       lock.current = false;
-      if (mounted.current) setBusy(false);
+      if (mounted.current) {
+        setBusy(false);
+        setScrollLocked(false);
+      }
     }
   }
   return (
     <ScrollView
       ref={scroll}
-      scrollEnabled={!running && !busy}
+      style={styles.screen}
+      scrollEnabled={!running && !scrollLocked}
       scrollEventThrottle={16}
       onScroll={(event) => {
         scrollOffset.current = event.nativeEvent.contentOffset.y;
@@ -365,6 +382,13 @@ export default function StimulusScreen({
           onCapture={() => void capture()}
           busy={busy || running}
           phase={busy ? 'analyzing' : 'ready'}
+          framingGates={CALIBRATION_FRAMING_GATES}
+          framingHints={{
+            TOO_FAR: calibrationFramingHint('TOO_FAR'),
+            TOO_CLOSE: calibrationFramingHint('TOO_CLOSE'),
+            READY: calibrationFramingHint('READY'),
+          }}
+          previewAspect={CALIBRATION_PREVIEW_ASPECT}
         />
       )}
       {!fixedTestId && modes.length > 0 && (
@@ -395,6 +419,7 @@ export default function StimulusScreen({
   );
 }
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   content: { padding: 16, gap: 12, paddingBottom: 160 },
   title: { fontSize: 24, fontWeight: '700' },
   board: {

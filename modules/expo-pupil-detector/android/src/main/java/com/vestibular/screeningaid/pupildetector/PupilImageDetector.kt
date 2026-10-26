@@ -41,6 +41,7 @@ class PupilImageDetector {
     val candH: Int?,
     val confidence: Double,
     val failure: String?,
+    val diagnostics: Map<String, Double?> = emptyMap(),
   )
 
   /** Synthetic measurements only: no sensor, storage, or personal data. */
@@ -125,8 +126,9 @@ class PupilImageDetector {
   fun detect(gray: DoubleArray, w: Int, h: Int, detectorId: String): Outcome {
     if (w < 24 || h < 24 || gray.size != w * h || gray.any { !it.isFinite() || it < 0 || it > 255 })
       return Outcome(false, null, null, null, null, 0.0, "INVALID_GEOMETRY")
-    return if (detectorId == "contrast-normalized") detectContrastNormalized(gray, w, h)
+    val out = if (detectorId == "contrast-normalized") detectContrastNormalized(gray, w, h)
     else detectPercentileDark(gray, w, h)
+    return withImageDiagnostics(out, gray, w, h)
   }
 
   fun detectWithPrior(gray: DoubleArray, rw: Int, rh: Int, priorX: Double, priorY: Double,
@@ -190,7 +192,7 @@ class PupilImageDetector {
     if (near.isEmpty()) {
       return Outcome(false, null, null, null, null, 0.0, "NO_PUPIL_CANDIDATE")
     }
-    return selectBest(gray, near, weights, darkFrac, rw, rh, RELAXED_PUPIL_CONFIDENCE)
+    return withImageDiagnostics(selectBest(gray, near, weights, darkFrac, rw, rh, RELAXED_PUPIL_CONFIDENCE, threshold), gray, rw, rh)
   }
 
   // ---------- Shared CV primitives (mirror the TS domain logic) ----------
@@ -442,9 +444,10 @@ class PupilImageDetector {
     width: Int,
     height: Int,
     minConfidence: Double = MIN_PUPIL_CONFIDENCE,
+    threshold: Double? = null,
   ): Outcome {
     if (comps.isEmpty()) {
-      return noCandidate(gray, maskFraction)
+      return noCandidate(gray, maskFraction).copy(diagnostics = mapOf("candidateCount" to 0.0, "darkFraction" to maskFraction, "thresholdY" to threshold))
     }
     val roiMean = gray.average()
     val scored = comps.map { c ->
@@ -453,16 +456,42 @@ class PupilImageDetector {
     }.sortedByDescending { it.score }
     val best = scored[0]
     val runnerUp = if (scored.size > 1) scored[1] else null
+    val diagnostics = mapOf("candidateCount" to comps.size.toDouble(), "darkFraction" to maskFraction,
+      "thresholdY" to threshold, "bestScore" to best.score, "runnerUpScore" to runnerUp?.score,
+      "borderTouch" to if (best.comp.touchesBorder) 1.0 else 0.0)
     if (runnerUp != null && best.score - runnerUp.score < AMBIGUITY_SCORE_MARGIN && runnerUp.score >= minConfidence) {
-      return Outcome(false, null, null, null, null, best.score, "AMBIGUOUS_CANDIDATES")
+      return Outcome(false, null, null, null, null, best.score, "AMBIGUOUS_CANDIDATES", diagnostics)
     }
     if (best.score < minConfidence) {
-      return Outcome(false, null, null, null, null, best.score, "LOW_CONFIDENCE")
+      return Outcome(false, null, null, null, null, best.score, "LOW_CONFIDENCE", diagnostics)
     }
     val c = best.comp
     val cx = if (c.wTotal > 0) c.wSumX / c.wTotal else c.sumX.toDouble() / max(1.0, c.area.toDouble())
     val cy = if (c.wTotal > 0) c.wSumY / c.wTotal else c.sumY.toDouble() / max(1.0, c.area.toDouble())
-    return Outcome(true, cx, cy, c.maxX - c.minX + 1, c.maxY - c.minY + 1, best.score, null)
+    return Outcome(true, cx, cy, c.maxX - c.minX + 1, c.maxY - c.minY + 1, best.score, null, diagnostics)
+  }
+
+  /** Descriptive pixel statistics, never acceptance gates or inferred blur/exposure labels. */
+  private fun withImageDiagnostics(out: Outcome, gray: DoubleArray, w: Int, @Suppress("UNUSED_PARAMETER") h: Int): Outcome {
+    val histogram = IntArray(256)
+    var sum = 0.0; var squares = 0.0; var gradients = 0.0; var edges = 0
+    for (i in gray.indices) {
+      val v = gray[i]; histogram[v.toInt().coerceIn(0, 255)]++; sum += v; squares += v * v
+      if (i % w > 0) { gradients += (v - gray[i - 1]).pow(2); edges++ }
+      if (i >= w) { gradients += (v - gray[i - w]).pow(2); edges++ }
+    }
+    fun quantile(q: Double): Double {
+      val rank = (q * gray.size).toInt(); var count = 0
+      for (level in histogram.indices) { count += histogram[level]; if (count > rank) return level.toDouble() }
+      return 255.0
+    }
+    val mean = sum / gray.size
+    return out.copy(diagnostics = out.diagnostics + mapOf("meanY" to mean,
+      "stdY" to sqrt(max(0.0, squares / gray.size - mean * mean)),
+      "p05Y" to quantile(0.05), "p95Y" to quantile(0.95),
+      "gradientRms" to sqrt(gradients / max(1, edges)),
+      "nearBlackFraction" to histogram.take(5).sum().toDouble() / gray.size,
+      "nearWhiteFraction" to histogram.drop(251).sum().toDouble() / gray.size))
   }
 
   private fun noCandidate(gray: DoubleArray, maskFraction: Double): Outcome {
@@ -488,7 +517,7 @@ class PupilImageDetector {
       }
     }
     val comps = filterAndWeigh(findComps(mask, w, h), gray, gray, w, h, threshold)
-    return selectBest(gray, comps, doubleArrayOf(2.0, 2.0, 2.0, 0.0, 1.0), dark.toDouble() / (w * h).toDouble(), w, h)
+    return selectBest(gray, comps, doubleArrayOf(2.0, 2.0, 2.0, 0.0, 1.0), dark.toDouble() / (w * h).toDouble(), w, h, threshold = threshold)
   }
 
   private fun detectContrastNormalized(gray: DoubleArray, w: Int, h: Int): Outcome {
@@ -514,7 +543,7 @@ class PupilImageDetector {
     }
     val opened = binaryOpen(mask, w, h)
     val comps = filterAndWeigh(findComps(opened, w, h), gray, stretched, w, h, absCut)
-    return selectBest(gray, comps, doubleArrayOf(1.0, 2.0, 3.0, 0.0, 2.0), dark.toDouble() / n.toDouble(), w, h)
+    return selectBest(gray, comps, doubleArrayOf(1.0, 2.0, 3.0, 0.0, 2.0), dark.toDouble() / n.toDouble(), w, h, threshold = absCut)
   }
 
   private fun binaryOpen(mask: ByteArray, w: Int, h: Int): ByteArray {

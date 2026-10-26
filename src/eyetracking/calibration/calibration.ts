@@ -1,5 +1,11 @@
 import { CALIBRATION_TARGETS } from './protocol';
-import { currentPupilMeasurement } from './types';
+import { CALIBRATION_MODEL_VERSION, currentPupilMeasurement } from './types';
+import {
+  evaluateRegression,
+  selectRegression,
+  validRegression,
+  regressionGeometrySafe,
+} from './regression';
 import type {
   CalibrationContext,
   CalibrationPolicy,
@@ -22,6 +28,9 @@ export const CALIBRATION_POLICY: CalibrationPolicy = {
   maxValidationRmse: 0.08,
   maxValidationError: 0.15,
   maxFitRmse: 0.08,
+  maxFitCvRmse: 0.08,
+  maxValidationFrameRmse: 0.08,
+  maxValidationFrameP95Error: 0.15,
   maxAgeMs: 15 * 60_000,
 };
 export function median(xs: readonly number[]): number {
@@ -92,31 +101,6 @@ function validContext(context: CalibrationContext): boolean {
     ].every((n) => Number.isFinite(n) && n > 0)
   );
 }
-/** Solve 3x3 normal equations with scaled pivoting; refuse singular features. */
-function solve(rows: number[][], values: number[]): [number, number, number] | null {
-  const a = Array.from({ length: 3 }, (_, i) => [
-    ...Array.from({ length: 3 }, (_, j) => rows.reduce((s, r) => s + r[i] * r[j], 0)),
-    rows.reduce((s, r, j) => s + r[i] * values[j], 0),
-  ]);
-  for (let k = 0; k < 3; k++) {
-    let pivot = k;
-    for (let i = k + 1; i < 3; i++) if (Math.abs(a[i][k]) > Math.abs(a[pivot][k])) pivot = i;
-    if (Math.abs(a[pivot][k]) < 1e-8) return null;
-    [a[k], a[pivot]] = [a[pivot], a[k]];
-    const scale = a[k][k];
-    for (let j = k; j < 4; j++) a[k][j] /= scale;
-    for (let i = 0; i < 3; i++)
-      if (i !== k) {
-        const factor = a[i][k];
-        for (let j = k; j < 4; j++) a[i][j] -= factor * a[k][j];
-      }
-  }
-  const result: [number, number, number] = [a[0][3], a[1][3], a[2][3]];
-  return result.every(Number.isFinite) ? result : null;
-}
-function evaluate(c: [number, number, number], x: number, y: number): number {
-  return c[0] + c[1] * x + c[2] * y;
-}
 type Box = EyeObservation['roi'];
 
 function emptyBlocks(): SampleBlocks {
@@ -142,20 +126,18 @@ function pupilInCrop(sample: EyeObservation): boolean {
  * by the fitter before this is called. */
 function featureMiss(sample: EyeObservation): 'noPupil' | 'noFace' | 'outsideFace' {
   if (!pupilInCrop(sample)) return 'noPupil';
-  if (sample.face !== undefined && (sample.face === null || !finiteRoi(sample.face)))
-    return 'noFace';
+  if (!sample.face || !finiteRoi(sample.face)) return 'noFace';
   return 'outsideFace';
 }
 /** Gaze feature. A face box is the head anchor: pupil position in that box.
  * The eye crop follows the landmark, so position inside the crop cancels gaze.
  * The crop is larger than the tight face rectangle, so a real pupil may sit
  * slightly outside 0..1. Values beyond that margin are a coordinate mismatch.
- * Samples with no face field keep the older ROI-normalized feature.
+ * Missing face anchors fail closed; legacy crop features cannot enter this model.
  * `box` is the coordinate frame used to compare size, not a position lock. */
 export function gazeFeature(sample: EyeObservation): { x: number; y: number; box: Box } | null {
   if (!pupilInCrop(sample)) return null;
-  if (sample.face === undefined) return { x: sample.x!, y: sample.y!, box: sample.roi };
-  if (sample.face === null || !finiteRoi(sample.face)) return null;
+  if (!sample.face || !finiteRoi(sample.face)) return null;
   const frameX = sample.roi.x + sample.x! * sample.roi.width;
   const frameY = sample.roi.y + sample.y! * sample.roi.height;
   const x = (frameX - sample.face.x) / sample.face.width;
@@ -206,6 +188,7 @@ export function fitCalibration(args: {
   const policy = { ...CALIBRATION_POLICY };
   const result: CalibrationResult = {
     schemaVersion: 1,
+    modelVersion: CALIBRATION_MODEL_VERSION,
     id: args.id,
     createdAtMs: args.createdAtMs,
     context: { ...args.context },
@@ -244,6 +227,9 @@ export function fitCalibration(args: {
   }
   for (const side of ['left', 'right'] as const) {
     const acceptedBoxes: Box[] = [];
+    const acceptedCrops: Box[] = [];
+    const acceptedFeatures = new Map<string, { x: number; y: number }[]>();
+    const rotations = new Set<number>();
     for (const take of args.takes) {
       const samples = take.samples.filter((s) => s.eyeSide === side);
       const reasons: string[] = [];
@@ -256,6 +242,8 @@ export function fitCalibration(args: {
           Number.isFinite(s.decodedPtsUs) &&
           s.decodedPtsUs >= 0 &&
           s.decodedPtsUs > previousPts &&
+          Number.isInteger(s.frameIndex) &&
+          s.frameIndex >= 0 &&
           s.frameIndex > previousIndex;
         if (s.decodedPtsUs !== null && Number.isFinite(s.decodedPtsUs))
           previousPts = Math.max(previousPts, s.decodedPtsUs);
@@ -269,6 +257,7 @@ export function fitCalibration(args: {
           blocks.estimated += 1;
           return [];
         }
+        if (s.faceRotation !== undefined && s.faceRotation !== null) rotations.add(s.faceRotation);
         const feature = gazeFeature(s);
         if (!feature) {
           blocks[featureMiss(s)] += 1;
@@ -293,15 +282,14 @@ export function fitCalibration(args: {
         (row) => Math.hypot(row.feature.x - mx, row.feature.y - my) <= Math.max(0.015, 3 * mad),
       );
       blocks.trimmed = usable.length - accepted.length;
-      const stable = stableNormalizedPoint(
-        accepted.map((row) => ({
-          x: row.feature.x,
-          y: row.feature.y,
-          roi: row.feature.box,
-        })),
+      acceptedFeatures.set(
+        take.target.id,
+        accepted.map((row) => ({ x: row.feature.x, y: row.feature.y })),
       );
-      const x = stable?.x ?? null;
-      const y = stable?.y ?? null;
+      // Aggregate exactly the feature that the mapper will consume. Rescaling
+      // around 0.5 with a per-take size introduces target-dependent bias.
+      const x = accepted.length ? median(accepted.map((row) => row.feature.x)) : null;
+      const y = accepted.length ? median(accepted.map((row) => row.feature.y)) : null;
       const spread =
         x === null || y === null
           ? null
@@ -325,11 +313,9 @@ export function fitCalibration(args: {
       if (spanUs > take.recordEndNativeUs - take.recordStartNativeUs + 100_000)
         reasons.push('INVALID_PTS_SPAN');
       if (spread === null || spread > policy.maxSpread) reasons.push('UNSTABLE_FIXATION');
-      // The eye crop may move between targets because the landmark follows gaze.
-      // Inside one held target it should stay still. The face box is the feature
-      // origin, so it is not a position lock.
-      const ref = accepted.length ? medianBox(accepted.map((row) => row.sample.roi)) : null;
-      if (ref && accepted.some((row) => !roiCompatible(row.sample.roi, ref)))
+      // Compare the head anchor, never the eye crop which follows gaze.
+      const ref = accepted.length ? medianBox(accepted.map((row) => row.feature.box)) : null;
+      if (ref && accepted.some((row) => !roiCompatible(row.feature.box, ref)))
         reasons.push('HEAD_OR_ROI_MOVED');
       const quality: TargetQuality = {
         targetId: take.target.id,
@@ -348,15 +334,16 @@ export function fitCalibration(args: {
       result.targetQuality.push(quality);
       for (const reason of quality.reasons)
         result.reasons.push(`${reason}:${side}:${take.target.id}`);
-      acceptedBoxes.push(...accepted.map((row) => row.sample.roi));
+      acceptedBoxes.push(...accepted.map((row) => row.feature.box));
+      acceptedCrops.push(...accepted.map((row) => row.sample.roi));
     }
     const referenceRoi = medianBox(acceptedBoxes);
-    // Size must stay stable across targets. Position may change: the eye
-    // landmark follows gaze, and the face box is already the feature origin.
+    if (rotations.size > 1) result.reasons.push(`ORIENTATION_CHANGED:${side}`);
+    // Reuse the same existing 20% scale / 0.3 center-displacement guards in
+    // fitting and mapping. Face normalization does not establish pose invariance.
     if (
       acceptedBoxes.length > 0 &&
-      (!finiteRoi(referenceRoi) ||
-        acceptedBoxes.some((box) => !roiScaleCompatible(box, referenceRoi)))
+      (!finiteRoi(referenceRoi) || acceptedBoxes.some((box) => !roiCompatible(box, referenceRoi)))
     )
       result.reasons.push(`HEAD_OR_ROI_MOVED:${side}`);
     const qualities = result.targetQuality.filter(
@@ -381,46 +368,90 @@ export function fitCalibration(args: {
     const varX = featureX.reduce((a, x) => a + (x - meanX) ** 2, 0);
     const varY = featureY.reduce((a, y) => a + (y - meanY) ** 2, 0);
     const cov = featureX.reduce((a, x, i) => a + (x - meanX) * (featureY[i] - meanY), 0);
-    if (varX < 1e-4 || varY < 1e-4 || 1 - cov ** 2 / (varX * varY) < 0.02) {
+    // Preserve the original 1e-4 observability floor in its original eye-crop
+    // units. Face-normalized variance must be converted to reference-crop units;
+    // otherwise the larger coordinate frame alone rejects sufficient motion.
+    // Separately standardize the solve to avoid unit-dependent conditioning.
+    const sx = Math.sqrt(varX / fits.length);
+    const sy = Math.sqrt(varY / fits.length);
+    const epsilon = Number.EPSILON * Math.max(1, Math.abs(meanX), Math.abs(meanY));
+    const referenceCrop = medianBox(acceptedCrops);
+    const cropVarianceX = varX * (referenceRoi.width / referenceCrop.width) ** 2;
+    const cropVarianceY = varY * (referenceRoi.height / referenceCrop.height) ** 2;
+    if (
+      cropVarianceX < 1e-4 ||
+      cropVarianceY < 1e-4 ||
+      sx <= epsilon ||
+      sy <= epsilon ||
+      1 - cov ** 2 / (varX * varY) < 0.02
+    ) {
       result.reasons.push(`DEGENERATE_FEATURES:${side}`);
       continue;
     }
-    const rows = fits.map((p) => [1, p.q!.x!, p.q!.y!]);
-    const cx = solve(
-      rows,
-      fits.map((p) => p.target.x),
+    const selection = selectRegression(
+      fits.map((p) => ({ x: p.q!.x!, y: p.q!.y!, targetX: p.target.x, targetY: p.target.y })),
     );
-    const cy = solve(
-      rows,
-      fits.map((p) => p.target.y),
-    );
-    if (!cx || !cy) {
-      result.reasons.push(`SINGULAR_FIT:${side}`);
+    if (!selection.selected) {
+      result.reasons.push(
+        `${selection.candidates.length ? 'UNSAFE_MAPPING' : 'SINGULAR_FIT'}:${side}`,
+      );
       continue;
     }
-    const residual = (p: (typeof fits)[number]) => ({
-      x: evaluate(cx, p.q!.x!, p.q!.y!) - p.target.x,
-      y: evaluate(cy, p.q!.x!, p.q!.y!) - p.target.y,
-    });
+    const { regression, fitCvRmse } = selection.selected;
+    const residual = (p: (typeof fits)[number]) => {
+      const prediction = evaluateRegression(regression, p.q!.x!, p.q!.y!);
+      return { x: prediction.x - p.target.x, y: prediction.y - p.target.y };
+    };
     const fitRmse = Math.sqrt(
       fits.reduce((a, p) => {
         const e = residual(p);
         return a + e.x ** 2 + e.y ** 2;
       }, 0) / fits.length,
     );
+    for (const point of [...fits, ...checks]) {
+      const e = residual(point);
+      point.q!.predictionError = { ...e, distance: Math.hypot(e.x, e.y) };
+    }
+    // Target medians can look accurate while individual frames are very noisy.
+    // Every held-out target must ALSO pass frame RMS and p95 gates.
+    for (const point of checks) {
+      const frameErrors = (acceptedFeatures.get(point.target.id) ?? [])
+        .map((p) => {
+          const prediction = evaluateRegression(regression, p.x, p.y);
+          return Math.hypot(prediction.x - point.target.x, prediction.y - point.target.y);
+        })
+        .sort((a, b) => a - b);
+      if (frameErrors.length && frameErrors.every(Number.isFinite)) {
+        const withinTolerance = frameErrors.filter((e) => e <= policy.maxValidationRmse).length;
+        point.q!.validationFrames = {
+          accepted: frameErrors.length,
+          withinTolerance,
+          withinTolerancePercent: (100 * withinTolerance) / frameErrors.length,
+          rmse: Math.sqrt(frameErrors.reduce((s, e) => s + e * e, 0) / frameErrors.length),
+          p95Error: frameErrors[Math.ceil(frameErrors.length * 0.95) - 1],
+        };
+      }
+      if (
+        !point.q!.validationFrames ||
+        point.q!.validationFrames!.rmse > policy.maxValidationFrameRmse ||
+        point.q!.validationFrames!.p95Error > policy.maxValidationFrameP95Error
+      )
+        result.reasons.push(`NOISY_VALIDATION:${side}:${point.target.id}`);
+    }
     const errors = checks.map(residual);
     const validationRmse = Math.sqrt(
       errors.reduce((a, e) => a + e.x ** 2 + e.y ** 2, 0) / errors.length,
     );
     const validationMaxError = Math.max(...errors.map((e) => Math.hypot(e.x, e.y)));
     if (fitRmse > policy.maxFitRmse) result.reasons.push(`POOR_FIT:${side}`);
+    if (fitCvRmse > policy.maxFitCvRmse) result.reasons.push(`POOR_FIT_CV:${side}`);
     if (validationRmse > policy.maxValidationRmse || validationMaxError > policy.maxValidationError)
       result.reasons.push(`POOR_VALIDATION:${side}`);
     const model: EyeCalibration = {
+      ...regression,
       eyeSide: side,
-      coefficientsX: cx,
-      coefficientsY: cy,
       referenceRoi,
+      referenceRotation: rotations.size === 1 ? [...rotations][0] : undefined,
       featureBounds: {
         minX: Math.min(...featureX),
         maxX: Math.max(...featureX),
@@ -428,8 +459,13 @@ export function fitCalibration(args: {
         maxY: Math.max(...featureY),
       },
       fitRmse,
+      fitCvRmse,
       validationRmse,
       validationMaxError,
+      validationFrameRmse: Math.max(...checks.map((p) => p.q!.validationFrames?.rmse ?? Infinity)),
+      validationFrameP95Error: Math.max(
+        ...checks.map((p) => p.q!.validationFrames?.p95Error ?? Infinity),
+      ),
       validationBias: {
         x: errors.reduce((a, e) => a + e.x, 0) / errors.length,
         y: errors.reduce((a, e) => a + e.y, 0) / errors.length,
@@ -443,6 +479,91 @@ export function fitCalibration(args: {
     result.verdict = 'VALID';
   return result;
 }
+/** Recalculate saved model errors: finite but altered coefficients must not retain VALID. */
+function savedErrorsMatch(
+  result: CalibrationResult,
+  model: EyeCalibration,
+  side: 'left' | 'right',
+): boolean {
+  if (model.eyeSide !== side) return false;
+  const points = CALIBRATION_TARGETS.filter((t) => t.role === 'fit').map((t) => {
+    const q = result.targetQuality.find((row) => row.eyeSide === side && row.targetId === t.id)!;
+    return { x: q.x!, y: q.y!, targetX: t.x, targetY: t.y };
+  });
+  const selected = selectRegression(points).selected;
+  if (!selected || !validRegression(model) || !regressionGeometrySafe(model, model.featureBounds))
+    return false;
+  const expected = selected.regression;
+  const close = (a: number, b: number) =>
+    Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+  if (
+    model.family !== expected.family ||
+    model.lambda !== expected.lambda ||
+    !close(model.fitCvRmse, selected.fitCvRmse) ||
+    !(['x', 'y'] as const).every(
+      (axis) =>
+        close(model.featureCenter[axis], expected.featureCenter[axis]) &&
+        close(model.featureScale[axis], expected.featureScale[axis]),
+    ) ||
+    !model.coefficientsX.every((c, i) => close(c, expected.coefficientsX[i])) ||
+    !model.coefficientsY.every((c, i) => close(c, expected.coefficientsY[i])) ||
+    !close(model.featureBounds.minX, Math.min(...points.map((p) => p.x))) ||
+    !close(model.featureBounds.maxX, Math.max(...points.map((p) => p.x))) ||
+    !close(model.featureBounds.minY, Math.min(...points.map((p) => p.y))) ||
+    !close(model.featureBounds.maxY, Math.max(...points.map((p) => p.y)))
+  )
+    return false;
+  const residuals = (role: 'fit' | 'validation') =>
+    CALIBRATION_TARGETS.filter((t) => t.role === role).map((t) => {
+      const q = result.targetQuality.find((row) => row.eyeSide === side && row.targetId === t.id)!;
+      const prediction = evaluateRegression(model, q.x!, q.y!);
+      return Math.hypot(prediction.x - t.x, prediction.y - t.y);
+    });
+  const fit = residuals('fit'),
+    checks = residuals('validation');
+  const rmse = (xs: number[]) => Math.sqrt(xs.reduce((s, x) => s + x * x, 0) / xs.length);
+  const frames = result.targetQuality.filter(
+    (q) =>
+      q.eyeSide === side &&
+      CALIBRATION_TARGETS.some((t) => t.id === q.targetId && t.role === 'validation'),
+  );
+  if (
+    frames.length !== 5 ||
+    frames.some((q) => {
+      const f = q.validationFrames;
+      return (
+        !f ||
+        f.accepted !== q.accepted ||
+        !Number.isInteger(f.withinTolerance) ||
+        f.withinTolerance < 0 ||
+        f.withinTolerance > f.accepted ||
+        !close(f.withinTolerancePercent, (100 * f.withinTolerance) / f.accepted) ||
+        !Number.isFinite(f.rmse) ||
+        f.rmse < 0 ||
+        f.rmse > CALIBRATION_POLICY.maxValidationFrameRmse ||
+        !Number.isFinite(f.p95Error) ||
+        f.p95Error < 0 ||
+        f.p95Error > CALIBRATION_POLICY.maxValidationFrameP95Error
+      );
+    })
+  )
+    return false;
+  return (
+    Math.abs(rmse(fit) - model.fitRmse) < 1e-9 &&
+    Math.abs(rmse(checks) - model.validationRmse) < 1e-9 &&
+    Math.abs(Math.max(...checks) - model.validationMaxError) < 1e-9 &&
+    close(model.validationFrameRmse, Math.max(...frames.map((q) => q.validationFrames!.rmse))) &&
+    close(
+      model.validationFrameP95Error,
+      Math.max(...frames.map((q) => q.validationFrames!.p95Error)),
+    ) &&
+    close(
+      model.quality,
+      Math.max(0, 1 - model.validationRmse / CALIBRATION_POLICY.maxValidationRmse),
+    )
+  );
+}
+
 export function calibrationUsable(
   result: CalibrationResult,
   context: CalibrationContext,
@@ -451,6 +572,7 @@ export function calibrationUsable(
   try {
     return (
       result.schemaVersion === 1 &&
+      result.modelVersion === CALIBRATION_MODEL_VERSION &&
       result.synchronization === 'stationary-target-recording' &&
       result.units === 'target-viewport-fraction' &&
       result.verdict === 'VALID' &&
@@ -474,6 +596,11 @@ export function calibrationUsable(
             q.reasons.length === 0 &&
             q.x !== null &&
             q.y !== null &&
+            q.spread !== null &&
+            Number.isInteger(q.accepted) &&
+            Number.isInteger(q.total) &&
+            q.total > 0 &&
+            Math.abs(q.coverage - q.accepted / q.total) < 1e-12 &&
             [q.x, q.y, q.accepted, q.total, q.coverage, q.spanUs, q.spread].every(
               Number.isFinite,
             ) &&
@@ -483,6 +610,10 @@ export function calibrationUsable(
             q.coverage <= 1 &&
             q.spanUs >= CALIBRATION_POLICY.minSpanUs &&
             q.spread! >= 0 &&
+            q.x! >= -0.25 &&
+            q.x! <= 1.25 &&
+            q.y! >= -0.25 &&
+            q.y! <= 1.25 &&
             q.spread! <= CALIBRATION_POLICY.maxSpread
           );
         }),
@@ -491,22 +622,31 @@ export function calibrationUsable(
         const model = result.models[side];
         return (
           !!model &&
-          model.coefficientsX.length === 3 &&
-          model.coefficientsY.length === 3 &&
+          savedErrorsMatch(result, model, side) &&
+          validRegression(model) &&
           [
             ...model.coefficientsX,
             ...model.coefficientsY,
             model.quality,
             model.fitRmse,
+            model.fitCvRmse,
             model.validationRmse,
             model.validationMaxError,
+            model.validationFrameRmse,
+            model.validationFrameP95Error,
           ].every(Number.isFinite) &&
           model.quality >= 0 &&
           model.quality <= 1 &&
           model.fitRmse >= 0 &&
+          model.fitCvRmse >= 0 &&
           model.validationRmse >= 0 &&
           model.validationMaxError >= 0 &&
           model.fitRmse <= CALIBRATION_POLICY.maxFitRmse &&
+          model.fitCvRmse <= CALIBRATION_POLICY.maxFitCvRmse &&
+          model.validationFrameRmse >= 0 &&
+          model.validationFrameRmse <= CALIBRATION_POLICY.maxValidationFrameRmse &&
+          model.validationFrameP95Error >= 0 &&
+          model.validationFrameP95Error <= CALIBRATION_POLICY.maxValidationFrameP95Error &&
           model.validationRmse <= CALIBRATION_POLICY.maxValidationRmse &&
           model.validationMaxError <= CALIBRATION_POLICY.maxValidationError &&
           finiteRoi(model.referenceRoi) &&
@@ -536,6 +676,8 @@ export function createCalibrationMapper(
     ...model,
     coefficientsX: [...model.coefficientsX],
     coefficientsY: [...model.coefficientsY],
+    featureCenter: { ...model.featureCenter },
+    featureScale: { ...model.featureScale },
     referenceRoi: { ...model.referenceRoi },
     featureBounds: { ...model.featureBounds },
   });
@@ -551,6 +693,9 @@ function mapObservation(model: EyeCalibration | undefined, observation: EyeObser
   if (
     !model ||
     !feature ||
+    !roiCompatible(feature.box, model.referenceRoi) ||
+    (model.referenceRotation !== undefined &&
+      model.referenceRotation !== observation.faceRotation) ||
     observation.estimated ||
     !Number.isInteger(observation.frameIndex) ||
     observation.frameIndex < 0 ||
@@ -563,8 +708,9 @@ function mapObservation(model: EyeCalibration | undefined, observation: EyeObser
   )
     return null;
   const b = model.featureBounds;
-  const dx = (b.maxX - b.minX) * 0.1;
-  const dy = (b.maxY - b.minY) * 0.1;
+  const margin = model.family === 'quadratic-ridge' ? 0 : 0.1;
+  const dx = (b.maxX - b.minX) * margin;
+  const dy = (b.maxY - b.minY) * margin;
   if (
     feature.x < b.minX - dx ||
     feature.x > b.maxX + dx ||
@@ -572,8 +718,7 @@ function mapObservation(model: EyeCalibration | undefined, observation: EyeObser
     feature.y > b.maxY + dy
   )
     return null;
-  const x = evaluate(model.coefficientsX, feature.x, feature.y);
-  const y = evaluate(model.coefficientsY, feature.x, feature.y);
+  const { x, y } = evaluateRegression(model, feature.x, feature.y);
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) return null;
   return { x, y, confidence: Math.min(observation.confidence, model.quality) };
 }

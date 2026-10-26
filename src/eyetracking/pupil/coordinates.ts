@@ -148,22 +148,22 @@ export function mapBoxFromRotatedToOriginal(
   frameWidth: number,
   frameHeight: number,
 ): { left: number; top: number; right: number; bottom: number } {
-  const clampX = (v: number): number => Math.min(Math.max(v, 0), frameWidth - 1);
-  const clampY = (v: number): number => Math.min(Math.max(v, 0), frameHeight - 1);
+  const clampX = (v: number): number => Math.min(Math.max(v, 0), frameWidth);
+  const clampY = (v: number): number => Math.min(Math.max(v, 0), frameHeight);
   if (rotationDeg === 90) {
     return {
       left: clampX(top),
-      top: clampY(frameHeight - 1 - right),
+      top: clampY(frameHeight - right),
       right: clampX(bottom),
-      bottom: clampY(frameHeight - 1 - left),
+      bottom: clampY(frameHeight - left),
     };
   }
   if (rotationDeg === 270) {
     return {
-      left: clampX(frameWidth - 1 - bottom),
-      top: clampY(top),
-      right: clampX(frameWidth - 1 - top),
-      bottom: clampY(bottom),
+      left: clampX(frameWidth - bottom),
+      top: clampY(left),
+      right: clampX(frameWidth - top),
+      bottom: clampY(right),
     };
   }
   return { left, top, right, bottom };

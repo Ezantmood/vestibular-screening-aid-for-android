@@ -36,6 +36,9 @@ try {
     { stdio: 'inherit' },
   );
   const { fitCalibration } = require(join(output, 'src/eyetracking/calibration/calibration.js'));
+  const { CALIBRATION_MODEL_VERSION } = require(
+    join(output, 'src/eyetracking/calibration/types.js'),
+  );
   const { processTrackingSignals } = require(join(output, 'src/signals/trackingSignals.js'));
   const { analyzeEyeTest } = require(join(output, 'src/tests/metrics/analysis.js'));
   const { calibrationTechnicalSummary } = require(
@@ -54,7 +57,13 @@ try {
     'RETRY',
     'This evidence is a rejected calibration; never force it valid.',
   );
-  assert.deepEqual(refit.models, cal.result.models);
+  // Current head-anchored features cannot be reconstructed from legacy crop-only
+  // samples. Never relabel them or claim a native CV rerun without video pixels.
+  if (
+    cal.result.context.coordinateVersion === 'face-pupil-v6' &&
+    cal.result.modelVersion === CALIBRATION_MODEL_VERSION
+  )
+    assert.deepEqual(refit.models, cal.result.models);
   let slots = 0;
   function audit(replay, result = refit, nowMs = cal.result.createdAtMs) {
     const before = JSON.stringify(replay);

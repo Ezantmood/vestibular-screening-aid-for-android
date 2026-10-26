@@ -19,6 +19,9 @@ export function trackingObservations(
       : { x: 0, y: 0, width: 0, height: 0 };
     const valid =
       r?.decodedPtsUs === t.decodedPtsUs &&
+      t.failureReason === null &&
+      t.trackedCentroidX === t.rawCentroidX &&
+      t.trackedCentroidY === t.rawCentroidY &&
       t.trackedCentroidX !== null &&
       t.trackedCentroidY !== null &&
       roi.width > 0 &&
@@ -33,6 +36,7 @@ export function trackingObservations(
       confidence: t.trackingConfidence,
       roi,
       face,
+      faceRotation: face?.rotationApplied,
       estimated: t.ptsEstimated,
     };
   });

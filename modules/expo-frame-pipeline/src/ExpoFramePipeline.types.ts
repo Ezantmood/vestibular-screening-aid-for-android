@@ -36,6 +36,7 @@ export interface FramePipelineFaceSample {
   rightEye: FramePipelineEyeBox | null;
   /** Physical CW rotation (0/90/270) applied before detection, if any. */
   rotationApplied: number | null;
+  headPose?: { pitch: number; yaw: number; roll: number } | null;
   error: string | null;
 }
 

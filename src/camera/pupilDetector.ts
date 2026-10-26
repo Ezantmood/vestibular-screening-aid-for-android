@@ -9,6 +9,7 @@
 // ever fabricated.
 
 import { requireOptionalNativeModule } from 'expo';
+import { assertCurrentFramePipeline } from './framePipeline';
 import { reconcilePupilBatch } from '../eyetracking/pupil/reconcileBatch';
 import {
   CALIBRATION_COORDINATE_VERSION,
@@ -68,6 +69,7 @@ export function isHintedPupilDetectorAvailable(): boolean {
 
 /** Fast Refresh must not label old native measurements as the new detector. */
 export function assertCurrentPupilDetector(): void {
+  assertCurrentFramePipeline();
   if (!isPupilDetectorAvailable() || !currentPupilMeasurement(nativeModule?.measurementVersion))
     throw new Error(
       `Cần cập nhật APK có detector ${CALIBRATION_COORDINATE_VERSION}. Fast Refresh không cập nhật phần native.`,
@@ -160,6 +162,7 @@ export function toPupilDetectionResults(
     candidateWidth: r.candidateWidth,
     candidateHeight: r.candidateHeight,
     confidence: r.confidence,
+    diagnostics: r.diagnostics,
     failureReason:
       r.detectorId === detectorId ? toFailureReason(r.failureReason) : 'INVALID_GEOMETRY',
   }));

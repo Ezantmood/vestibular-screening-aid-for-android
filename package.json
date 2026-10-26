@@ -17,7 +17,9 @@
     "expo-status-bar": "~57.0.1",
     "firebase": "^13.0.0",
     "react": "19.2.3",
-    "react-native": "0.86.3"
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-web": "^0.21.2"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
@@ -43,7 +45,8 @@
     "start:clear": "expo start --dev-client --lan --clear",
     "build:dev": "node scripts/buildAndroidApk.mjs development",
     "build:clinic": "node scripts/buildAndroidApk.mjs clinician",
-    "verify:dev": "node scripts/verifyDevelopmentApk.mjs"
+    "verify:dev": "node scripts/verifyDevelopmentApk.mjs",
+    "release:prepare": "node scripts/prepareRelease.mjs"
   },
   "private": true
 }

@@ -18,6 +18,7 @@ android {
 }
 
 dependencies {
+  testImplementation 'junit:junit:4.13.2'
   // P2 eye-ROI feasibility only (offline, post-recording). Face/eye boxes are
   // NOT pupil tracking — pupil centroid tracking is a later milestone that
   // must reuse the decode pipeline here without rewriting it.

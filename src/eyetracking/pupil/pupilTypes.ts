@@ -29,6 +29,23 @@ export type PupilFailureReason =
 export type PupilDetectionVerdict =
   'PUPIL_DETECTION_PASS' | 'PUPIL_DETECTION_FAIL' | 'PUPIL_DETECTION_UNKNOWN';
 
+/** Descriptive image/candidate evidence from native pixels; absent in legacy artifacts. */
+export interface PupilImageDiagnostics {
+  meanY?: number;
+  stdY?: number;
+  p05Y?: number;
+  p95Y?: number;
+  gradientRms?: number;
+  nearBlackFraction?: number;
+  nearWhiteFraction?: number;
+  candidateCount?: number;
+  darkFraction?: number;
+  thresholdY?: number | null;
+  bestScore?: number;
+  runnerUpScore?: number | null;
+  borderTouch?: number;
+}
+
 /**
  * Single-frame pupil localization result. On failure every centroid field is
  * null (never fabricated) and `failureReason` is set. On success
@@ -55,6 +72,7 @@ export interface PupilDetectionResult {
   candidateWidth: number | null;
   candidateHeight: number | null;
   confidence: number;
+  diagnostics?: PupilImageDiagnostics;
   failureReason: PupilFailureReason | null;
 }
 

@@ -66,7 +66,7 @@ class ExpoPupilDetectorModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ExpoPupilDetector")
-    Constant("measurementVersion") { "face-pupil-v5" }
+    Constant("measurementVersion") { "face-pupil-v6" }
 
     AsyncFunction("runPupilSelfChecks") { imageDetector.selfChecks() }
 
@@ -138,6 +138,7 @@ class ExpoPupilDetectorModule : Module() {
     var frameWidth = -1
     var frameHeight = -1
     var decodedCount = 0
+    var decodeError: String? = null
     val results = mutableListOf<Map<String, Any?>>()
     val overlayPaths = mutableListOf<String>()
     var overlayDir: File? = null
@@ -198,16 +199,19 @@ class ExpoPupilDetectorModule : Module() {
 
       var inputDone = false
       var outputDone = false
+      var quietDrain = 0
       var frameIndex = 0
       val info = MediaCodec.BufferInfo()
       val startMs = android.os.SystemClock.elapsedRealtime()
       while (!outputDone) {
         if (android.os.SystemClock.elapsedRealtime() - startMs > 180_000) {
           warnings.add("Pupil decode wall-clock timeout; partial results.")
+          decodeError = "DECODE_TIMEOUT"
           break
         }
         if (frameIndex > MAX_DECODED_FRAMES) {
           warnings.add("Frame cap reached; partial results.")
+          decodeError = "DECODE_FRAME_CAP"
           break
         }
         if (!inputDone) {
@@ -262,13 +266,9 @@ class ExpoPupilDetectorModule : Module() {
         }
         when {
           outIdx >= 0 -> {
-            if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-              outputDone = true
-              try {
-                codec.releaseOutputBuffer(outIdx, false)
-              } catch (_: Exception) {
-              }
-            } else if (info.size > 0) {
+            quietDrain = 0
+            if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outputDone = true
+            if (info.size > 0) {
               val wanted = byFrame[frameIndex]
               if (wanted != null) {
                 var yCopy: ByteArray? = null
@@ -278,21 +278,24 @@ class ExpoPupilDetectorModule : Module() {
                 try {
                   val image = codec.getOutputImage(outIdx)
                   if (image != null) {
-                    w = image.width
-                    h = image.height
-                    frameWidth = w
-                    frameHeight = h
-                    yCopy = copyYPlane(image)
-                    if (saveOverlays && overlayDir != null) {
-                      try {
-                        val nv = yuv420ToNv21(image)
-                        val jpeg = nv21ToJpeg(nv, w, h, 90)
-                        overlayBmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
-                      } catch (e: Exception) {
-                        warnings.add("Overlay bitmap failed f$frameIndex: ${e.message}")
+                    try {
+                      w = image.cropRect.width()
+                      h = image.cropRect.height()
+                      frameWidth = w
+                      frameHeight = h
+                      yCopy = copyYPlane(image)
+                      if (saveOverlays && overlayDir != null) {
+                        try {
+                          val nv = yuv420ToNv21(image)
+                          val jpeg = nv21ToJpeg(nv, w, h, 90)
+                          overlayBmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+                        } catch (e: Exception) {
+                          warnings.add("Overlay bitmap failed f$frameIndex: ${e.message}")
+                        }
                       }
+                    } finally {
+                      image.close()
                     }
-                    image.close()
                   } else {
                     warnings.add("No CPU Image for wanted frame $frameIndex.")
                   }
@@ -347,8 +350,9 @@ class ExpoPupilDetectorModule : Module() {
             }
           }
           outIdx == MediaCodec.INFO_TRY_AGAIN_LATER -> {
-            if (inputDone) {
+            if (inputDone && ++quietDrain >= 15) {
               warnings.add("Decoder drained with no EOS; partial results.")
+              decodeError = "DECODE_NO_EOS"
               outputDone = true
             }
           }
@@ -358,6 +362,7 @@ class ExpoPupilDetectorModule : Module() {
       }
     } catch (e: Exception) {
       warnings.add("Pupil decode error: ${e.message}")
+      decodeError = "DECODE_FAILED"
     } finally {
       try {
         codec?.stop()
@@ -381,7 +386,7 @@ class ExpoPupilDetectorModule : Module() {
       }
     }
     val ordered = results.sortedWith(compareBy({ it["frameIndex"] as Int }, { it["eyeSide"] as String }))
-    return batchReport(filePath, detectorId, decodedCount, frameWidth, frameHeight, ordered, overlayPaths, warnings, null)
+    return batchReport(filePath, detectorId, decodedCount, frameWidth, frameHeight, ordered, overlayPaths, warnings, decodeError)
   }
 
   private fun geometryOk(req: RoiRequest, frameW: Int, frameH: Int): Boolean {
@@ -452,6 +457,7 @@ class ExpoPupilDetectorModule : Module() {
       "candidateWidth" to outcome.candW,
       "candidateHeight" to outcome.candH,
       "confidence" to outcome.confidence,
+      "diagnostics" to outcome.diagnostics,
       "failureReason" to outcome.failure,
       "condition" to req.condition,
       "overlayPath" to overlayPath,
@@ -484,46 +490,25 @@ class ExpoPupilDetectorModule : Module() {
 
   /** Exact Y (luminance) copy of a decoded frame, stride-aware. */
   private fun copyYPlane(image: android.media.Image): ByteArray {
-    val w = image.width
-    val h = image.height
-    val yPlane = image.planes[0]
-    val buf = yPlane.buffer
-    val rowStride = yPlane.rowStride
-    val pixStride = yPlane.pixelStride
-    val out = ByteArray(w * h)
-    var pos = 0
-    for (y in 0 until h) {
-      for (x in 0 until w) {
-        out[pos++] = buf.get(y * rowStride + x * pixStride)
-      }
-    }
-    return out
+    val p = image.planes[0]; val crop = image.cropRect
+    return PlanePixels.copy(p.buffer, p.rowStride, p.pixelStride,
+      crop.left, crop.top, crop.width(), crop.height())
   }
 
   private fun yuv420ToNv21(image: android.media.Image): ByteArray {
-    val w = image.width
-    val h = image.height
-    val yPlane = image.planes[0]
-    val uPlane = image.planes[1]
-    val vPlane = image.planes[2]
-    val yBuf = yPlane.buffer
-    val uBuf = uPlane.buffer
-    val vBuf = vPlane.buffer
-    val nv21 = ByteArray(w * h * 3 / 2)
-    var pos = 0
-    for (y in 0 until h) {
-      for (x in 0 until w) {
-        nv21[pos++] = yBuf.get(y * yPlane.rowStride + x * yPlane.pixelStride)
-      }
+    val crop = image.cropRect
+    val w = crop.width(); val h = crop.height()
+    require(w % 2 == 0 && h % 2 == 0 && crop.left % 2 == 0 && crop.top % 2 == 0) { "Unsupported odd YUV420 crop" }
+    fun plane(index: Int, divisor: Int): ByteArray {
+      val p = image.planes[index]
+      return PlanePixels.copy(p.buffer, p.rowStride, p.pixelStride,
+        crop.left / divisor, crop.top / divisor, w / divisor, h / divisor)
     }
-    var uvPos = w * h
-    for (y in 0 until h / 2) {
-      for (x in 0 until w / 2) {
-        nv21[uvPos++] = vBuf.get(y * vPlane.rowStride + x * vPlane.pixelStride)
-        nv21[uvPos++] = uBuf.get(y * uPlane.rowStride + x * uPlane.pixelStride)
-      }
+    val y = plane(0, 1); val u = plane(1, 2); val v = plane(2, 2)
+    return ByteArray(w * h * 3 / 2).also { out ->
+      y.copyInto(out)
+      for (i in u.indices) { out[y.size + 2 * i] = v[i]; out[y.size + 2 * i + 1] = u[i] }
     }
-    return nv21
   }
 
   private fun nv21ToJpeg(nv21: ByteArray, w: Int, h: Int, quality: Int): ByteArray {

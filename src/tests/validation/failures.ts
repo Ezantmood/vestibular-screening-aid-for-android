@@ -13,6 +13,14 @@ export type ValidationFailureCode = (typeof VALIDATION_FAILURE_CODES)[number];
 export interface ValidationFailure {
   stage: 'calibration' | 'pursuit' | 'saccades';
   code: ValidationFailureCode;
+  decode?: {
+    stage: 'frame-decode' | 'pupil-decode' | 'rescue-decode';
+    encoded: number;
+    decoded: number;
+    width: number;
+    height: number;
+    ptsCount?: number;
+  };
 }
 export const DIAGNOSTIC_FAILURE_CODES = [
   'JS_SELF_CHECKS_UNAVAILABLE',

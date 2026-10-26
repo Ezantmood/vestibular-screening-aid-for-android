@@ -6,6 +6,8 @@ import type {
 import { calibrationDiagnostics } from './validation/calibrationDiagnostics';
 import { fitCalibration } from '../eyetracking/calibration/calibration';
 import { calibrationInsights, calibrationFeedback } from '../eyetracking/calibration/insights';
+import { calibrationProgress, calibrationFrameProgress } from '../eyetracking/calibration/progress';
+import { calibrationModelComparison } from '../eyetracking/calibration/modelComparison';
 import {
   analyzeFileForTracking,
   type ReplayRunResult,
@@ -13,7 +15,7 @@ import {
 import { trackingObservations } from '../eyetracking/tracking/observations';
 import { processTrackingSignals } from '../signals/trackingSignals';
 import { saveCalibrationArtifact } from '../storage/calibrationStore';
-import { saveEyeAnalysis } from '../camera/eyeAnalysisStorage';
+import { saveEyeAnalysis, invalidateCalibration } from '../camera/eyeAnalysisStorage';
 
 export { processTrackingSignals } from '../signals/trackingSignals';
 export type CapturedCalibrationTake = Omit<CalibrationTake, 'samples'>;
@@ -38,7 +40,8 @@ export async function analyzeCalibrationTakes(args: {
       faceSampleCount: 24,
       detectorId: 'percentile-dark',
       expectedFps: args.context.fps,
-      saveAuditOverlays: false,
+      saveAuditOverlays: true,
+      auditFrameLimit: 6,
     });
     takes.push({
       ...take,
@@ -54,9 +57,13 @@ export async function analyzeCalibrationTakes(args: {
     createdAtMs: args.createdAtMs ?? Date.now(),
     takes,
   });
-  const diagnostics = calibrationDiagnostics(result, replays);
+  const diagnostics = calibrationDiagnostics(result, replays, takes);
   const artifact = { schemaVersion: 1 as const, result, takes, replays, signals, diagnostics };
   const path = await saveCalibrationArtifact(artifact);
+  if (args.cancelled?.()) {
+    await invalidateCalibration();
+    throw new Error('Đã hủy phân tích calibration.');
+  }
   const summary = {
     id: result.id,
     verdict: result.verdict,
@@ -65,7 +72,11 @@ export async function analyzeCalibrationTakes(args: {
     targets: result.targetQuality,
     diagnostics,
     insights: calibrationInsights(result),
+    progress: calibrationProgress(result),
+    frameValidation: calibrationFrameProgress(result),
+    modelComparison: calibrationModelComparison(result),
     feedback: calibrationFeedback(result),
+    auditImages: replays.map((r) => ({ target: r.condition, paths: r.auditOverlays })),
     path,
     signals: signals.map((eyes, i) => ({
       target: takes[i].target.id,
@@ -80,7 +91,10 @@ export async function analyzeCalibrationTakes(args: {
       })),
     })),
   };
-  console.log('CALIBRATION_RESULT ' + JSON.stringify(summary));
+  console.log(
+    'CALIBRATION_RESULT ' +
+      JSON.stringify({ verdict: result.verdict, reasons: result.reasons, diagnostics }),
+  );
   return {
     result,
     summary,

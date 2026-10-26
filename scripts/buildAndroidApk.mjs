@@ -30,8 +30,21 @@ const variant = process.argv[2] ?? 'batch3';
 const settings = variants[variant];
 if (!settings) throw new Error('Expected batch3, development, or clinician variant.');
 const env = { ...process.env };
+const sourceState = () => {
+  try {
+    return {
+      sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      sourceDirty:
+        execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim() !== '',
+    };
+  } catch {
+    return { sourceCommit: null, sourceDirty: true };
+  }
+};
+const sourceAtStart = sourceState();
 // The offline measurement APK has no network, so it cannot confirm email.
 if (variant === 'batch3') env.EXPO_PUBLIC_AUTH_REQUIRED = '0';
+if (variant === 'clinician') env.EXPO_PUBLIC_AUTH_REQUIRED = '1';
 execFileSync('npx', ['expo', 'prebuild', '--no-install', '--platform', 'android'], {
   stdio: 'inherit',
   env,
@@ -41,6 +54,7 @@ execFileSync(
   [
     `:app:assemble${settings.task}`,
     ':expo-pupil-detector:testDebugUnitTest',
+    ':expo-frame-pipeline:testDebugUnitTest',
     '-PreactNativeArchitectures=arm64-v8a',
     // Bound memory pressure on the 8 GiB build machine.
     '--max-workers=2',
@@ -64,6 +78,31 @@ execFileSync('node', [`scripts/${settings.verify}`, destination], {
   stdio: 'inherit',
   env: process.env,
 });
+const app = JSON.parse(readFileSync(resolve('app.json'), 'utf8')).expo;
+const sourceAtEnd = sourceState();
+writeFileSync(
+  resolve(dir, 'BUILD_INFO.json'),
+  JSON.stringify(
+    {
+      schemaVersion: 1,
+      variant,
+      authRequired: variant === 'clinician' ? true : variant === 'batch3' ? false : null,
+      version: app.version,
+      versionCode: app.android.versionCode,
+      sourceCommit: sourceAtStart.sourceCommit,
+      sourceDirty:
+        sourceAtStart.sourceDirty ||
+        sourceAtEnd.sourceDirty ||
+        sourceAtStart.sourceCommit !== sourceAtEnd.sourceCommit,
+      sha256: digest,
+      bytes: readFileSync(destination).length,
+      apkChecks: 'PASS',
+      builtAtUtc: new Date().toISOString(),
+    },
+    null,
+    2,
+  ) + '\n',
+);
 console.log(`${variant} APK: ${destination}\nSHA-256: ${digest}`);
 // One short download name for physical testing; development remains optional.
 // This directory contains APK artifacts only, never phone recordings/evidence.

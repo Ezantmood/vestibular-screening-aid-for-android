@@ -62,6 +62,7 @@ class ExpoFramePipelineModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ExpoFramePipeline")
+    Constant("measurementVersion") { "face-pupil-v6" }
 
     AsyncFunction("analyzeVideoFile") { filePath: String, expectedFps: Int,
       faceSampleCount: Int, saveDebugFrames: Boolean ->
@@ -250,7 +251,7 @@ class ExpoFramePipelineModule : Module() {
       "savedFramePaths" to savedFrames,
       "savedCropPaths" to savedCrops,
       "warnings" to warnings,
-      "error" to null,
+      "error" to decoded.error,
     )
   }
 
@@ -368,6 +369,7 @@ class ExpoFramePipelineModule : Module() {
     val decodedPtsUs: List<Long>,
     val frameMad: List<Double>,
     val faceSamples: List<FaceBitmapSample>,
+    val error: String? = null,
   )
 
   @Suppress("TooGenericExceptionCaught")
@@ -395,6 +397,7 @@ class ExpoFramePipelineModule : Module() {
     }
     var prevGrid: FloatArray? = null
     var imageMissing = 0
+    var decodeError: String? = null
     try {
       extractor.setDataSource(filePath)
       var track = -1
@@ -422,16 +425,19 @@ class ExpoFramePipelineModule : Module() {
 
       var inputDone = false
       var outputDone = false
+      var quietDrain = 0
       var frameIndex = 0
       val startMs = android.os.SystemClock.elapsedRealtime()
       val info = MediaCodec.BufferInfo()
       while (!outputDone) {
         if (android.os.SystemClock.elapsedRealtime() - startMs > 180_000) {
           warnings.add("Decode wall-clock timeout; partial results.")
+          decodeError = "DECODE_TIMEOUT"
           break
         }
         if (frameIndex > MAX_DECODED_FRAMES) {
           warnings.add("Frame cap reached; partial results.")
+          decodeError = "DECODE_FRAME_CAP"
           break
         }
         if (!inputDone) {
@@ -489,13 +495,9 @@ class ExpoFramePipelineModule : Module() {
         }
         when {
           outIdx >= 0 -> {
-            if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-              outputDone = true
-              try {
-                codec.releaseOutputBuffer(outIdx, false)
-              } catch (_: Exception) {
-              }
-            } else if (info.size > 0) {
+            quietDrain = 0
+            if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outputDone = true
+            if (info.size > 0) {
               val ptsUs = info.presentationTimeUs
               decodedPts.add(ptsUs)
               var grid: FloatArray? = null
@@ -504,12 +506,15 @@ class ExpoFramePipelineModule : Module() {
               try {
                 val image = codec.getOutputImage(outIdx)
                 if (image != null) {
-                  imgW = image.width
-                  imgH = image.height
-                  width = imgW
-                  height = imgH
-                  grid = downsampledY(image)
-                  image.close()
+                  try {
+                    imgW = image.cropRect.width()
+                    imgH = image.cropRect.height()
+                    width = imgW
+                    height = imgH
+                    grid = downsampledY(image)
+                  } finally {
+                    image.close()
+                  }
                 } else {
                   imageMissing++
                 }
@@ -523,9 +528,7 @@ class ExpoFramePipelineModule : Module() {
                 // from duplicate stats; run breaks here.
                 mads.add(-1.0)
               }
-              if (grid != null) {
-                prevGrid = grid
-              }
+              prevGrid = grid
               if (sampleIndices.contains(frameIndex)) {
                 // Re-fetch is not possible (buffer released below), so convert
                 // from a second lightweight pass? No — instead decode the
@@ -562,47 +565,10 @@ class ExpoFramePipelineModule : Module() {
             }
           }
           outIdx == MediaCodec.INFO_TRY_AGAIN_LATER -> {
-            if (inputDone) {
-              // No more input and no output for a while — finish if the EOS
-              // already propagated; otherwise keep waiting briefly.
-              var quiet = 0
-              while (quiet < 15) {
-                val probe = try {
-                  codec.dequeueOutputBuffer(info, 2_000)
-                } catch (_: Exception) {
-                  MediaCodec.INFO_TRY_AGAIN_LATER
-                }
-                if (probe >= 0) {
-                  // Push back into the main loop by handling inline.
-                  if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-                    outputDone = true
-                  } else if (info.size > 0) {
-                    decodedPts.add(info.presentationTimeUs)
-                    mads.add(-1.0)
-                    prevGrid = null
-                    frameIndex++
-                  }
-                  try {
-                    codec.releaseOutputBuffer(probe, false)
-                  } catch (_: Exception) {
-                  }
-                  break
-                } else if (probe == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                  try {
-                    val nf = codec.outputFormat
-                    width = nf.getInteger(MediaFormat.KEY_WIDTH)
-                    height = nf.getInteger(MediaFormat.KEY_HEIGHT)
-                  } catch (_: Exception) {
-                  }
-                  break
-                } else {
-                  quiet++
-                }
-              }
-              if (quiet >= 15) {
-                warnings.add("Decoder drained with no EOS; partial results.")
-                outputDone = true
-              }
+            if (inputDone && ++quietDrain >= 15) {
+              warnings.add("Decoder drained with no EOS; partial results.")
+              decodeError = "DECODE_NO_EOS"
+              outputDone = true
             }
           }
           else -> {
@@ -611,6 +577,7 @@ class ExpoFramePipelineModule : Module() {
       }
     } catch (e: Exception) {
       warnings.add("Decode error: ${e.message}")
+      decodeError = "DECODE_FAILED"
     } finally {
       try {
         codec?.stop()
@@ -632,7 +599,7 @@ class ExpoFramePipelineModule : Module() {
     // Post-pass: render just the sampled frames to bitmaps (cheap, seeked).
     fillSampleBitmaps(filePath, sampleIndices, decodedPts, faceSamples, warnings)
 
-    return DecodedResult(width, height, decodedPts.toList(), mads.toList(), faceSamples.toList())
+    return DecodedResult(width, height, decodedPts.toList(), mads.toList(), faceSamples.toList(), decodeError)
   }
 
   /** Seeked lightweight pass that renders only sampled frames to Bitmaps. */
@@ -687,6 +654,7 @@ class ExpoFramePipelineModule : Module() {
       var wantPos = 0
       var inputDone = false
       var outputDone = false
+      var quietDrain = 0
       val info = MediaCodec.BufferInfo()
       val startMs = android.os.SystemClock.elapsedRealtime()
       while (!outputDone && wantPos < wanted.size) {
@@ -740,24 +708,26 @@ class ExpoFramePipelineModule : Module() {
         }
         if (outIdx >= 0) {
           val isWanted = wantPos < wanted.size && frameIndex == wanted[wantPos]
-          if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-            outputDone = true
-          } else if (info.size > 0) {
+          quietDrain = 0
+          if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outputDone = true
+          if (info.size > 0) {
             if (isWanted) {
               try {
                 val image = codec.getOutputImage(outIdx)
                 if (image != null) {
-                  val nv = yuv420ToNv21(image)
-                  val w = image.width
-                  val h = image.height
-                  image.close()
+                  val w = image.cropRect.width()
+                  val h = image.cropRect.height()
+                  val nv = try { yuv420ToNv21(image) } finally { image.close() }
                   val jpeg = nv21ToJpeg(nv, w, h, 85)
                   val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
                   val slot = faceSamples.firstOrNull { it.frameIndex == frameIndex }
-                  if (slot != null) {
+                  if (slot != null && info.presentationTimeUs == ptsByIndex[frameIndex]) {
                     slot.bitmap = bmp
                     slot.jpegBytes = jpeg
-                    slot.ptsUs = ptsByIndex[frameIndex]
+                    slot.ptsUs = info.presentationTimeUs
+                  } else {
+                    bmp?.recycle()
+                    warnings.add("Bitmap PTS mismatch f$frameIndex; face sample rejected.")
                   }
                 }
               } catch (e: Exception) {
@@ -773,34 +743,9 @@ class ExpoFramePipelineModule : Module() {
             codec.releaseOutputBuffer(outIdx, false)
           } catch (_: Exception) {
           }
-        } else if (outIdx == MediaCodec.INFO_TRY_AGAIN_LATER && inputDone) {
-          // Drain wait then give up.
-          var quiet = 0
-          var progressed = false
-          while (quiet < 15 && !progressed) {
-            val probe = try {
-              codec.dequeueOutputBuffer(info, 2_000)
-            } catch (_: Exception) {
-              MediaCodec.INFO_TRY_AGAIN_LATER
-            }
-            if (probe >= 0) {
-              progressed = true
-              if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-                outputDone = true
-              } else if (info.size > 0) {
-                frameIndex++
-              }
-              try {
-                codec.releaseOutputBuffer(probe, false)
-              } catch (_: Exception) {
-              }
-            } else {
-              quiet++
-            }
-          }
-          if (!progressed) {
-            outputDone = true
-          }
+        } else if (outIdx == MediaCodec.INFO_TRY_AGAIN_LATER && inputDone && ++quietDrain >= 15) {
+          warnings.add("Bitmap decoder drained with no EOS; some face samples missing.")
+          outputDone = true
         }
       }
     } catch (e: Exception) {
@@ -825,27 +770,14 @@ class ExpoFramePipelineModule : Module() {
 
   /** Downsample the Y (luminance) plane to a fixed GRID_W x GRID_H float grid. */
   private fun downsampledY(image: android.media.Image): FloatArray {
-    val w = image.width
-    val h = image.height
-    val yPlane = image.planes[0]
-    val buf = yPlane.buffer
-    val rowStride = yPlane.rowStride
-    val pixStride = yPlane.pixelStride
-    val out = FloatArray(GRID_W * GRID_H)
-    for (gy in 0 until GRID_H) {
-      val sy = (gy * h) / GRID_H
-      for (gx in 0 until GRID_W) {
-        val sx = (gx * w) / GRID_W
-        val idx = sy * rowStride + sx * pixStride
-        val v = try {
-          buf.get(idx).toInt() and 0xFF
-        } catch (_: Exception) {
-          0
-        }
-        out[gy * GRID_W + gx] = v.toFloat()
-      }
+    val crop = image.cropRect; val p = image.planes[0]
+    val buffer = p.buffer; val base = buffer.position()
+    require(base.toLong() + (crop.bottom.toLong() - 1) * p.rowStride + (crop.right.toLong() - 1) * p.pixelStride < buffer.limit())
+    return FloatArray(GRID_W * GRID_H) { i ->
+      val x = crop.left + (i % GRID_W) * crop.width() / GRID_W
+      val y = crop.top + (i / GRID_W) * crop.height() / GRID_H
+      (buffer.get(base + y * p.rowStride + x * p.pixelStride).toInt() and 0xff).toFloat()
     }
-    return out
   }
 
   private fun meanAbsDiff(a: FloatArray, b: FloatArray): Double {
@@ -859,38 +791,19 @@ class ExpoFramePipelineModule : Module() {
   // ---------- YUV -> Bitmap helpers ----------
 
   private fun yuv420ToNv21(image: android.media.Image): ByteArray {
-    val w = image.width
-    val h = image.height
-    val yPlane = image.planes[0]
-    val uPlane = image.planes[1]
-    val vPlane = image.planes[2]
-    val yBuf = yPlane.buffer
-    val uBuf = uPlane.buffer
-    val vBuf = vPlane.buffer
-    val yRowStride = yPlane.rowStride
-    val yPixStride = yPlane.pixelStride
-    val uRowStride = uPlane.rowStride
-    val uPixStride = uPlane.pixelStride
-    val vRowStride = vPlane.rowStride
-    val vPixStride = vPlane.pixelStride
-    val nv21 = ByteArray(w * h * 3 / 2)
-    var pos = 0
-    for (y in 0 until h) {
-      for (x in 0 until w) {
-        nv21[pos++] = yBuf.get(y * yRowStride + x * yPixStride)
-      }
+    val crop = image.cropRect
+    val w = crop.width(); val h = crop.height()
+    require(w % 2 == 0 && h % 2 == 0 && crop.left % 2 == 0 && crop.top % 2 == 0) { "Unsupported odd YUV420 crop" }
+    fun plane(index: Int, divisor: Int): ByteArray {
+      val p = image.planes[index]
+      return PlanePixels.copy(p.buffer, p.rowStride, p.pixelStride,
+        crop.left / divisor, crop.top / divisor, w / divisor, h / divisor)
     }
-    val ySize = w * h
-    var uvPos = ySize
-    for (y in 0 until h / 2) {
-      for (x in 0 until w / 2) {
-        val v = vBuf.get(y * vRowStride + x * vPixStride)
-        val u = uBuf.get(y * uRowStride + x * uPixStride)
-        nv21[uvPos++] = v
-        nv21[uvPos++] = u
-      }
+    val y = plane(0, 1); val u = plane(1, 2); val v = plane(2, 2)
+    return ByteArray(w * h * 3 / 2).also { out ->
+      y.copyInto(out)
+      for (i in u.indices) { out[y.size + 2 * i] = v[i]; out[y.size + 2 * i + 1] = u[i] }
     }
-    return nv21
   }
 
   private fun nv21ToJpeg(nv21: ByteArray, w: Int, h: Int, quality: Int): ByteArray {
@@ -1112,6 +1025,7 @@ class ExpoFramePipelineModule : Module() {
           // Left/right labels are positional in the analyzed frame
           // (front-camera mirroring may swap anatomy) — ROI feasibility only.
           var hitDeg = -1
+          var headPose: Map<String, Float>? = null
           var hitL = 0
           var hitT = 0
           var hitR = 0
@@ -1146,6 +1060,7 @@ class ExpoFramePipelineModule : Module() {
                 val face = faces.maxByOrNull {
                   it.boundingBox.width() * it.boundingBox.height()
                 }!!
+                headPose = mapOf("pitch" to face.headEulerAngleX, "yaw" to face.headEulerAngleY, "roll" to face.headEulerAngleZ)
                 val rb = face.boundingBox
                 val mapped = mapBoxToOriginal(
                   rb.left, rb.top, rb.right, rb.bottom, deg, bmp.width, bmp.height,
@@ -1206,7 +1121,7 @@ class ExpoFramePipelineModule : Module() {
           val fy = (hitT * scaleY).toInt().coerceIn(0, max(0, frameHeight - 1))
           val fw = ((hitR - hitL) * scaleX).toInt().coerceIn(1, frameWidth - fx)
           val fh = ((hitB - hitT) * scaleY).toInt().coerceIn(1, frameHeight - fy)
-          val eyeSize = max(MIN_EYE_ROI_PX, (fw * EYE_ROI_FACE_FRACTION).toInt())
+          val eyeSize = FrameGeometry.eyeSize(fw, fh, hitDeg, EYE_ROI_FACE_FRACTION, MIN_EYE_ROI_PX)
           fun eyeBox(pos: PointF?, estX: Double, estY: Double): EyeBox {
             val cx = if (pos != null) {
               (pos.x * scaleX).toInt()
@@ -1244,6 +1159,7 @@ class ExpoFramePipelineModule : Module() {
                 "leftEye" to left.map,
                 "rightEye" to right.map,
                 "rotationApplied" to hitDeg,
+                "headPose" to headPose,
                 "error" to null,
               ),
               left, right,
@@ -1347,17 +1263,7 @@ class ExpoFramePipelineModule : Module() {
    */
   private fun mapBoxToOriginal(
     l: Int, t: Int, r: Int, b: Int, deg: Int, w: Int, h: Int,
-  ): IntArray = when (deg) {
-    90 -> intArrayOf(
-      t.coerceIn(0, w - 1), (h - 1 - r).coerceIn(0, h - 1),
-      b.coerceIn(0, w - 1), (h - 1 - l).coerceIn(0, h - 1),
-    )
-    270 -> intArrayOf(
-      (w - 1 - b).coerceIn(0, w - 1), t.coerceIn(0, h - 1),
-      (w - 1 - t).coerceIn(0, w - 1), b.coerceIn(0, h - 1),
-    )
-    else -> intArrayOf(l, t, r, b)
-  }
+  ): IntArray = FrameGeometry.boxToOriginal(l, t, r, b, deg, w, h)
 
   /** Map a landmark point from a deg-CW-rotated candidate back to original. */
   private fun mapPointToOriginal(p: PointF, deg: Int, w: Int, h: Int): PointF = when (deg) {

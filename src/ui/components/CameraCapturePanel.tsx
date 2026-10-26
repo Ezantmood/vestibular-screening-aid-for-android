@@ -2,8 +2,8 @@ import { useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { FixedMode } from '../../camera/fixedModes';
 import type { NativeFramingSample } from '../../camera/livePreview';
-import { FramingStabilizer, classifyFramingState } from '../../eyetracking/framing';
-import type { FramingState } from '../../eyetracking/framing';
+import { FRAMING_GATES, FramingStabilizer, classifyFramingState } from '../../eyetracking/framing';
+import type { FramingGateSet, FramingState } from '../../eyetracking/framing';
 import type { PreviewCaptureController } from '../hooks/usePreviewCapture';
 import LiveCameraPreviewView from './LiveCameraPreviewView';
 import CameraModePicker from './CameraModePicker';
@@ -32,6 +32,9 @@ export default function CameraCapturePanel({
   duration = 10,
   startTitle,
   stopTitle,
+  framingGates = FRAMING_GATES,
+  framingHints,
+  previewAspect,
 }: {
   camera: PreviewCaptureController;
   modes: FixedMode[];
@@ -45,6 +48,10 @@ export default function CameraCapturePanel({
   duration?: number;
   startTitle?: string;
   stopTitle?: string;
+  framingGates?: FramingGateSet;
+  framingHints?: Partial<Record<FramingState, string>>;
+  /** Width/height of the preview. Calibration uses the recorded frame so the lamp is not a cover crop. */
+  previewAspect?: number;
 }) {
   const mode = modes[selectedIndex];
   const stabilizer = useRef(new FramingStabilizer(3));
@@ -56,7 +63,9 @@ export default function CameraCapturePanel({
   const processing = busy && camera.stage === 'closed';
   const front = mode?.lensFacing === 'FRONT';
   const ready = !requireFace || !front || framing === 'READY';
-  const hint = front ? hints[framing] : 'Hướng camera sau vào đối tượng cần quay.';
+  const hint = front
+    ? (framingHints?.[framing] ?? hints[framing])
+    : 'Hướng camera sau vào đối tượng cần quay.';
   return (
     <View testID="camera-capture-panel">
       <CameraModePicker
@@ -66,7 +75,7 @@ export default function CameraCapturePanel({
         disabled={busy || camera.stage !== 'closed'}
       />
       <View
-        style={styles.preview}
+        style={[styles.preview, previewAspect != null ? { aspectRatio: previewAspect } : null]}
         testID="capture-preview-box"
         onLayout={(e) => setSize(e.nativeEvent.layout)}
       >
@@ -84,7 +93,9 @@ export default function CameraCapturePanel({
             }}
             onFramingSample={(event) => {
               setSample(event.nativeEvent);
-              setFraming(stabilizer.current.push(classifyFramingState(event.nativeEvent)));
+              setFraming(
+                stabilizer.current.push(classifyFramingState(event.nativeEvent, framingGates)),
+              );
             }}
           />
         ) : (

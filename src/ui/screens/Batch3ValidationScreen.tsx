@@ -188,8 +188,12 @@ export default function Batch3ValidationScreen() {
       if (mounted.current) setBusy(false);
     }
   }
-  function noteFailure(stage: ValidationFailure['stage'], code: ValidationFailureCode) {
-    setFailures((previous) => [...previous, { stage, code }].slice(-10));
+  function noteFailure(
+    stage: ValidationFailure['stage'],
+    code: ValidationFailureCode,
+    decode?: ValidationFailure['decode'],
+  ) {
+    setFailures((previous) => [...previous, { stage, code, decode }].slice(-10));
   }
   function finishEyeTest(result: EyeTestResult, next: Stage) {
     const matched =
@@ -210,7 +214,7 @@ export default function Batch3ValidationScreen() {
       <View style={styles.flow}>
         {stage === 'calibration' ? (
           <CalibrationScreen
-            onFailure={(code) => noteFailure('calibration', code)}
+            onFailure={(code, decode) => noteFailure('calibration', code, decode)}
             onComplete={(result, localEvidence) => {
               setEvidence(localEvidence);
               calibrationId.current = result.verdict === 'VALID' ? result.id : null;

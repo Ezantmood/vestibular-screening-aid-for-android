@@ -49,6 +49,11 @@ import {
   type VaultData,
 } from '../../clinic/types';
 import { audit, discardUnreadableVault, updateVault, wipeClinicalData } from '../../clinic/vault';
+import { readCalibrationJson } from '../../camera/eyeAnalysisStorage';
+import {
+  describeSavedCalibration,
+  type SavedCalibrationView,
+} from '../../eyetracking/calibration/display';
 import { loadCalibration } from '../../storage/calibrationStore';
 import type { EyeTestResult } from '../../tests/metrics/types';
 import type { MvpTestId } from '../../tests/types';
@@ -108,6 +113,14 @@ function deviceLabel(): string {
   return name ? name : Platform.OS;
 }
 
+function savedClock(ms: number): string {
+  if (!Number.isFinite(ms)) return '—';
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return '—';
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function isCore(id: ClinicTestId): id is MvpTestId {
   return id === 'smooth-pursuit' || id === 'horizontal-saccades';
 }
@@ -153,6 +166,8 @@ export default function ClinicApp() {
   const [profileDraft, setProfileDraft] = useState({ name: '', specialty: '', workplace: '' });
   const [banner, setBanner] = useState<string | null>(null);
   const [calibrationDone, setCalibrationDone] = useState(false);
+  const [advanceAfterCalibration, setAdvanceAfterCalibration] = useState(false);
+  const [savedCalibration, setSavedCalibration] = useState<SavedCalibrationView | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [armedDelete, setArmedDelete] = useState(false);
 
@@ -188,6 +203,22 @@ export default function ClinicApp() {
       live = false;
     };
   }, [uid, auth.email, bootAttempt]);
+
+  useEffect(() => {
+    if (screen.id !== 'home' && screen.id !== 'instructions') return;
+    let live = true;
+    void readCalibrationJson()
+      .then((json) => {
+        if (!live) return;
+        setSavedCalibration(json ? describeSavedCalibration(json) : null);
+      })
+      .catch(() => {
+        if (live) setSavedCalibration(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [screen.id]);
 
   async function resetVault() {
     setResetting(true);
@@ -324,6 +355,7 @@ export default function ClinicApp() {
     setPending(null);
     setBanner(null);
     setCalibrationDone(false);
+    setAdvanceAfterCalibration(false);
     setScreen({ id: 'setup', patientId, anonymous });
   }
 
@@ -579,6 +611,7 @@ export default function ClinicApp() {
           onPress={() => setScreen({ id: 'tools' })}
         />
         <Text style={styles.section}>{t(lang, 'anonymousRuns')}</Text>
+        <CalibrationRecall saved={savedCalibration} lang={lang} />
         {sessionsFor(sessions, null).length === 0 && (
           <Text style={styles.body}>{t(lang, 'emptyHistory')}</Text>
         )}
@@ -818,6 +851,7 @@ export default function ClinicApp() {
     body = (
       <View style={styles.stack}>
         <Text style={styles.title}>{info.title}</Text>
+        <CalibrationRecall saved={savedCalibration} lang={lang} />
         <TargetSketch kind={sketchKind(currentTest)} />
         <Text style={styles.body}>{info.steps}</Text>
         <Text style={styles.body}>{info.look}</Text>
@@ -852,15 +886,31 @@ export default function ClinicApp() {
         <CameraButton
           title={t(lang, 'back')}
           tone="secondary"
-          onPress={() => setScreen({ id: 'instructions' })}
+          onPress={() => {
+            setBanner(t(lang, advanceAfterCalibration ? 'calibrationKept' : 'calibrationLeft'));
+            setAdvanceAfterCalibration(false);
+            setScreen({ id: 'instructions' });
+          }}
         />
+        {advanceAfterCalibration && (
+          <CameraButton
+            title={t(lang, 'continueAfterCalibration')}
+            onPress={() => {
+              const testId = draft?.tests[draft.index];
+              if (!testId) return;
+              setAdvanceAfterCalibration(false);
+              setBanner(null);
+              setScreen({ id: isCore(testId) ? 'run' : 'extended' });
+            }}
+          />
+        )}
         <CalibrationScreen
           onComplete={(result) => {
             const testId = draft?.tests[draft.index];
             if (!testId) return;
             setCalibrationDone(true);
             setBanner(result.verdict === 'VALID' ? null : t(lang, 'calRetry'));
-            setScreen({ id: isCore(testId) ? 'run' : 'extended' });
+            setAdvanceAfterCalibration(true);
           }}
         />
       </View>
@@ -1236,6 +1286,30 @@ export default function ClinicApp() {
           {body}
         </ScrollView>
       )}
+    </View>
+  );
+}
+
+function CalibrationRecall({
+  saved,
+  lang,
+}: {
+  saved: SavedCalibrationView | null;
+  lang: ClinicSettings['language'];
+}) {
+  if (!saved) return null;
+  const headline = fill(
+    t(lang, saved.verdict === 'VALID' ? 'savedCalibrationValid' : 'savedCalibrationRetry'),
+    savedClock(saved.atMs),
+  );
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{headline}</Text>
+      {saved.lines.map((line, index) => (
+        <Text key={index} style={styles.body}>
+          {line}
+        </Text>
+      ))}
     </View>
   );
 }

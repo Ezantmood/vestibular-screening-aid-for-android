@@ -8,11 +8,21 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { PipelineDecodeError } from '../../eyetracking/tracking/decodeIntegrity';
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
 import { collectFixedModes, type FixedMode } from '../../camera/fixedModes';
-import { invalidateCalibration } from '../../camera/eyeAnalysisStorage';
+import { readCalibrationJson, invalidateCalibration } from '../../camera/eyeAnalysisStorage';
 import { assertCurrentPupilDetector } from '../../camera/pupilDetector';
-import { calibrationFeedback } from '../../eyetracking/calibration/insights';
+import {
+  calibrationPageScrolls,
+  describeSavedCalibration,
+  type CalibrationScreenPhase,
+  type SavedCalibrationView,
+} from '../../eyetracking/calibration/display';
+import {
+  calibrationCaptureFailureHint,
+  calibrationFeedback,
+} from '../../eyetracking/calibration/insights';
 import {
   CALIBRATION_TARGETS,
   CALIBRATION_TAKE_SECONDS,
@@ -24,23 +34,39 @@ import {
   type CalibrationResult,
 } from '../../eyetracking/calibration/types';
 import { sameCalibrationContext } from '../../eyetracking/calibration/calibration';
-import { validationFailureCode, type ValidationFailureCode } from '../../tests/validation/failures';
+import {
+  validationFailureCode,
+  type ValidationFailureCode,
+  type ValidationFailure,
+} from '../../tests/validation/failures';
 import { analyzeCalibrationTakes, type CapturedCalibrationTake } from '../../tests/eyeAnalysis';
 import { sampleStimulusClock } from '../../tests/stimulus/sessionAnalysis';
 import CameraCapturePanel from '../components/CameraCapturePanel';
+import CameraImageGallery from '../components/CameraImageGallery';
 import { CameraButton, CameraDetails } from '../components/CameraUI';
 import { CaptureCancelled, usePreviewCapture } from '../hooks/usePreviewCapture';
 import { measureTargetViewport } from '../hooks/measureTargetViewport';
+import {
+  CALIBRATION_FRAMING_GATES,
+  CALIBRATION_PREVIEW_ASPECT,
+  calibrationFramingHint,
+} from '../../eyetracking/calibration/geometry';
 import { targetBoardHeight } from '../targetBoard';
 import { useEyeAnalysisAwake } from '../hooks/useEyeAnalysisAwake';
 
 const nowUs = () => performance.now() * 1000;
+const restingBoardHeight = 96;
+
+async function loadSavedCalibration(): Promise<SavedCalibrationView | null> {
+  const json = await readCalibrationJson();
+  return json ? describeSavedCalibration(json) : null;
+}
 export default function CalibrationScreen({
   onComplete,
   onFailure,
 }: {
   onComplete?: (result: CalibrationResult, evidence: unknown) => void;
-  onFailure?: (code: ValidationFailureCode) => void;
+  onFailure?: (code: ValidationFailureCode, decode?: ValidationFailure['decode']) => void;
 } = {}) {
   const camera = usePreviewCapture();
   const windowSize = useWindowDimensions();
@@ -48,12 +74,14 @@ export default function CalibrationScreen({
   const [modes, setModes] = useState<FixedMode[]>([]);
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<CalibrationScreenPhase>('ready');
   useEyeAnalysisAwake(busy);
   const [target, setTarget] = useState<CalibrationTarget | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [message, setMessage] = useState('');
   const [report, setReport] = useState('');
   const [feedback, setFeedback] = useState<string[]>([]);
+  const [auditImages, setAuditImages] = useState<{ target: string; paths: string[] }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const cancelled = useRef(false);
   const mounted = useRef(true);
@@ -63,11 +91,41 @@ export default function CalibrationScreen({
   const scroll = useRef<ScrollView>(null);
   const scrollOffset = useRef(0);
   const board = useRef<View>(null);
+  const laidOut = useRef(size);
+  const lockLayout = useRef(false);
+  const runToken = useRef(0);
+  const previousSaved = useRef<SavedCalibrationView | null>(null);
   useLayoutEffect(() => {
     committed.current = target ? { id: target.id, jsUs: nowUs() } : null;
   }, [target]);
+  function revealResult() {
+    requestAnimationFrame(() => {
+      scroll.current?.scrollTo({ y: 0, animated: false });
+    });
+  }
   useEffect(() => {
     mounted.current = true;
+    const token = runToken.current;
+    void (async () => {
+      try {
+        const saved = await loadSavedCalibration();
+        if (!mounted.current || token !== runToken.current) return;
+        if (!saved) return;
+        previousSaved.current = saved;
+        setPhase('result');
+        setFeedback(saved.lines);
+        setMessage(
+          saved.verdict === 'VALID'
+            ? 'Lần hiệu chỉnh đã lưu từng đạt kiểm tra chất lượng; xem điều kiện sử dụng bên dưới.'
+            : 'Lần hiệu chỉnh đã lưu chưa đạt. Ánh xạ không được dùng để chấm vị trí trên màn hình.',
+        );
+        requestAnimationFrame(() => {
+          scroll.current?.scrollTo({ y: 0, animated: false });
+        });
+      } catch {
+        // A missing native reader leaves the screen ready for a new take.
+      }
+    })();
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active') {
         cancelled.current = true;
@@ -96,21 +154,62 @@ export default function CalibrationScreen({
       }
     }
   }
+  async function showInterrupted(kind: 'stopped' | 'failed') {
+    let saved: SavedCalibrationView | null = null;
+    try {
+      saved = mounted.current ? ((await loadSavedCalibration()) ?? previousSaved.current) : null;
+    } catch {
+      saved = null;
+    }
+    if (!mounted.current) return;
+    setPhase(saved ? 'result' : 'ready');
+    setFeedback(saved?.lines ?? []);
+    setTarget(null);
+    setMessage(
+      kind === 'stopped'
+        ? saved
+          ? 'Đã dừng. Lần này chưa lưu. Lần hiệu chỉnh đã lưu trước vẫn hiện bên dưới.'
+          : 'Đã dừng. Lần hiệu chỉnh này chưa được lưu.'
+        : 'Calibration chưa hoàn thành. Hãy thử lại.',
+    );
+    if (saved) revealResult();
+  }
   async function calibrate() {
     const mode = modes[index];
     if (!mode || lock.current || size.width <= 0) return;
     lock.current = true;
     cancelled.current = false;
+    runToken.current += 1;
     setBusy(true);
+    setPhase('capture');
     setError(null);
     setReport('');
     setFeedback([]);
-    viewport.current = { ...size };
+    setAuditImages([]);
+    setMessage('');
     const takes: CapturedCalibrationTake[] = [];
     const createdAtMs = Date.now();
     try {
-      // A failed/cancelled retry must never leave an older mapping active.
+      // Preserve the previous evidence for display, but revoke its active pointer
+      // before a retry. Cancellation/failure cannot silently reactivate it.
+      previousSaved.current = await loadSavedCalibration();
       await invalidateCalibration();
+      lockLayout.current = false;
+      const deadline = Date.now() + 2000;
+      while (mounted.current && !cancelled.current && Date.now() < deadline) {
+        const laid = laidOut.current;
+        if (laid.width > 0 && Math.abs(laid.height - boardHeight) < 1) break;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      }
+      if (!mounted.current || cancelled.current) {
+        await showInterrupted('stopped');
+        return;
+      }
+      if (laidOut.current.width <= 0 || Math.abs(laidOut.current.height - boardHeight) >= 1) {
+        throw new Error('Vùng target chưa mở hết. Hãy thử calibration lại.');
+      }
+      viewport.current = { ...laidOut.current };
+      lockLayout.current = true;
       scroll.current?.scrollTo({ y: 0, animated: false });
       const viewportOptions = {
         ready: () => Math.abs(scrollOffset.current) < 0.5,
@@ -186,15 +285,20 @@ export default function CalibrationScreen({
             JSON.stringify({
               target: next.id,
               frames: capture.extractorSampleCount,
-              filePath: capture.filePath,
+              completed: !capture.manualStop,
             }),
         );
       }
       if (mounted.current) setTarget(null);
       await camera.close();
+      lockLayout.current = false;
       if (!mounted.current || cancelled.current) {
-        if (mounted.current) setMessage('Đã hủy. Calibration cũ đã bị vô hiệu hóa; hãy thử lại.');
+        await showInterrupted('stopped');
         return;
+      }
+      if (mounted.current) {
+        setPhase('analysis');
+        revealResult();
       }
       const out = await analyzeCalibrationTakes({
         id: `cal-${Date.now()}`,
@@ -213,27 +317,39 @@ export default function CalibrationScreen({
             ? 'Calibration đạt kiểm tra chất lượng. Có thể chuyển sang bài mắt.'
             : 'Calibration chưa đạt. Xem lý do và xuất báo cáo để kiểm tra detector / ánh xạ.',
         );
+        setPhase('result');
         setReport(JSON.stringify(out.summary, null, 2));
         setFeedback(calibrationFeedback(out.result));
+        setAuditImages(out.summary.auditImages);
+        revealResult();
         onComplete?.(out.result, out.evidence);
       }
     } catch (e) {
-      if (mounted.current) onFailure?.(validationFailureCode(e));
+      if (mounted.current)
+        onFailure?.(
+          validationFailureCode(e),
+          e instanceof PipelineDecodeError ? { stage: e.stage, ...e.counts } : undefined,
+        );
       await camera.close();
-      if (mounted.current) {
-        setTarget(null);
-        setMessage('Calibration chưa hoàn thành. Hãy thử lại.');
-        if (!(e instanceof CaptureCancelled)) setError(String(e));
-      }
+      const stopped = e instanceof CaptureCancelled || cancelled.current;
+      await showInterrupted(stopped ? 'stopped' : 'failed');
+      if (mounted.current && !stopped)
+        setError(
+          `${e instanceof PipelineDecodeError ? e.describe() : String(e)} — ${calibrationCaptureFailureHint(validationFailureCode(e))}`,
+        );
     } finally {
+      lockLayout.current = false;
       lock.current = false;
       if (mounted.current) setBusy(false);
     }
   }
+  const shownBoardHeight =
+    phase === 'capture' || phase === 'ready' ? boardHeight : restingBoardHeight;
   return (
     <ScrollView
       ref={scroll}
-      scrollEnabled={!busy}
+      style={styles.screen}
+      scrollEnabled={calibrationPageScrolls(phase)}
       scrollEventThrottle={16}
       onScroll={(event) => {
         scrollOffset.current = event.nativeEvent.contentOffset.y;
@@ -243,15 +359,17 @@ export default function CalibrationScreen({
     >
       <View
         ref={board}
-        style={[styles.board, { height: boardHeight }]}
+        style={[styles.board, { height: shownBoardHeight }]}
         testID="calibration-board"
         onLayout={(e) => {
           const layout = e.nativeEvent.layout;
+          laidOut.current = { width: layout.width, height: layout.height };
           if (
-            busy &&
+            lockLayout.current &&
             (viewport.current.width !== layout.width || viewport.current.height !== layout.height)
           ) {
             cancelled.current = true;
+            lockLayout.current = false;
             setTarget(null);
             void camera.stop();
           }
@@ -276,6 +394,22 @@ export default function CalibrationScreen({
         vài pixel, nhỏ hơn nhiễu camera. Giữ nguyên điện thoại, đầu và ánh sáng.
       </Text>
       {message !== '' && <Text accessibilityLiveRegion="polite">{message}</Text>}
+      {error && <Text selectable>{error}</Text>}
+      {feedback.map((line, i) => (
+        <Text key={i}>{line}</Text>
+      ))}
+      {report !== '' && (
+        <CameraDetails title="Calibration quality & signal">
+          <Text selectable>{report}</Text>
+          <Text>
+            Ảnh ROI chỉ lưu trên máy. Dấu đỏ là detector đo lại, không phải ground truth hay bằng
+            chứng calibration đạt.
+          </Text>
+          {auditImages.map((row) => (
+            <CameraImageGallery key={row.target} title={`ROI ${row.target}`} paths={row.paths} />
+          ))}
+        </CameraDetails>
+      )}
       {busy && (
         <CameraButton
           title="Hủy calibration"
@@ -298,23 +432,22 @@ export default function CalibrationScreen({
           busy={busy}
           phase="analyzing"
           duration={CALIBRATION_TAKE_SECONDS}
-          instruction="Bắt đầu quay sẽ chạy toàn bộ calibration."
+          instruction="Đèn xanh chỉ bật khi mặt đã đủ gần. Giữ đúng khoảng cách đó rồi bắt đầu."
+          framingGates={CALIBRATION_FRAMING_GATES}
+          framingHints={{
+            TOO_FAR: calibrationFramingHint('TOO_FAR'),
+            TOO_CLOSE: calibrationFramingHint('TOO_CLOSE'),
+            READY: calibrationFramingHint('READY'),
+          }}
+          previewAspect={CALIBRATION_PREVIEW_ASPECT}
           onCapture={() => void calibrate()}
         />
-      )}
-      {error && <Text selectable>{error}</Text>}
-      {feedback.map((line, i) => (
-        <Text key={i}>{line}</Text>
-      ))}
-      {report !== '' && (
-        <CameraDetails title="Calibration quality & signal">
-          <Text selectable>{report}</Text>
-        </CameraDetails>
       )}
     </ScrollView>
   );
 }
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   content: { padding: 16, gap: 12, paddingBottom: 160 },
   title: { fontSize: 24, fontWeight: '700' },
   board: {

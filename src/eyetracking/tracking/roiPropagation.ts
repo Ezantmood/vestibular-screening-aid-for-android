@@ -17,6 +17,8 @@ import type { FramePipelineFaceSample } from '../../../modules/expo-frame-pipeli
 import type { EyeSide, PupilFailureReason } from '../pupil/pupilTypes';
 
 export interface FaceAnchor {
+  rotationApplied?: number | null;
+  headPose?: FramePipelineFaceSample['headPose'];
   x: number;
   y: number;
   width: number;
@@ -34,7 +36,14 @@ function usableFace(sample: FramePipelineFaceSample): FaceAnchor | null {
     box.height <= 0
   )
     return null;
-  return { x: box.x, y: box.y, width: box.width, height: box.height };
+  return {
+    x: box.x,
+    y: box.y,
+    width: box.width,
+    height: box.height,
+    rotationApplied: sample.rotationApplied,
+    headPose: sample.headPose,
+  };
 }
 
 /** One face box per decoded frame. The box stays with the head; it is not
@@ -77,7 +86,7 @@ export function propagateFaceAnchors(args: {
         break;
       }
     }
-    let clean = lo !== null && hi !== null;
+    let clean = lo !== null && hi !== null && lo.box.rotationApplied === hi.box.rotationApplied;
     if (clean && lo && hi) {
       for (const sample of ordered) {
         if (sample.frameIndex > lo.frameIndex && sample.frameIndex < hi.frameIndex) {
@@ -100,6 +109,8 @@ export function propagateFaceAnchors(args: {
     }
     const alpha = (pts - lo.ptsUs) / (hi.ptsUs - lo.ptsUs);
     out.push({
+      rotationApplied: lo.box.rotationApplied,
+      // Pose is diagnostic keyframe data, never synthesized between measurements.
       x: Math.round(lo.box.x + (hi.box.x - lo.box.x) * alpha),
       y: Math.round(lo.box.y + (hi.box.y - lo.box.y) * alpha),
       width: Math.round(lo.box.width + (hi.box.width - lo.box.width) * alpha),
@@ -173,7 +184,12 @@ export function propagateRois(args: {
   const out: PropagatedRoi[] = [];
   for (const eyeSide of ['left', 'right'] as const) {
     // Valid keyframes for this eye, in frame order.
-    const keys: { frameIndex: number; ptsUs: number | null; box: EyeBox }[] = [];
+    const keys: {
+      frameIndex: number;
+      ptsUs: number | null;
+      box: EyeBox;
+      rotation: number | null;
+    }[] = [];
     for (const s of ordered) {
       const box = usableEye(s, eyeSide);
       if (
@@ -185,7 +201,7 @@ export function propagateRois(args: {
         s.ptsUs >= 0 &&
         s.ptsUs === decodedPtsUsList[s.frameIndex]
       ) {
-        keys.push({ frameIndex: s.frameIndex, ptsUs: s.ptsUs, box });
+        keys.push({ frameIndex: s.frameIndex, ptsUs: s.ptsUs, box, rotation: s.rotationApplied });
       }
     }
     // Invalid sample indices break interpolation between keyframes.
@@ -222,7 +238,7 @@ export function propagateRois(args: {
           break;
         }
       }
-      let clean = lo !== null && hi !== null;
+      let clean = lo !== null && hi !== null && lo.rotation === hi.rotation;
       if (clean && lo !== null && hi !== null) {
         const loFrame: number = lo.frameIndex;
         const hiFrame: number = hi.frameIndex;

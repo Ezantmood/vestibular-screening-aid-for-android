@@ -15,7 +15,20 @@ import { buildSuccessResult } from '../src/eyetracking/pupil/coordinates';
 import { finalTrack } from '../src/eyetracking/tracking/twoPassTracking';
 import { processTrackingSignals } from '../src/signals/trackingSignals';
 import { calibrationInsights, calibrationFeedback } from '../src/eyetracking/calibration/insights';
+import {
+  calibrationPageScrolls,
+  describeSavedCalibration,
+} from '../src/eyetracking/calibration/display';
 import { currentPupilMeasurement } from '../src/eyetracking/calibration/types';
+import {
+  CALIBRATION_FRAMING_GATES,
+  CALIBRATION_GEOMETRY,
+  CALIBRATION_PREVIEW_ASPECT,
+  classifyCalibrationFraming,
+  modeledViewportError,
+  pupilPlaneOffsetPx,
+} from '../src/eyetracking/calibration/geometry';
+import { classifyFramingState, type FramingObservation } from '../src/eyetracking/framing';
 
 const context: CalibrationContext = {
   cameraId: '1',
@@ -27,7 +40,7 @@ const context: CalibrationContext = {
   viewportLeft: 16,
   viewportTop: 100,
   detectorId: 'percentile-dark',
-  coordinateVersion: 'face-pupil-v5',
+  coordinateVersion: 'face-pupil-v6',
 };
 const time = 100_000;
 function fixture(): CalibrationTake[] {
@@ -50,6 +63,7 @@ function fixture(): CalibrationTake[] {
         y: 0.7 - 0.25 * target.x + 0.01 * target.y + (frameIndex % 3 ? 0.001 : -0.001),
         confidence: 0.85,
         roi: { x: 100, y: 200, width: 100, height: 80 },
+        face: { x: 100, y: 200, width: 100, height: 80 },
         estimated: false,
       })),
     ),
@@ -61,7 +75,7 @@ const result = fit();
 assert.equal(currentPupilMeasurement(undefined), false);
 assert.equal(currentPupilMeasurement('decoded-roi-v3'), false);
 assert.equal(currentPupilMeasurement('decoded-roi-v4'), false);
-assert.equal(currentPupilMeasurement('face-pupil-v5'), true);
+assert.equal(currentPupilMeasurement('face-pupil-v6'), true);
 const stable = stableNormalizedPoint([
   { x: 0.6, y: 0.5, roi: { width: 100, height: 100 } },
   { x: 0.55, y: 0.5, roi: { width: 200, height: 100 } },
@@ -85,7 +99,7 @@ assert.ok(insights[0].targetCorrelation.featureXTargetY! > 0.99);
 assert.ok(insights[0].targetCorrelation.featureYTargetX! < -0.99);
 assert.ok(insights[0].validationAxisRmse!.x < 0.01);
 assert.ok(insights[0].centerRepeatFeatureDistance! < 0.01);
-assert.equal(calibrationFeedback(result).length, 1);
+assert.ok(calibrationFeedback(result).some((line) => line.includes('100/100')));
 assert.equal(calibrationInsights(null)[0].featureSpanX, null);
 assert.equal(
   calibrationInsights({
@@ -121,7 +135,11 @@ const rawResults = observations.map((s) =>
   }),
 );
 const tracks = finalTrack(rawResults);
-const replay = { rawResults, tracked: [...tracks.left, ...tracks.right] };
+const replay = {
+  rawResults,
+  tracked: [...tracks.left, ...tracks.right],
+  faceAnchors: Array.from({ length: 100 }, () => ({ ...input.face! })),
+};
 const replayBefore = JSON.stringify(replay);
 const batchSignals = processTrackingSignals(replay, result, context, time + 1000);
 for (const eye of batchSignals) {
@@ -179,7 +197,12 @@ assert.equal(mapCalibration(result, { ...input, estimated: true }, context, time
 assert.equal(mapCalibration(result, { ...input, decodedPtsUs: null }, context, time), null);
 assert.equal(
   JSON.stringify(
-    mapCalibration(result, { ...input, roi: { ...input.roi, x: 400 } }, context, time + 1000),
+    mapCalibration(
+      result,
+      { ...input, roi: { ...input.roi, x: 110 }, face: { ...input.face!, x: 110 } },
+      context,
+      time + 1000,
+    ),
   ),
   JSON.stringify(mapped),
 );
@@ -223,7 +246,7 @@ takes = fixture();
 takes[0].samples[2].decodedPtsUs = 0;
 assert.ok(fit(takes).reasons.some((r) => r.startsWith('INVALID_PTS')));
 takes = fixture();
-for (const s of takes[0].samples) s.roi.width *= 1.8;
+for (const s of takes[0].samples) s.face!.width *= 1.8;
 assert.ok(fit(takes).reasons.some((r) => r.startsWith('HEAD_OR_ROI_MOVED')));
 takes = fixture();
 for (const s of takes[0].samples) s.confidence = 0.2;
@@ -342,6 +365,124 @@ const mismatched = {
   y: 0.5,
 };
 assert.equal(gazeFeature(mismatched), null);
+const savedView = describeSavedCalibration(JSON.stringify({ schemaVersion: 1, result }));
+assert.equal(savedView?.verdict, 'VALID');
+assert.equal(savedView?.atMs, result.createdAtMs);
+assert.ok(savedView !== null && savedView.lines.length > 0);
+assert.equal(describeSavedCalibration('not-json'), null);
+assert.equal(describeSavedCalibration(JSON.stringify({ schemaVersion: 1 })), null);
+const retryView = describeSavedCalibration(
+  JSON.stringify({ schemaVersion: 1, result: { ...result, verdict: 'RETRY' } }),
+);
+assert.equal(retryView?.verdict, 'RETRY');
+assert.ok(retryView !== null && retryView.lines.length > 0);
+assert.equal(calibrationPageScrolls('capture'), false);
+assert.equal(calibrationPageScrolls('analysis'), true);
+assert.equal(calibrationPageScrolls('result'), true);
+assert.equal(calibrationPageScrolls('ready'), true);
+// A face that fills 40% of the recorded frame is what the old lamp called ready.
+// At that distance one pixel of detector error exceeds the 0.08 viewport gate.
+const comfortable: FramingObservation = {
+  faceFound: true,
+  faceLeft: 0.3,
+  faceTop: 0.3,
+  faceRight: 0.7,
+  faceBottom: 0.7,
+  leftEyeLandmark: true,
+  rightEyeLandmark: true,
+  leftEyeOpenProb: 0.9,
+  rightEyeOpenProb: 0.9,
+};
+assert.equal(classifyFramingState(comfortable), 'READY');
+assert.equal(classifyCalibrationFraming(comfortable), 'TOO_FAR');
+const closeEnough: FramingObservation = {
+  ...comfortable,
+  faceLeft: 0.25,
+  faceTop: 0.15,
+  faceRight: 0.75,
+  faceBottom: 0.85,
+};
+assert.equal(classifyCalibrationFraming(closeEnough), 'READY');
+// A real face box is taller than it is wide. At the recorded-frame height
+// the gate requires, that box must still fit without being called too close.
+const recordedFace: FramingObservation = {
+  ...comfortable,
+  faceLeft: 0.086,
+  faceTop: 0.19,
+  faceRight: 0.914,
+  faceBottom: 0.81,
+};
+assert.equal(classifyCalibrationFraming(recordedFace), 'READY');
+assert.equal(
+  classifyCalibrationFraming({
+    ...comfortable,
+    faceLeft: 0.025,
+    faceTop: 0.025,
+    faceRight: 0.975,
+    faceBottom: 0.975,
+  }),
+  'TOO_CLOSE',
+);
+const atGate = modeledViewportError(CALIBRATION_FRAMING_GATES.TOO_FAR_HEIGHT_FRAC);
+const behindGate = modeledViewportError(CALIBRATION_FRAMING_GATES.TOO_FAR_HEIGHT_FRAC - 0.05);
+assert.equal(modeledViewportError(0.4).x > 0.08, true, String(modeledViewportError(0.4).x));
+assert.equal(atGate.x <= 0.08 && atGate.y <= 0.08, true, `${atGate.x},${atGate.y}`);
+assert.equal(behindGate.x > 0.08, true, String(behindGate.x));
+assert.ok(Math.abs(CALIBRATION_PREVIEW_ASPECT - 1080 / 1920) < 1e-12);
+function geometricTakes(faceHeightFraction: number): CalibrationTake[] {
+  const faceHpx = faceHeightFraction * CALIBRATION_GEOMETRY.frameLongPx;
+  const faceWpx = faceHpx * (CALIBRATION_GEOMETRY.faceWidthMm / CALIBRATION_GEOMETRY.faceHeightMm);
+  const face = {
+    x: (CALIBRATION_GEOMETRY.frameShortPx - faceWpx) / 2,
+    y: (CALIBRATION_GEOMETRY.frameLongPx - faceHpx) / 2,
+    width: faceWpx,
+    height: faceHpx,
+  };
+  const fitTargets = CALIBRATION_TARGETS.filter((target) => target.role === 'fit');
+  const peak =
+    ((Math.max(...fitTargets.map((target) => target.x)) -
+      Math.min(...fitTargets.map((target) => target.x))) /
+      2) *
+    ((Math.max(...fitTargets.map((target) => target.y)) -
+      Math.min(...fitTargets.map((target) => target.y))) /
+      2);
+  return CALIBRATION_TARGETS.map((target, j) => {
+    const shift = pupilPlaneOffsetPx(faceHeightFraction, target.x, target.y);
+    const biasX = (CALIBRATION_GEOMETRY.residualPx * (target.x - 0.5) * (target.y - 0.5)) / peak;
+    const pupilX = face.x + face.width * 0.35 + shift.x + biasX;
+    const pupilY = face.y + face.height * 0.42 + shift.y;
+    const crop = 80;
+    const roi = { x: pupilX - crop / 2, y: pupilY - crop / 2, width: crop, height: crop };
+    return {
+      target: { ...target },
+      presentedJsUs: j * 5_000_000,
+      releasedJsUs: j * 5_000_000 + 3_000_000,
+      recordStartNativeUs: j * 5_000_000 + 1_000_000,
+      recordEndNativeUs: j * 5_000_000 + 2_500_000,
+      bridge: { nativeMinusJsUs: 0, roundTripUs: 1000 },
+      completed: true,
+      filePath: 'local.mp4',
+      samples: (['left', 'right'] as const).flatMap((eyeSide) =>
+        Array.from({ length: 40 }, (_, frameIndex) => ({
+          frameIndex,
+          decodedPtsUs: frameIndex * 9000,
+          eyeSide,
+          x: 0.5,
+          y: 0.5,
+          confidence: 0.9,
+          roi,
+          face,
+          estimated: false,
+        })),
+      ),
+    };
+  });
+}
+const farFixation = fit(geometricTakes(0.4));
+assert.equal(farFixation.verdict, 'RETRY', farFixation.reasons.join(','));
+assert.ok(farFixation.reasons.some((reason) => reason.startsWith('POOR_FIT')));
+const nearFixation = fit(geometricTakes(CALIBRATION_FRAMING_GATES.TOO_FAR_HEIGHT_FRAC));
+assert.equal(nearFixation.verdict, 'VALID', nearFixation.reasons.join(','));
 console.log(
   'Calibration checks: PASS (held targets, independent validation, degeneracy, coverage, drift, context, expiry, raw preservation, face anchor)',
 );

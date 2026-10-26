@@ -24,6 +24,25 @@ class PupilImageDetectorTest {
     }
   }
 
+  @Test fun diagnosticsDescribePixelsWithoutChangingTheMeasurement() {
+    val gray = DoubleArray(120 * 120) { i ->
+      if (Math.hypot((i % 120 - 60).toDouble(), (i / 120 - 60).toDouble()) < 16) 25.0 else 190.0
+    }
+    val detector = PupilImageDetector()
+    val out = detector.detect(gray, 120, 120, "percentile-dark")
+    assertTrue(out.success)
+    assertEquals(gray.average(), out.diagnostics["meanY"]!!, 1e-9)
+    assertTrue(out.diagnostics["gradientRms"]!! > 0)
+    assertEquals(1.0, out.diagnostics["candidateCount"]!!, 0.0)
+    assertEquals(out.confidence, out.diagnostics["bestScore"]!!, 0.0)
+    assertTrue(out.diagnostics["thresholdY"]!! >= 25.0)
+    val missing = detector.detect(DoubleArray(14400) { 180.0 }, 120, 120, "percentile-dark")
+    assertFalse(missing.success)
+    assertNull(missing.cxRoi)
+    assertEquals(180.0, missing.diagnostics["meanY"]!!, 0.0)
+    assertEquals(0.0, missing.diagnostics["gradientRms"]!!, 0.0)
+  }
+
   @Test fun invalidHintNeverCrashesOrCreatesAMeasurement() {
     val detector = PupilImageDetector()
     for (id in listOf("percentile-dark", "contrast-normalized")) {

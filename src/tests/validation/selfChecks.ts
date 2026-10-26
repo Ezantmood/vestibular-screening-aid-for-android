@@ -2,7 +2,10 @@ import {
   percentileDarkDetector,
   contrastNormalizedDetector,
 } from '../../eyetracking/pupil/detectors';
-import { buildSuccessResult } from '../../eyetracking/pupil/coordinates';
+import {
+  buildSuccessResult,
+  mapBoxFromRotatedToOriginal,
+} from '../../eyetracking/pupil/coordinates';
 import { finalTrack } from '../../eyetracking/tracking/twoPassTracking';
 import {
   fitCalibration,
@@ -10,7 +13,11 @@ import {
   mapCalibration,
 } from '../../eyetracking/calibration/calibration';
 import { CALIBRATION_TARGETS } from '../../eyetracking/calibration/protocol';
-import type { CalibrationContext, CalibrationTake } from '../../eyetracking/calibration/types';
+import {
+  CALIBRATION_COORDINATE_VERSION,
+  type CalibrationContext,
+  type CalibrationTake,
+} from '../../eyetracking/calibration/types';
 import { processTrackingSignals } from '../../signals/trackingSignals';
 import { analyzeEyeTest } from '../metrics/analysis';
 import {
@@ -31,8 +38,15 @@ export const SELF_CHECK_IDS = [
   'component-isolation-contrast',
   'quantized-pupil-percentile',
   'quantized-pupil-contrast',
+  'eccentric-pupil-not-penalized',
   'uniform-and-ambiguous-remain-missing',
   'calibration-affine-held-out',
+  'calibration-nonlinear-cv',
+  'calibration-frame-noise-rejected',
+  'calibration-model-contract',
+  'calibration-requires-face-anchor',
+  'calibration-head-movement-rejected',
+  'rotated-face-rect-roundtrip',
   'calibration-missing-right',
   'calibration-poor-validation',
   'calibration-expiry-and-version',
@@ -61,7 +75,7 @@ export const SYNTHETIC_CONTEXT: CalibrationContext = {
   viewportLeft: 16,
   viewportTop: 100,
   detectorId: 'percentile-dark',
-  coordinateVersion: 'decoded-roi-v3',
+  coordinateVersion: CALIBRATION_COORDINATE_VERSION,
 };
 export function syntheticCalibrationTakes(): CalibrationTake[] {
   return CALIBRATION_TARGETS.map((target, j) => ({
@@ -82,6 +96,7 @@ export function syntheticCalibrationTakes(): CalibrationTake[] {
         y: 0.3 + 0.25 * target.y,
         confidence: 0.9,
         roi: { x: 100, y: 200, width: 100, height: 100 },
+        face: { x: 100, y: 200, width: 100, height: 100 },
         estimated: false,
       })),
     ),
@@ -164,7 +179,16 @@ function pipeline(testId: MvpTestId, rejected = false, blink = false) {
   });
   const { left, right } = finalTrack(raw);
   const signals = processTrackingSignals(
-    { rawResults: raw, tracked: [...left, ...right] },
+    {
+      rawResults: raw,
+      tracked: [...left, ...right],
+      faceAnchors: Array.from({ length: left.length }, () => ({
+        x: 100,
+        y: 200,
+        width: 100,
+        height: 100,
+      })),
+    },
     calibration,
     SYNTHETIC_CONTEXT,
     1000,
@@ -197,8 +221,51 @@ export async function runBatch3SelfChecks(): Promise<SelfCheckResult[]> {
       }
   };
   const tests: Record<SelfCheckResult['id'], () => void | Promise<void>> = {
+    'calibration-requires-face-anchor': () => {
+      const takes = syntheticCalibrationTakes();
+      for (const t of takes) for (const s of t.samples) delete s.face;
+      ensure(syntheticFit(takes).verdict === 'RETRY');
+    },
+    'calibration-head-movement-rejected': () => {
+      const result = syntheticFit();
+      const s = syntheticCalibrationTakes()[4].samples[0];
+      ensure(
+        mapCalibration(
+          result,
+          { ...s, roi: { ...s.roi, x: 150 }, face: { ...s.face!, x: 150 } },
+          SYNTHETIC_CONTEXT,
+          1000,
+        ) === null,
+      );
+    },
+    'rotated-face-rect-roundtrip': () => {
+      const b = mapBoxFromRotatedToOriginal(100, 920, 700, 1720, 270, 1920, 1080);
+      ensure(b.left === 200 && b.top === 100 && b.right === 1000 && b.bottom === 700);
+    },
     'quantized-pupil-percentile': () => plateau(percentileDarkDetector),
     'quantized-pupil-contrast': () => plateau(contrastNormalizedDetector),
+    'eccentric-pupil-not-penalized': () => {
+      const disk = (w: number, h: number, cx: number, cy: number, r: number) => ({
+        width: w,
+        height: h,
+        data: Float64Array.from({ length: w * h }, (_, i) =>
+          Math.hypot((i % w) - cx, Math.floor(i / w) - cy) < r ? 25 : 190,
+        ),
+      });
+      for (const detector of [percentileDarkDetector, contrastNormalizedDetector]) {
+        const center = detector.detect(disk(120, 120, 60, 60, 16));
+        const side = detector.detect(disk(140, 110, 100, 28, 16));
+        ensure(
+          center.success &&
+            side.success &&
+            center.confidence >= 0.5 &&
+            side.confidence >= 0.5 &&
+            Math.abs(center.confidence - side.confidence) <= 0.08 &&
+            Math.abs(side.centroidXInRoi! - 100) < 3 &&
+            Math.abs(side.centroidYInRoi! - 28) < 3,
+        );
+      }
+    },
     'uniform-and-ambiguous-remain-missing': () => {
       for (const detector of [percentileDarkDetector, contrastNormalizedDetector]) {
         for (const level of [25, 60, 110, 180]) {
@@ -232,6 +299,54 @@ export async function runBatch3SelfChecks(): Promise<SelfCheckResult[]> {
       const c = syntheticFit();
       ensure(calibrationUsable(c, SYNTHETIC_CONTEXT, 1000));
       ensure(c.models.left!.validationRmse < 1e-6);
+    },
+    'calibration-nonlinear-cv': () => {
+      const takes = syntheticCalibrationTakes(),
+        curvature = 0.65;
+      const feature = (t: number) =>
+        (curvature - 1 + Math.sqrt(1 - 2 * curvature + 4 * curvature * t)) / (2 * curvature);
+      for (const t of takes)
+        for (const s of t.samples) {
+          s.x = 0.3 + 0.25 * feature(t.target.x);
+          s.y = 0.3 + 0.25 * feature(t.target.y);
+        }
+      const c = syntheticFit(takes);
+      ensure(
+        calibrationUsable(c, SYNTHETIC_CONTEXT, 1000) &&
+          c.models.left!.family === 'quadratic-ridge' &&
+          c.models.left!.fitCvRmse < 0.001 &&
+          c.models.left!.validationFrameRmse < 0.001,
+      );
+      for (const t of takes) {
+        const p = mapCalibration(c, t.samples[0], SYNTHETIC_CONTEXT, 1000);
+        ensure(!!p && Math.hypot(p.x - t.target.x, p.y - t.target.y) < 0.001);
+      }
+    },
+    'calibration-frame-noise-rejected': () => {
+      const takes = syntheticCalibrationTakes();
+      for (const t of takes)
+        for (const s of t.samples) {
+          const noise = s.frameIndex % 2 ? 0.001 : -0.001;
+          s.face = { x: 200, y: 200, width: 600, height: 800 };
+          s.roi = {
+            x: 200 + (0.4 + 0.005 * t.target.x + noise) * 600 - 90,
+            y: 200 + (0.4 + 0.005 * t.target.y + noise) * 800 - 90,
+            width: 180,
+            height: 180,
+          };
+          s.x = s.y = 0.5;
+        }
+      const c = syntheticFit(takes);
+      ensure(
+        c.verdict === 'RETRY' &&
+          c.reasons.some((r) => r.startsWith('NOISY_VALIDATION:')) &&
+          !calibrationUsable(c, SYNTHETIC_CONTEXT, 1000),
+      );
+    },
+    'calibration-model-contract': () => {
+      const c = syntheticFit();
+      delete (c as Partial<typeof c>).modelVersion;
+      ensure(!calibrationUsable(c, SYNTHETIC_CONTEXT, 1000));
     },
     'calibration-missing-right': () => {
       const takes = syntheticCalibrationTakes();

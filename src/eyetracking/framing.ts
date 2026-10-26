@@ -50,11 +50,18 @@ export const FRAMING_GATES = {
   EYE_OPEN_PROB: 0.4,
 } as const;
 
+export type FramingGateSet = {
+  [Key in keyof typeof FRAMING_GATES]: number;
+};
+
 /**
  * Classify one observation. Priority (first match wins): NO_FACE >
  * FACE_PARTIAL > TOO_CLOSE > TOO_FAR > EYES_NOT_VISIBLE > OFF_CENTER > READY.
  */
-export function classifyFramingState(obs: FramingObservation): FramingState {
+export function classifyFramingState(
+  obs: FramingObservation,
+  gates: FramingGateSet = FRAMING_GATES,
+): FramingState {
   if (
     !obs.faceFound ||
     obs.faceLeft === null ||
@@ -68,16 +75,16 @@ export function classifyFramingState(obs: FramingObservation): FramingState {
   if (!(r > l && b > t)) {
     return 'NO_FACE';
   }
-  const m = FRAMING_GATES.PARTIAL_MARGIN;
+  const m = gates.PARTIAL_MARGIN;
   if (l <= m || t <= m || r >= 1 - m || b >= 1 - m) {
     return 'FACE_PARTIAL';
   }
   const w = r - l;
   const h = b - t;
-  if (w > FRAMING_GATES.TOO_CLOSE_FRAC || h > FRAMING_GATES.TOO_CLOSE_FRAC) {
+  if (w > gates.TOO_CLOSE_FRAC || h > gates.TOO_CLOSE_FRAC) {
     return 'TOO_CLOSE';
   }
-  if (h < FRAMING_GATES.TOO_FAR_HEIGHT_FRAC) {
+  if (h < gates.TOO_FAR_HEIGHT_FRAC) {
     return 'TOO_FAR';
   }
   const eyesVisible = eyesVisibleForFraming(obs);
@@ -86,7 +93,7 @@ export function classifyFramingState(obs: FramingObservation): FramingState {
   }
   const cx = (l + r) / 2;
   const cy = (t + b) / 2;
-  const tol = FRAMING_GATES.CENTER_TOL_FRAC;
+  const tol = gates.CENTER_TOL_FRAC;
   if (Math.abs(cx - 0.5) > tol || Math.abs(cy - 0.5) > tol) {
     return 'OFF_CENTER';
   }

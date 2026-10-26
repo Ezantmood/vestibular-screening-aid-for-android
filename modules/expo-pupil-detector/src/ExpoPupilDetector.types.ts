@@ -1,3 +1,4 @@
+import type { PupilImageDiagnostics } from '../../../src/eyetracking/pupil/pupilTypes';
 // P3 pupil detector — native module surface types.
 //
 // Android-only Kotlin module. It NEVER decodes independently of the P2
@@ -51,6 +52,7 @@ export interface PupilResultOut {
   candidateWidth: number | null;
   candidateHeight: number | null;
   confidence: number;
+  diagnostics?: PupilImageDiagnostics;
   failureReason: string | null;
   condition: string;
   /** Device-local overlay JPEG (debug only, never committed). */

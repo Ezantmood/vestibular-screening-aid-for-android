@@ -9,7 +9,11 @@ import type { PupilDetectionResult, PupilDetectorId } from '../pupil/pupilTypes'
 import { runDensePupilBatch, runHintedPupilBatch } from '../../camera/pupilDetector';
 import type { PupilTrackingResult } from './trackingTypes';
 import { buildRescueHints, finalTrack, mergeRescuedResults } from './twoPassTracking';
-import { trackingDecodeFailure } from './decodeIntegrity';
+import {
+  trackingPipelineDiagnostics,
+  type TrackingPipelineDiagnostics,
+} from './pipelineDiagnostics';
+import { trackingDecodeFailure, pupilDecodeFailure, PipelineDecodeError } from './decodeIntegrity';
 import { propagateFaceAnchors, propagateRois } from './roiPropagation';
 
 export interface ReplayRunResult {
@@ -32,6 +36,7 @@ export interface ReplayRunResult {
   /** Decoded frame indices that were real ML Kit keyframes (either eye). */
   keyframeFrames: number[];
   warnings: string[];
+  pipelineDiagnostics?: TrackingPipelineDiagnostics;
 }
 
 /** Representative frame indices for the visual audit (capped, deduped). */
@@ -247,6 +252,7 @@ export async function analyzeFileForTracking(args: {
   detectorId: PupilDetectorId;
   expectedFps: number;
   saveAuditOverlays?: boolean;
+  auditFrameLimit?: number;
 }): Promise<ReplayRunResult> {
   const analysis = await analyzeVideoFile({
     filePath: args.filePath,
@@ -255,7 +261,14 @@ export async function analyzeFileForTracking(args: {
     saveDebugFrames: false,
   });
   const decodeFailure = trackingDecodeFailure(analysis);
-  if (decodeFailure) throw new Error(decodeFailure);
+  if (decodeFailure)
+    throw new PipelineDecodeError(decodeFailure, 'frame-decode', {
+      encoded: analysis.encodedSampleCount,
+      decoded: analysis.decodedFrameCount,
+      width: analysis.width,
+      height: analysis.height,
+      ptsCount: analysis.decodedPtsUs.length,
+    });
   const rois = propagateRois({
     faceSamples: analysis.faceSamples,
     decodedPtsUsList: analysis.decodedPtsUs,
@@ -273,6 +286,14 @@ export async function analyzeFileForTracking(args: {
     saveOverlays: false,
     rois: roisWithCondition,
   });
+  const standardFailure = pupilDecodeFailure(analysis, standardBatch.report);
+  if (standardFailure)
+    throw new PipelineDecodeError(standardFailure, 'pupil-decode', {
+      encoded: analysis.decodedFrameCount,
+      decoded: standardBatch.report!.decodedFrameCount,
+      width: standardBatch.report!.frameWidth,
+      height: standardBatch.report!.frameHeight,
+    });
   const standard = standardBatch.results;
   const warnings = [...analysis.warnings, ...(standardBatch.report?.warnings ?? [])];
   const hints = buildRescueHints(standard);
@@ -285,6 +306,14 @@ export async function analyzeFileForTracking(args: {
       saveOverlays: false,
       hints,
     });
+    const rescueFailure = pupilDecodeFailure(analysis, out.report);
+    if (rescueFailure)
+      throw new PipelineDecodeError(rescueFailure, 'rescue-decode', {
+        encoded: analysis.decodedFrameCount,
+        decoded: out.report!.decodedFrameCount,
+        width: out.report!.frameWidth,
+        height: out.report!.frameHeight,
+      });
     rescued = out.results;
     warnings.push(...(out.report?.warnings ?? []));
     for (const r of rescued) {
@@ -299,34 +328,44 @@ export async function analyzeFileForTracking(args: {
   // Targeted overlays for audit frames only (never the full dense set).
   // Rescued frames are re-analyzed through the hinted entry with overlays
   // on so every rescue is visually auditable (deterministic replay).
-  const auditFrames = new Set(pickAuditFrames(tracked));
-  for (const t of tracked) {
-    if (t.rescued && t.trackedCentroidX !== null) {
-      auditFrames.add(t.frameIndex);
-    }
-  }
+  const priority = (['left', 'right'] as const).flatMap((eye) => {
+    const seq = tracked.filter((t) => t.eyeSide === eye);
+    const valid = seq.filter((t) => t.trackedCentroidX !== null);
+    const weak = seq.find((t) => t.trackingState === 'LOW_CONFIDENCE');
+    return [valid[Math.floor(valid.length / 2)]?.frameIndex, weak?.frameIndex].filter(
+      (frame): frame is number => frame !== undefined,
+    );
+  });
+  const auditFrames = new Set(
+    [...new Set([...priority, ...pickAuditFrames(tracked)])].slice(0, args.auditFrameLimit ?? 20),
+  );
   const auditRois = roisWithCondition.filter(
     (r) => auditFrames.has(r.frameIndex) && r.missingReason === null,
   );
   let auditOverlays: string[] = [];
-  if (auditRois.length > 0 && args.saveAuditOverlays !== false) {
-    const overlayBatch = await runDensePupilBatch({
-      filePath: args.filePath,
-      detectorId: args.detectorId,
-      saveOverlays: true,
-      rois: auditRois,
-    });
-    auditOverlays = overlayBatch.report?.overlayPaths ?? [];
-  }
-  const auditHints = hints.filter((h) => auditFrames.has(h.frameIndex));
-  if (auditHints.length > 0 && args.saveAuditOverlays !== false) {
-    const rescueOverlayBatch = await runHintedPupilBatch({
-      filePath: args.filePath,
-      detectorId: args.detectorId,
-      saveOverlays: true,
-      hints: auditHints,
-    });
-    auditOverlays = [...auditOverlays, ...(rescueOverlayBatch.report?.overlayPaths ?? [])];
+  try {
+    if (auditRois.length > 0 && args.saveAuditOverlays !== false) {
+      const overlayBatch = await runDensePupilBatch({
+        filePath: args.filePath,
+        detectorId: args.detectorId,
+        saveOverlays: true,
+        rois: auditRois,
+      });
+      auditOverlays = overlayBatch.report?.overlayPaths ?? [];
+    }
+    const auditHints = hints.filter((h) => auditFrames.has(h.frameIndex));
+    if (auditHints.length > 0 && args.saveAuditOverlays !== false) {
+      const rescueOverlayBatch = await runHintedPupilBatch({
+        filePath: args.filePath,
+        detectorId: args.detectorId,
+        saveOverlays: true,
+        hints: auditHints,
+      });
+      auditOverlays = [...auditOverlays, ...(rescueOverlayBatch.report?.overlayPaths ?? [])];
+    }
+  } catch {
+    // Debug JPEG availability is separate from measured detections/decode validity.
+    warnings.push('AUDIT_OVERLAY_UNAVAILABLE');
   }
   return {
     condition: args.condition,
@@ -346,5 +385,6 @@ export async function analyzeFileForTracking(args: {
     auditOverlays,
     keyframeFrames: [...new Set(rois.filter((r) => r.keyframe).map((r) => r.frameIndex))],
     warnings,
+    pipelineDiagnostics: trackingPipelineDiagnostics(analysis),
   };
 }

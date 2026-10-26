@@ -1,8 +1,18 @@
 import type { CalibrationResult, CalibrationContext } from '../../eyetracking/calibration/types';
-import { currentPupilMeasurement } from '../../eyetracking/calibration/types';
+import {
+  CALIBRATION_MODEL_VERSION,
+  currentPupilMeasurement,
+} from '../../eyetracking/calibration/types';
 import { CALIBRATION_POLICY, calibrationUsable } from '../../eyetracking/calibration/calibration';
 import { CALIBRATION_TARGETS } from '../../eyetracking/calibration/protocol';
+import { IMAGE_DIAGNOSTIC_KEYS, DETECTION_FAILURES } from './calibrationDiagnostics';
 import { calibrationInsights } from '../../eyetracking/calibration/insights';
+import {
+  calibrationProgress,
+  calibrationFrameProgress,
+  calibrationFrameSummary,
+} from '../../eyetracking/calibration/progress';
+import { calibrationModelComparison } from '../../eyetracking/calibration/modelComparison';
 import { TEST_POLICY } from '../metrics/quality';
 import { SELF_CHECK_IDS, type SelfCheckResult } from './selfChecks';
 
@@ -14,14 +24,16 @@ import {
 } from './failures';
 import type { SavedCalibrationRead } from './diagnosticRun';
 
-export const BATCH3_BUILD = 'batch3-20261010-r3';
+export const BATCH3_BUILD = 'batch3-20261026-calibration-ridge-v7';
 export const NATIVE_CHECK_IDS = [
   'native-component-isolation-percentile-dark',
   'native-center-percentile-dark',
   'native-quantized-plateau-percentile-dark',
+  'native-eccentric-percentile-dark',
   'native-component-isolation-contrast-normalized',
   'native-center-contrast-normalized',
   'native-quantized-plateau-contrast-normalized',
+  'native-eccentric-contrast-normalized',
   'native-missing-is-null',
   'native-hinted-isolation',
   'native-invalid-geometry',
@@ -49,11 +61,15 @@ const calReasons = new Set([
   'INVALID_PTS_SPAN',
   'UNSTABLE_FIXATION',
   'HEAD_OR_ROI_MOVED',
+  'ORIENTATION_CHANGED',
   'MISSING_TARGET_FEATURES',
   'DEGENERATE_FEATURES',
   'SINGULAR_FIT',
+  'UNSAFE_MAPPING',
   'POOR_FIT',
   'POOR_VALIDATION',
+  'POOR_FIT_CV',
+  'NOISY_VALIDATION',
 ]);
 const testReasons = new Set([
   'TEST_NOT_COMPLETED',
@@ -114,6 +130,16 @@ export function parseLocalEvidence(json: string | null): unknown {
   }
 }
 
+function sanitizedDistribution(value: unknown, max: number) {
+  const d = record(value);
+  return {
+    count: number(d.count),
+    min: number(d.min, 0, max),
+    median: number(d.median, 0, max),
+    max: number(d.max, 0, max),
+  };
+}
+
 export function calibrationTechnicalSummary(artifact: unknown) {
   const a = record(artifact),
     r = record(a.result),
@@ -140,6 +166,7 @@ export function calibrationTechnicalSummary(artifact: unknown) {
         coverage: number(q.coverage, 0, 1),
         spread: number(q.spread, 0, 2),
         reasons: reasons(q.reasons, calReasons),
+        validationFrames: calibrationFrameSummary(q.validationFrames, q.accepted),
       };
     })
     .filter((q) => q.eye && q.target);
@@ -192,12 +219,76 @@ export function calibrationTechnicalSummary(artifact: unknown) {
         trackedConfident: number(d.trackedConfident),
         rejectedAfterConfidence: number(d.rejectedAfterConfidence),
         accepted: number(d.accepted),
+        spanUs: number(d.spanUs),
+        spread: number(d.spread, 0, 2),
+        blocks: Object.fromEntries(
+          [
+            'noPupil',
+            'lowConfidence',
+            'noFace',
+            'outsideFace',
+            'badTime',
+            'estimated',
+            'trimmed',
+          ].map((k) => [k, number(record(d.blocks)[k])]),
+        ),
+        predictionError: {
+          x: number(record(d.predictionError).x, -2, 2),
+          y: number(record(d.predictionError).y, -2, 2),
+          distance: number(record(d.predictionError).distance, 0, 3),
+        },
+        roiWidthPx: sanitizedDistribution(d.roiWidthPx, 16384),
+        roiHeightPx: sanitizedDistribution(d.roiHeightPx, 16384),
+        faceWidthPx: sanitizedDistribution(d.faceWidthPx, 16384),
+        faceHeightPx: sanitizedDistribution(d.faceHeightPx, 16384),
+        detectorConfidence: sanitizedDistribution(d.detectorConfidence, 1),
+        trackingConfidence: sanitizedDistribution(d.trackingConfidence, 1),
+        longestDropoutUs: number(d.longestDropoutUs),
+        rescuedTracked: number(d.rescuedTracked),
+        detectionFailures: Object.fromEntries(
+          DETECTION_FAILURES.map((k) => [k, number(record(d.detectionFailures)[k])]),
+        ),
+        image: Object.fromEntries(
+          IMAGE_DIAGNOSTIC_KEYS.map((k) => [k, sanitizedDistribution(record(d.image)[k], 1e9)]),
+        ),
+        pipeline: Object.fromEntries(
+          [
+            'frameWidth',
+            'frameHeight',
+            'encodedFrames',
+            'decodedFrames',
+            'effectiveFps',
+            'medianIntervalUs',
+            'maxIntervalUs',
+            'nonMonotonicPts',
+            'duplicatePts',
+            'largeGaps',
+            'missingImageComparisons',
+            'madMedian',
+            'faceSamples',
+            'faceDetected',
+            'measuredEyePairs',
+            'rotation0',
+            'rotation90',
+            'rotation270',
+            'poseSamples',
+            'pitchRangeDeg',
+            'yawRangeDeg',
+            'rollRangeDeg',
+          ].map((k) => [k, number(record(d.pipeline)[k])]),
+        ),
+        hold: {
+          roundTripUs: number(record(d.hold).roundTripUs),
+          settleMarginUs: number(record(d.hold).settleMarginUs, -1e12),
+          releaseMarginUs: number(record(d.hold).releaseMarginUs, -1e12),
+        },
       };
     })
     .filter((d) => d.eye && d.target);
   return {
     verdict,
     versionCurrent,
+    modelVersionCurrent: r.modelVersion === CALIBRATION_MODEL_VERSION,
     modelChecksPass,
     reasons: reasons(r.reasons, calReasons),
     targetCount: list(a.takes).length,
@@ -217,14 +308,26 @@ export function calibrationTechnicalSummary(artifact: unknown) {
         coverage: total > 0 ? accepted / total : null,
         passingTargets: rows.filter((q) => q.reasons.length === 0).length,
         modelPresent: Object.keys(m).length > 0,
+        modelFamily:
+          typeof m.family === 'string' &&
+          ['affine', 'affine-ridge', 'quadratic-ridge'].includes(m.family)
+            ? m.family
+            : null,
+        lambda: number(m.lambda, 0, 1),
         fitRmse: number(m.fitRmse),
+        fitCvRmse: number(m.fitCvRmse),
         validationRmse: number(m.validationRmse),
         validationMaxError: number(m.validationMaxError),
+        validationFrameRmse: number(m.validationFrameRmse),
+        validationFrameP95Error: number(m.validationFrameP95Error),
       };
     }),
     targets,
     stageCounts,
     insights: calibrationInsights(r),
+    progress: calibrationProgress(r),
+    frameValidation: calibrationFrameProgress(r),
+    modelComparison: calibrationModelComparison(r),
   };
 }
 /** Reliable metrics are absent unless the entire test is GOOD_DATA and the workflow
@@ -364,7 +467,24 @@ export function buildTechnicalReport(args: {
             VALIDATION_FAILURE_CODES.includes(f.code),
         )
         .slice(-10)
-        .map((f) => ({ stage: f.stage, code: f.code })),
+        .map((f) => ({
+          stage: f.stage,
+          code: f.code,
+          ...(f.decode
+            ? {
+                decode: {
+                  stage: ['frame-decode', 'pupil-decode', 'rescue-decode'].includes(f.decode.stage)
+                    ? f.decode.stage
+                    : null,
+                  encoded: number(f.decode.encoded),
+                  decoded: number(f.decode.decoded),
+                  width: number(f.decode.width),
+                  height: number(f.decode.height),
+                  ptsCount: number(f.decode.ptsCount),
+                },
+              }
+            : {}),
+        })),
       calibrationConfirmed: current,
       calibration,
       pursuit: eyeTestTechnicalSummary(args.pursuit, current),

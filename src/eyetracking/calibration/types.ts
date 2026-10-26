@@ -1,6 +1,7 @@
 import type { EyeSide } from '../pupil/pupilTypes';
 
-export const CALIBRATION_COORDINATE_VERSION = 'face-pupil-v5' as const;
+export const CALIBRATION_COORDINATE_VERSION = 'face-pupil-v6' as const;
+export const CALIBRATION_MODEL_VERSION = 'target-cv-ridge-v1' as const;
 export const currentPupilMeasurement = (version: unknown): boolean =>
   version === CALIBRATION_COORDINATE_VERSION;
 
@@ -32,8 +33,9 @@ export interface EyeObservation {
   /** Eye crop. It follows the eye landmark so the pupil stays inside the image. */
   roi: { x: number; y: number; width: number; height: number };
   /** Head box for the gaze feature. Null means this frame had no face.
-   * Omitted means a legacy sample whose feature is still ROI-normalized. */
+   * Omitted means legacy data; it cannot fit or use the current model. */
   face?: { x: number; y: number; width: number; height: number } | null;
+  faceRotation?: number | null;
   estimated: boolean;
 }
 /** Target remains committed before recorder start until AFTER finalization.
@@ -72,22 +74,46 @@ export interface TargetQuality {
   rejected: number;
   reasons: string[];
   blocks: SampleBlocks;
+  predictionError?: { x: number; y: number; distance: number };
+  /** Held-out accepted frames, before filtering or clipping. Descriptive only;
+   * adjacent frames are correlated, not independent validation trials. */
+  validationFrames?: {
+    accepted: number;
+    withinTolerance: number;
+    withinTolerancePercent: number;
+    rmse: number;
+    p95Error: number;
+  };
 }
-export interface EyeCalibration {
+export type GazeModelFamily = 'affine' | 'affine-ridge' | 'quadratic-ridge';
+export interface GazeRegression {
+  family: GazeModelFamily;
+  lambda: number;
+  featureCenter: { x: number; y: number };
+  featureScale: { x: number; y: number };
+  /** Standardized basis [1,x,y] or [1,x,y,x²,xy,y²]; length is validated. */
+  coefficientsX: number[];
+  coefficientsY: number[];
+}
+export interface EyeCalibration extends GazeRegression {
   eyeSide: EyeSide;
-  /** screen fraction = c0 + c1 * face-normalized x + c2 * face-normalized y */
-  coefficientsX: [number, number, number];
-  coefficientsY: [number, number, number];
+  /** Reference face box (historical field name retained for stored artifacts). */
   referenceRoi: EyeObservation['roi'];
+  referenceRotation?: number | null;
   featureBounds: { minX: number; maxX: number; minY: number; maxY: number };
   fitRmse: number;
+  fitCvRmse: number;
   validationRmse: number;
   validationMaxError: number;
+  /** Worst target RMS / p95 over the five held-out frame distributions. */
+  validationFrameRmse: number;
+  validationFrameP95Error: number;
   validationBias: { x: number; y: number };
   quality: number;
 }
 export interface CalibrationResult {
   schemaVersion: 1;
+  modelVersion: typeof CALIBRATION_MODEL_VERSION;
   id: string;
   createdAtMs: number;
   context: CalibrationContext;
@@ -110,5 +136,8 @@ export interface CalibrationPolicy {
   maxValidationRmse: number;
   maxValidationError: number;
   maxFitRmse: number;
+  maxFitCvRmse: number;
+  maxValidationFrameRmse: number;
+  maxValidationFrameP95Error: number;
   maxAgeMs: number;
 }

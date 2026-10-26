@@ -341,7 +341,7 @@ check('fitted calibration → observed ROI sample → calibrated signal → purs
     viewportLeft: 16,
     viewportTop: 100,
     detectorId: 'percentile-dark',
-    coordinateVersion: 'face-pupil-v5',
+    coordinateVersion: 'face-pupil-v6',
   };
   const roi = { x: 100, y: 200, width: 100, height: 80 };
   const calibration = fitCalibration({
@@ -366,6 +366,7 @@ check('fitted calibration → observed ROI sample → calibrated signal → purs
           y: 0.7 - 0.25 * target.x + 0.01 * target.y,
           confidence: 0.9,
           roi,
+          face: roi,
           estimated: false,
         })),
       ),
@@ -383,6 +384,7 @@ check('fitted calibration → observed ROI sample → calibrated signal → purs
         y: 0.7 - 0.25 * s.x! + 0.01 * s.y!,
         confidence: 0.9,
         roi,
+        face: roi,
         estimated: false,
       };
       const mapped = mapCalibration(calibration, observation, context, 2000);
