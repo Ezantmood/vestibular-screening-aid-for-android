@@ -118,4 +118,4 @@ progression. The exported technical summary publishes reliable metrics only for
 current VALID calibration and overall GOOD_DATA; all other metric fields are
 null. Local qualified debug estimates remain available. It adds no clinical
 report, session database or other tests. See [workflow](BATCH3_VALIDATION.md)
-and [computer evidence](device-probes/BATCH3_OFFLINE_REVIEW.md).
+and [versioned computer/device evidence in Releases](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases).

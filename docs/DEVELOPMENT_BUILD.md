@@ -143,9 +143,9 @@ embedded bundle supplied in `vestibular.apk`.
 The `batch3-20261009-r2` diagnostic-report repair also updates the Kotlin exporter
 to accept schema 2. Rebuild/install the Development APK for that change; Fast
 Refresh alone will leave an older native exporter rejecting the new report.
-The `batch3-20261010-r3` detector cutoff repair and native version constant also
-require rebuilding/installing the Development APK. Older native binaries are
-rejected before calibration/test camera preparation; new v3 calibration is required.
+The `batch3-20261015-r4` confidence and eye-crop change bumps the native version
+to `decoded-roi-v4`. Rebuild and install the APK. Older native binaries are
+rejected before calibration/test camera preparation; a new v4 calibration is required.
 Aggregate TS report/UI changes can then use Fast Refresh on that compatible build.
 Changes to measurement math still require fresh physical calibration and tests;
 Fast Refresh does not establish a VALID model or trustworthy metrics. Coordinate
@@ -166,3 +166,6 @@ Official references: [Expo local development](https://docs.expo.dev/guides/local
 
 Independent offline physical testing/export remains available:
 [Batch 3 verification](BATCH3_VALIDATION.md).
+
+Current calibration audit uses `face-pupil-v6` in both native modules. Rebuild the
+APK before Fast Refresh, then recalibrate. See [contracts and limits](CALIBRATION_SIGNALS.md).
