@@ -37,11 +37,16 @@ Neither command connects to a phone. [Release packaging](RELEASING.md).
 
 1. Keep/export any existing technical report needed for comparison. Install the
    current update and confirm its build tag on screen 09 against the Release.
-2. Run **Chạy self-test tự động**: 25 JS simulations and 12 production native
+2. Run **Chạy self-test tự động**: 27 JS simulations and 12 production native
    CV self-checks. These do not open the camera or establish human gaze accuracy.
 3. Start Calibration → Pursuit → Saccade. Choose front 1920×1080 at its probed
    fixed 120 fps, frame both eyes in portrait, keep the phone/head steady and
    follow all 14 stationary targets. Allow capture finalization before moving.
+   The lamp accepts sufficient face height OR width while preserving clipping,
+   eye visibility and centering checks. On **Giữ nguyên vị trí**, stop adjusting
+   and wait for stable green. A green lamp establishes framing only; calibration
+   still needs all measured quality gates. The expandable technical recording
+   option can collect evidence without a green lamp; it cannot force VALID.
 4. Inspect the calibration feedback and representative ROI overlays. The crop
    must contain the eye and the marker must lie on the pupil. Overlays are
    detector replays, not manual ground truth. Check each eye's coverage, fit-CV,

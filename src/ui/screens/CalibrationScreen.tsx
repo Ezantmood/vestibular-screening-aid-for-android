@@ -432,11 +432,12 @@ export default function CalibrationScreen({
           busy={busy}
           phase="analyzing"
           duration={CALIBRATION_TAKE_SECONDS}
-          instruction="Đèn xanh chỉ bật khi mặt đã đủ gần. Giữ đúng khoảng cách đó rồi bắt đầu."
+          instruction="Căn đủ mặt và hai mắt trong khung, chừa khoảng trống ở mép. Khi thấy “Giữ nguyên vị trí”, dừng di chuyển để đèn xác nhận rồi bắt đầu."
           framingGates={CALIBRATION_FRAMING_GATES}
           framingHints={{
             TOO_FAR: calibrationFramingHint('TOO_FAR'),
             TOO_CLOSE: calibrationFramingHint('TOO_CLOSE'),
+            FACE_PARTIAL: calibrationFramingHint('FACE_PARTIAL'),
             READY: calibrationFramingHint('READY'),
           }}
           previewAspect={CALIBRATION_PREVIEW_ASPECT}

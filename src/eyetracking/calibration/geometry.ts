@@ -7,8 +7,9 @@ import {
 } from '../framing';
 
 /**
- * The 0.08 viewport gate is unchanged. This model only decides when the
- * framing lamp may turn green.
+ * The 0.08 viewport gate is independent of preview framing guidance.
+ * The optical model below is a simulation aid, not a
+ * measured camera calibration or proof that a detected face shape is fixed.
  *
  * On the Redmi front camera the recorded frame is 1920×1080 and the sensor
  * sits at 270°, so chin-to-forehead lies on the 1920px axis. The old preview
@@ -42,15 +43,18 @@ export const CALIBRATION_PREVIEW_ASPECT =
   CALIBRATION_GEOMETRY.frameShortPx / CALIBRATION_GEOMETRY.frameLongPx;
 
 /**
- * Fractions of the recorded frame, which match the preview only when the
- * preview uses CALIBRATION_PREVIEW_ASPECT. Below the height floor the pupil
- * cannot clear the existing 0.08 gate. Above the close limit the face leaves
- * the frame.
+ * DISPLAY fractions of the upright preview. Height OR width can establish
+ * sufficient occupancy for capture. A height-only 0.60 floor is unreachable
+ * for near-square face boxes in a 9:16 preview: width exceeds 0.94 first.
+ * Width 0.80 preserves the old floor for the model's assumed 150:200 face,
+ * while allowing wider detector boxes. These are UX checks; only the actual
+ * recorded measurements can pass calibration's independent quality gates.
  */
 export const CALIBRATION_FRAMING_GATES = {
   PARTIAL_MARGIN: 0.02,
   TOO_CLOSE_FRAC: 0.94,
   TOO_FAR_HEIGHT_FRAC: 0.6,
+  TOO_FAR_WIDTH_FRAC: 0.8,
   CENTER_TOL_FRAC: 0.12,
   EYE_OPEN_PROB: 0.4,
 } as const;
@@ -130,11 +134,13 @@ export function classifyCalibrationFraming(obs: FramingObservation): FramingStat
 export function calibrationFramingHint(state: FramingState): string {
   switch (state) {
     case 'TOO_FAR':
-      return 'Đưa điện thoại lại gần cho đến khi khuôn mặt chiếm phần lớn khung. Khoảng cách xa có thể làm dịch chuyển đồng tử quá nhỏ so với nhiễu.';
+      return 'Đưa điện thoại lại gần chậm một chút, giữ đủ cả mặt và hai mắt trong khung. Khi hiện “Giữ nguyên vị trí”, dừng di chuyển để đèn xác nhận.';
     case 'TOO_CLOSE':
-      return 'Lùi rất nhẹ để cả khuôn mặt còn nằm trong khung ghi hình.';
+      return 'Lùi nhẹ, giữ mặt ở giữa và chừa khoảng trống hai bên; không cần cố làm mặt cao hết khung.';
+    case 'FACE_PARTIAL':
+      return 'Căn mặt vào giữa để đủ cả mặt và hai mắt; nếu mặt vẫn chạm mép khung, lùi nhẹ.';
     case 'READY':
-      return 'Khung mặt đạt hướng dẫn khoảng cách; chất lượng chỉ được xác nhận sau phân tích. Giữ nguyên khoảng cách này, giữ đầu yên, rồi bắt đầu.';
+      return 'Đã căn khung ổn định, có thể bắt đầu. Giữ đầu và điện thoại yên; chất lượng hiệu chỉnh sẽ được kiểm tra sau khi ghi.';
     default:
       return framingHint(state);
   }

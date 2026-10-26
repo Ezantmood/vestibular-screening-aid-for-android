@@ -8,6 +8,7 @@ const checks = [
   'cameraPipelineLogicCheck',
   'p3LogicCheck',
   'p35LogicCheck',
+  'framingReadinessLogicCheck',
   'p4LogicCheck',
   'stimulusLogicCheck',
   'calibrationLogicCheck',

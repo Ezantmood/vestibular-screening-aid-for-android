@@ -32,6 +32,11 @@ import type { MvpTestId } from '../types';
 import { trackingDecodeFailure } from '../../eyetracking/tracking/decodeIntegrity';
 import { propagateRois } from '../../eyetracking/tracking/roiPropagation';
 import { CaptureCancelled } from '../../camera/recordingPreparation';
+import { FramingReadiness } from '../../eyetracking/framing';
+import {
+  CALIBRATION_FRAMING_GATES,
+  classifyCalibrationFraming,
+} from '../../eyetracking/calibration/geometry';
 
 export const SELF_CHECK_IDS = [
   'component-isolation-percentile',
@@ -44,6 +49,8 @@ export const SELF_CHECK_IDS = [
   'calibration-nonlinear-cv',
   'calibration-frame-noise-rejected',
   'calibration-model-contract',
+  'framing-wide-face-reachable',
+  'framing-current-sample-readiness',
   'calibration-requires-face-anchor',
   'calibration-head-movement-rejected',
   'rotated-face-rect-roundtrip',
@@ -347,6 +354,39 @@ export async function runBatch3SelfChecks(): Promise<SelfCheckResult[]> {
       const c = syntheticFit();
       delete (c as Partial<typeof c>).modelVersion;
       ensure(!calibrationUsable(c, SYNTHETIC_CONTEXT, 1000));
+    },
+    'framing-wide-face-reachable': () => {
+      ensure(
+        classifyCalibrationFraming({
+          faceFound: true,
+          faceLeft: 0.07,
+          faceRight: 0.93,
+          faceTop: 0.26,
+          faceBottom: 0.74,
+          leftEyeLandmark: true,
+          rightEyeLandmark: true,
+          leftEyeOpenProb: 0.9,
+          rightEyeOpenProb: 0.9,
+        }) === 'READY',
+      );
+    },
+    'framing-current-sample-readiness': () => {
+      const sample = {
+        faceFound: true,
+        faceLeft: 0.07,
+        faceRight: 0.93,
+        faceTop: 0.26,
+        faceBottom: 0.74,
+        leftEyeLandmark: true,
+        rightEyeLandmark: true,
+        leftEyeOpenProb: 0.9,
+        rightEyeOpenProb: 0.9,
+      };
+      const readiness = new FramingReadiness(3);
+      ensure(readiness.push(sample, CALIBRATION_FRAMING_GATES).settling);
+      readiness.push(sample, CALIBRATION_FRAMING_GATES);
+      ensure(readiness.push(sample, CALIBRATION_FRAMING_GATES).ready);
+      ensure(!readiness.push({ ...sample, faceFound: false }, CALIBRATION_FRAMING_GATES).ready);
     },
     'calibration-missing-right': () => {
       const takes = syntheticCalibrationTakes();

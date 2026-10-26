@@ -21,7 +21,7 @@ const tools = resolve(root, version);
 const badging = execFileSync(resolve(tools, 'aapt'), ['dump', 'badging', apk], {
   encoding: 'utf8',
 });
-assert.ok(badging.includes("name='com.vestibular.screeningaid' versionCode='10'"));
+assert.ok(badging.includes("name='com.vestibular.screeningaid' versionCode='11'"));
 assert.ok(!/\bsplit=/.test(badging.split('\n')[0]), 'Supply a single APK, not a split package');
 assert.ok(/^native-code:.*'arm64-v8a'/m.test(badging), 'Redmi arm64 libraries missing');
 assert.ok(badging.includes('android.permission.CAMERA'));
@@ -45,7 +45,7 @@ assert.ok(
   'Current JS coordinate contract missing',
 );
 assert.ok(
-  measurementBundle.includes(Buffer.from('batch3-20261026-calibration-ridge-v7')),
+  measurementBundle.includes(Buffer.from('batch3-20261026-framing-fix-v8')),
   'Current diagnostic build missing',
 );
 assert.ok(

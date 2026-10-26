@@ -7,6 +7,14 @@ P4 tracking and stores artifacts through the camera/storage seams.
 
 ## Calibration
 
+- Preview framing is a UX preflight, not a pupil-accuracy or distance measurement.
+  It accepts face height ≥0.60 OR width ≥0.80 of the upright view, with the
+  existing clipping, maximum size, eyes and centering checks. This avoids an
+  unreachable height-only gate for wide boxes in a portrait preview. Guidance
+  follows the current observation; green/start requires three stable READY
+  observations and a currently READY sample. Recording via the explicit
+  technical override never bypasses the measured calibration gates below.
+
 - Nine fit targets, four independent validation targets, repeated center for
   drift. Coordinates are fractions of the target viewport, not visual degrees.
   Image-space eye labels remain unchanged; the measured relation learns

@@ -386,6 +386,7 @@ export default function StimulusScreen({
           framingHints={{
             TOO_FAR: calibrationFramingHint('TOO_FAR'),
             TOO_CLOSE: calibrationFramingHint('TOO_CLOSE'),
+            FACE_PARTIAL: calibrationFramingHint('FACE_PARTIAL'),
             READY: calibrationFramingHint('READY'),
           }}
           previewAspect={CALIBRATION_PREVIEW_ASPECT}

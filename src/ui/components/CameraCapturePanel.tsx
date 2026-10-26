@@ -2,7 +2,11 @@ import { useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { FixedMode } from '../../camera/fixedModes';
 import type { NativeFramingSample } from '../../camera/livePreview';
-import { FRAMING_GATES, FramingStabilizer, classifyFramingState } from '../../eyetracking/framing';
+import {
+  FRAMING_GATES,
+  FramingReadiness,
+  initialFramingReadiness,
+} from '../../eyetracking/framing';
 import type { FramingGateSet, FramingState } from '../../eyetracking/framing';
 import type { PreviewCaptureController } from '../hooks/usePreviewCapture';
 import LiveCameraPreviewView from './LiveCameraPreviewView';
@@ -54,17 +58,19 @@ export default function CameraCapturePanel({
   previewAspect?: number;
 }) {
   const mode = modes[selectedIndex];
-  const stabilizer = useRef(new FramingStabilizer(3));
-  const [framing, setFraming] = useState<FramingState>('NO_FACE');
+  const readiness = useRef(new FramingReadiness(3));
+  const [framing, setFraming] = useState(initialFramingReadiness);
   const [sample, setSample] = useState<NativeFramingSample | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const visible = !['closed', 'closing'].includes(camera.stage);
   const recording = ['countdown', 'recording', 'finishing'].includes(camera.stage);
   const processing = busy && camera.stage === 'closed';
   const front = mode?.lensFacing === 'FRONT';
-  const ready = !requireFace || !front || framing === 'READY';
+  const ready = !requireFace || !front || framing.ready;
   const hint = front
-    ? (framingHints?.[framing] ?? hints[framing])
+    ? framing.settling
+      ? 'Giữ nguyên vị trí, đầu và điện thoại yên. Đang xác nhận căn khung; không cần đưa lại gần thêm.'
+      : (framingHints?.[framing.observed] ?? hints[framing.observed])
     : 'Hướng camera sau vào đối tượng cần quay.';
   return (
     <View testID="camera-capture-panel">
@@ -86,16 +92,13 @@ export default function CameraCapturePanel({
             mirrorPreview={front}
             onPreviewStatus={(event) => {
               if (event.nativeEvent.status === 'surfaceReady') {
-                stabilizer.current.reset();
-                setFraming('NO_FACE');
+                setFraming(readiness.current.reset());
                 setSample(null);
               }
             }}
             onFramingSample={(event) => {
               setSample(event.nativeEvent);
-              setFraming(
-                stabilizer.current.push(classifyFramingState(event.nativeEvent, framingGates)),
-              );
+              setFraming(readiness.current.push(event.nativeEvent, framingGates));
             }}
           />
         ) : (
@@ -129,7 +132,7 @@ export default function CameraCapturePanel({
                       top: sample.faceTop * size.height,
                       width: Math.max(0, sample.faceRight - sample.faceLeft) * size.width,
                       height: Math.max(0, sample.faceBottom - sample.faceTop) * size.height,
-                      borderColor: framing === 'READY' ? '#82E5BE' : '#FFD78A',
+                      borderColor: framing.ready ? '#82E5BE' : '#FFD78A',
                     },
                   ]}
                 />
@@ -150,7 +153,9 @@ export default function CameraCapturePanel({
                         ? 'CHUẨN BỊ'
                         : ready
                           ? 'SẴN SÀNG'
-                          : 'CĂN KHUÔN MẶT'}
+                          : framing.settling
+                            ? 'GIỮ NGUYÊN VỊ TRÍ'
+                            : 'CĂN KHUÔN MẶT'}
               </Text>
             </View>
             {camera.stage === 'countdown' && (
@@ -242,6 +247,21 @@ export default function CameraCapturePanel({
           />
           {requireFace && front && !ready && (
             <CameraDetails title="Tùy chọn kiểm tra">
+              {sample?.faceFound &&
+                sample.faceLeft !== null &&
+                sample.faceRight !== null &&
+                sample.faceTop !== null &&
+                sample.faceBottom !== null &&
+                [sample.faceLeft, sample.faceRight, sample.faceTop, sample.faceBottom].every(
+                  Number.isFinite,
+                ) && (
+                  <Text style={styles.hint}>
+                    Mặt trong khung xem trước: rộng{' '}
+                    {((sample.faceRight - sample.faceLeft) * 100).toFixed(0)}%, cao{' '}
+                    {((sample.faceBottom - sample.faceTop) * 100).toFixed(0)}%. Đây là kích thước
+                    tương đối trên ảnh xem trước.
+                  </Text>
+                )}
               <Text style={styles.hint}>
                 Có thể ghi hình để kiểm tra kỹ thuật khi chưa căn được mặt.
               </Text>

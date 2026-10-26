@@ -52,6 +52,10 @@ export const FRAMING_GATES = {
 
 export type FramingGateSet = {
   [Key in keyof typeof FRAMING_GATES]: number;
+} & {
+  /** Optional alternative to height: a wide face can fill a portrait view
+   * before reaching the height floor. Both dimensions still obey close/clipping. */
+  TOO_FAR_WIDTH_FRAC?: number;
 };
 
 /**
@@ -72,7 +76,7 @@ export function classifyFramingState(
     return 'NO_FACE';
   }
   const { faceLeft: l, faceTop: t, faceRight: r, faceBottom: b } = obs;
-  if (!(r > l && b > t)) {
+  if (![l, t, r, b].every(Number.isFinite) || !(r > l && b > t)) {
     return 'NO_FACE';
   }
   const m = gates.PARTIAL_MARGIN;
@@ -84,10 +88,17 @@ export function classifyFramingState(
   if (w > gates.TOO_CLOSE_FRAC || h > gates.TOO_CLOSE_FRAC) {
     return 'TOO_CLOSE';
   }
-  if (h < gates.TOO_FAR_HEIGHT_FRAC) {
+  const widthFloor = gates.TOO_FAR_WIDTH_FRAC;
+  const wideEnough =
+    widthFloor !== undefined &&
+    Number.isFinite(widthFloor) &&
+    widthFloor > 0 &&
+    widthFloor < gates.TOO_CLOSE_FRAC &&
+    w >= widthFloor;
+  if (h < gates.TOO_FAR_HEIGHT_FRAC && !wideEnough) {
     return 'TOO_FAR';
   }
-  const eyesVisible = eyesVisibleForFraming(obs);
+  const eyesVisible = eyesVisibleForFraming(obs, gates.EYE_OPEN_PROB);
   if (!eyesVisible) {
     return 'EYES_NOT_VISIBLE';
   }
@@ -105,15 +116,20 @@ export function classifyFramingState(
  * least one landmark plus an open-eye classification clears the gate.
  * Closed (low open-prob on a classified eye) vetoes visibility.
  */
-export function eyesVisibleForFraming(obs: FramingObservation): boolean {
-  const eyeClosed = (p: number | null): boolean => p !== null && p < FRAMING_GATES.EYE_OPEN_PROB;
+export function eyesVisibleForFraming(
+  obs: FramingObservation,
+  minOpenProbability: number = FRAMING_GATES.EYE_OPEN_PROB,
+): boolean {
+  const eyeClosed = (p: number | null): boolean =>
+    p !== null && (!Number.isFinite(p) || p < minOpenProbability || p > 1);
   if (eyeClosed(obs.leftEyeOpenProb) || eyeClosed(obs.rightEyeOpenProb)) {
     return false;
   }
   if (obs.leftEyeLandmark && obs.rightEyeLandmark) {
     return true;
   }
-  const open = (p: number | null): boolean => p !== null && p >= FRAMING_GATES.EYE_OPEN_PROB;
+  const open = (p: number | null): boolean =>
+    p !== null && Number.isFinite(p) && p >= minOpenProbability && p <= 1;
   if (
     (obs.leftEyeLandmark && open(obs.rightEyeOpenProb)) ||
     (obs.rightEyeLandmark && open(obs.leftEyeOpenProb))
@@ -187,5 +203,47 @@ export class FramingStabilizer {
     this.current = 'NO_FACE';
     this.pending = null;
     this.pendingCount = 0;
+  }
+}
+
+export interface FramingReadinessSnapshot {
+  observed: FramingState;
+  stable: FramingState;
+  ready: boolean;
+  settling: boolean;
+}
+
+export const initialFramingReadiness = (): FramingReadinessSnapshot => ({
+  observed: 'NO_FACE',
+  stable: 'NO_FACE',
+  ready: false,
+  settling: false,
+});
+
+/** Guidance follows the CURRENT observation so the operator stops moving as
+ * soon as the face fits. Starting/green still requires stable READY AND a
+ * currently valid sample; a debounced old state cannot give stale directions
+ * or keep capture enabled after the face/eyes disappear. */
+export class FramingReadiness {
+  private readonly stabilizer: FramingStabilizer;
+  constructor(stableCount = 3) {
+    this.stabilizer = new FramingStabilizer(stableCount);
+  }
+  reset(): FramingReadinessSnapshot {
+    this.stabilizer.reset();
+    return initialFramingReadiness();
+  }
+  push(
+    sample: FramingObservation,
+    gates: FramingGateSet = FRAMING_GATES,
+  ): FramingReadinessSnapshot {
+    const observed = classifyFramingState(sample, gates);
+    const stable = this.stabilizer.push(observed);
+    return {
+      observed,
+      stable,
+      ready: observed === 'READY' && stable === 'READY',
+      settling: observed === 'READY' && stable !== 'READY',
+    };
   }
 }
