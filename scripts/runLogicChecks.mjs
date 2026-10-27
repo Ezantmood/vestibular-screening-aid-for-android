@@ -28,6 +28,9 @@ const checks = [
   'authLogicCheck',
   'clinicLogicCheck',
 ];
+console.log(
+  'Evidence: computer logic/synthetic checks. Physical Redmi calibration and gaze accuracy are NOT evaluated by this command.',
+);
 try {
   execFileSync(
     'node',
@@ -46,11 +49,29 @@ try {
     ],
     { stdio: 'inherit' },
   );
-  for (const name of checks)
-    execFileSync('node', [join(output, 'scripts', `${name}.js`)], {
-      stdio: 'inherit',
-      env: { ...process.env, NODE_PATH: join(process.cwd(), 'node_modules') },
-    });
+  const suites = [];
+  for (const name of checks) {
+    try {
+      execFileSync('node', [join(output, 'scripts', `${name}.js`)], {
+        stdio: 'inherit',
+        env: { ...process.env, NODE_PATH: join(process.cwd(), 'node_modules') },
+      });
+      suites.push({ name, status: 'PASS' });
+    } catch {
+      suites.push({ name, status: 'FAIL' });
+      process.exitCode = 1;
+    }
+  }
+  console.log(
+    JSON.stringify({
+      evidenceClass: 'computer-logic-and-simulation',
+      suites,
+      passed: suites.filter((suite) => suite.status === 'PASS').length,
+      failed: suites.filter((suite) => suite.status === 'FAIL').length,
+      physicalRedmiCalibration: 'NOT_EVALUATED',
+      gazeAccuracy: 'NOT_EVALUATED',
+    }),
+  );
 } finally {
   rmSync(output, { recursive: true, force: true });
 }

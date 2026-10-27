@@ -8,8 +8,10 @@ Redmi; no Wireless Debugging, ADB, remote inspection, CLI install or CLI launch.
 Use the current APK and release notes from
 [GitHub Releases](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases).
 `vestibular-clinic.apk` is the clinician app. `vestibular.apk` is the offline
-engineering app with screen 09, **Kiểm thử Batch 3 độc lập**. Both embed JS/native
-code and run without Metro. They share a package and are alternative installs.
+engineering app with screen 09, **Kiểm thử Batch 3 độc lập**. The clinician app
+opens calibration and recording through its exam flow; engineering tools and
+self-tests are available in the offline APK only. Both embed JS/native code and
+run without Metro. They share a package and are alternative installs.
 The owner installs/updates through Android's file manager; preserve existing
 local evidence before starting a new calibration.
 
@@ -53,7 +55,13 @@ Neither command connects to a phone. [Release packaging](RELEASING.md).
    and wait for stable green. A green lamp establishes framing only; calibration
    still needs all measured quality gates. The expandable technical recording
    option can collect evidence without a green lamp; it cannot force VALID.
-4. Inspect the calibration feedback and representative ROI overlays. The crop
+4. With a saved v8/v9 capture, **Phân tích lại video đã lưu** re-decodes original
+   videos using the updated detector, without recording another 14-point sequence.
+   This is saved-data replay: original capture time and calibration expiry stay
+   unchanged. Missing video/metadata blocks replay; a fresh physical calibration
+   is still needed for current-use acceptance.
+   Inspect **Ảnh kiểm tra đồng tử**, calibration feedback and representative ROI
+   overlays. Unmarked PNGs contain exact decoded grayscale crop pixels. The crop
    must contain the eye, the cyan polygon must follow its eyelids, and the red
    marker must lie on the pupil. A missing/closed contour must not fall back to
    an unmasked dark blob. Use **Xuất số đo hiệu chỉnh (JSON)** on the result screen

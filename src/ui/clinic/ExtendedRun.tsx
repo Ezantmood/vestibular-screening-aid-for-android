@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { PermissionsAndroid, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  PermissionsAndroid,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
 import { collectFixedModes, type FixedMode } from '../../camera/fixedModes';
 import { isLivePreviewAvailable } from '../../camera/livePreview';
@@ -155,7 +163,14 @@ export default function ExtendedRun({
   }
 
   return (
-    <View style={styles.screen}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.content}
+      stickyHeaderIndices={busy ? [1] : undefined}
+      scrollEnabled={!busy}
+      keyboardShouldPersistTaps="handled"
+      testID="extended-run-screen"
+    >
       <CameraButton title={t(lang, 'back')} tone="secondary" onPress={onBack} />
       <View style={styles.board}>
         {mark.stripe ? (
@@ -218,12 +233,13 @@ export default function ExtendedRun({
           stopTitle={t(lang, 'cancelTest')}
         />
       )}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  content: { paddingBottom: 48 },
   board: {
     height: 220,
     margin: 12,

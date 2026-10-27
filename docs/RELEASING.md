@@ -3,6 +3,9 @@
 GitHub Releases is the per-version record for changes, binaries, verification and
 pending device work. Keep README and `docs/` focused on current setup, contracts
 and acceptance procedures; do not add dated Batch 3 run logs to the source tree.
+The owner has authorized commit, push and GitHub Release delivery at the end of
+each completed task. This is the default handoff; local APK/LAN delivery alone is
+not completion. No repeated permission request is needed for routine publication.
 
 ## Prepare a version
 
@@ -15,7 +18,7 @@ and acceptance procedures; do not add dated Batch 3 run logs to the source tree.
 ```bash
 JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home npm run build:clinic
 JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home npm run build:batch3
-npm run release:prepare -- v0.2.10-beta.1
+npm run release:prepare -- v0.2.12-beta.1
 ```
 
 Preparation requires matching clean source commits and current verified APKs.
@@ -24,7 +27,7 @@ It creates an explicit allowlisted package in `artifacts/releases/<tag>/`:
 The manifest records version, code, source commit and binary hashes. `artifacts/`
 is ignored by Git. The preparation script does not publish anything.
 
-## Publish when authorized
+## Publish
 
 Write cohesive release notes to a local file and pass that file to GitHub CLI's
 `--notes-file`; preserve real newlines. Describe the concrete change, what passed

@@ -49,3 +49,9 @@ npm run check   # typecheck + lint (run before committing)
 
 - Scoped commits, no history rewrites, no force-push.
 - Push only if a remote is configured; never invent one.
+- After each completed task, commit and push the changes and publish a GitHub
+  Release with downloadable APKs for owner testing. The owner authorizes this
+  routine delivery; do not stop at local/LAN artifacts or ask again to push/release.
+  Follow [release packaging](docs/RELEASING.md), including clean-source builds,
+  checksums and explicit pending physical results. Keep private evidence out of Git
+  and release assets.

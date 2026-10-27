@@ -59,7 +59,6 @@ import type { EyeTestResult } from '../../tests/metrics/types';
 import type { MvpTestId } from '../../tests/types';
 import { CameraButton, cameraColors } from '../components/CameraUI';
 import CalibrationScreen from '../screens/CalibrationScreen';
-import HomeScreen from '../screens/HomeScreen';
 import StimulusScreen from '../screens/StimulusScreen';
 import { Chip, Field, flagColor, HoldSketch, TargetSketch, TraceChart } from './bits';
 import ExtendedRun, { type ExtendedDraft } from './ExtendedRun';
@@ -73,7 +72,6 @@ type Screen =
         | 'deleted'
         | 'settings'
         | 'audit'
-        | 'tools'
         | 'instructions'
         | 'calibrate'
         | 'run'
@@ -236,7 +234,7 @@ export default function ClinicApp() {
   const role: Role = profile?.role ?? 'clinician';
   const settings = (uid && vault.settingsByUid[uid]) || defaultSettings();
   const lang = settings.language;
-  const fullScreen = ['tools', 'run', 'extended', 'calibrate'].includes(screen.id);
+  const fullScreen = ['run', 'extended', 'calibrate'].includes(screen.id);
 
   async function commit(change: (data: VaultData) => void): Promise<VaultData> {
     const data = await updateVault(change);
@@ -370,11 +368,15 @@ export default function ClinicApp() {
     setScreen({ id: 'instructions' });
   }
 
-  async function beginRecording() {
+  async function beginRecording(recordWithoutCalibration = false) {
     const testId = draft?.tests[draft.index];
     if (!testId) return;
-    const calibration = await loadCalibration();
-    if (!calibrationDone && (!calibration || calibration.verdict !== 'VALID')) {
+    const calibration = recordWithoutCalibration ? null : await loadCalibration();
+    if (
+      !recordWithoutCalibration &&
+      !calibrationDone &&
+      (!calibration || calibration.verdict !== 'VALID')
+    ) {
       setBanner(t(lang, 'calibrateFirst'));
       setScreen({ id: 'calibrate' });
       return;
@@ -604,11 +606,6 @@ export default function ClinicApp() {
             });
             setScreen({ id: 'settings' });
           }}
-        />
-        <CameraButton
-          title={t(lang, 'tools')}
-          tone="secondary"
-          onPress={() => setScreen({ id: 'tools' })}
         />
         <Text style={styles.section}>{t(lang, 'anonymousRuns')}</Text>
         <CalibrationRecall saved={savedCalibration} lang={lang} />
@@ -867,6 +864,12 @@ export default function ClinicApp() {
         )}
         <Text style={styles.body}>{t(lang, 'calibrateFirst')}</Text>
         <CameraButton title={t(lang, 'startRecording')} onPress={() => void beginRecording()} />
+        <CameraButton
+          title={t(lang, 'recordWithoutCalibration')}
+          tone="secondary"
+          testID="record-without-calibration"
+          onPress={() => void beginRecording(true)}
+        />
         <CameraButton
           title={t(lang, 'back')}
           tone="secondary"
@@ -1207,17 +1210,6 @@ export default function ClinicApp() {
           tone="secondary"
           onPress={() => setScreen({ id: 'home' })}
         />
-      </View>
-    );
-  } else if (screen.id === 'tools') {
-    body = (
-      <View style={styles.flex}>
-        <CameraButton
-          title={t(lang, 'back')}
-          tone="secondary"
-          onPress={() => setScreen({ id: 'home' })}
-        />
-        <HomeScreen embedded />
       </View>
     );
   }

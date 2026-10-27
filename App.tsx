@@ -2,13 +2,13 @@ import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from './src/auth/AuthProvider';
 import { authRequiredFromBundle } from './src/auth/runtimeConfig';
 import { AuthFlow } from './src/ui/auth/AuthFlow';
-import HomeScreen from './src/ui/screens/HomeScreen';
+import EngineeringToolsScreen from './src/ui/screens/EngineeringToolsScreen';
 
 export default function App() {
   if (!authRequiredFromBundle()) {
     return (
       <>
-        <HomeScreen />
+        <EngineeringToolsScreen />
         <StatusBar style="auto" />
       </>
     );

@@ -11,7 +11,6 @@ const vi = {
   anonymous: 'Đo ẩn danh',
   startExam: 'Bắt đầu bài đo',
   settings: 'Cài đặt',
-  tools: 'Công cụ kỹ thuật',
   tutorial: 'Cách cầm máy',
   deleted: 'Đã xóa',
   back: 'Quay lại',
@@ -53,6 +52,7 @@ const vi = {
   oneTest: 'Chọn từng bài',
   instructions: 'Hướng dẫn',
   startRecording: 'Bắt đầu ghi 10 giây',
+  recordWithoutCalibration: 'Ghi kiểm tra khi chưa hiệu chỉnh',
   calibrateFirst:
     'Trước bài đo, nhìn lần lượt các điểm hiệu chỉnh. Nếu ánh xạ chưa đạt, bài vẫn được ghi và vị trí trên màn hình không được chấm.',
   calRetry:
@@ -65,7 +65,7 @@ const vi = {
   savedCalibrationRetry:
     'Hiệu chỉnh đã lưu ({n}): chưa đạt. Ánh xạ không được dùng để chấm vị trí.',
   qualityFraming:
-    'Đèn khung mặt xanh khi mặt đủ gần và còn trọn trong khung ghi hình. Vàng khi quá xa, lệch, hoặc sắp tràn khung. Đỏ khi không thấy mặt. Mặt chỉ chiếm một phần nhỏ khung thì đồng tử dịch quá ít, bài hiệu chỉnh không đạt. Đó là tư thế, chưa phải lớp đồng tử.',
+    'Đèn khung mặt chỉ kiểm tra căn khung: xanh khi đủ điều kiện tư thế, vàng khi cần chỉnh, đỏ khi không thấy mặt. Đèn xanh chưa chứng minh tìm đúng đồng tử hoặc calibration đạt; phải kiểm tra ảnh và số đo sau khi ghi.',
   notDiagnosis: 'Cờ màu là mốc sàng lọc, không phải chẩn đoán.',
   traceCaption:
     'Đường vị trí mắt đã xử lý, không phải độ. Hai bài chuẩn dùng khung nhìn đã hiệu chỉnh. Bài khác dùng vùng mắt.',
@@ -161,7 +161,7 @@ const vi = {
   biometricLater: 'Để sau',
   makingPdf: 'Đang tạo PDF…',
   unaligned:
-    'Chưa tính độ chính xác hoặc tỉ lệ lỗi anti-saccade: hiệu chỉnh mắt không cùng vùng mục tiêu với bài này, nên không quy ra khung nhìn.',
+    'Bài này hiện chỉ ghi và xử lý đường mắt trong vùng mắt. Độ chính xác saccade dọc và tỉ lệ lỗi anti-saccade chưa được triển khai với calibration cùng vùng mục tiêu; các chỉ số đó để trống kể cả khi calibration đạt.',
 } as const;
 
 const en: { [K in keyof typeof vi]: string } = {
@@ -175,7 +175,6 @@ const en: { [K in keyof typeof vi]: string } = {
   anonymous: 'Anonymous test',
   startExam: 'Start a test',
   settings: 'Settings',
-  tools: 'Engineering tools',
   tutorial: 'How to hold the phone',
   deleted: 'Deleted',
   back: 'Back',
@@ -217,6 +216,7 @@ const en: { [K in keyof typeof vi]: string } = {
   oneTest: 'Pick individual tests',
   instructions: 'Instructions',
   startRecording: 'Record 10 seconds',
+  recordWithoutCalibration: 'Record a check without calibration',
   calibrateFirst:
     'Before the test, look at the calibration points. If the mapping does not pass, the recording still runs and screen position is not scored.',
   calRetry:
@@ -230,7 +230,7 @@ const en: { [K in keyof typeof vi]: string } = {
   savedCalibrationRetry:
     'Saved calibration ({n}): not accepted. Screen position is not scored from it.',
   qualityFraming:
-    'The framing lamp is green only when the face is close enough and still fully inside the recorded frame. Yellow means too far, off-center, or about to leave the frame. Red means no face. A small face moves the pupil by too few pixels for calibration to pass. The lamp is posture, not a pupil overlay.',
+    'The framing lamp checks positioning only: green when framing conditions pass, yellow when adjustment is needed, red when no face is found. Green does not establish correct pupil detection or accepted calibration; inspect images and measurements after recording.',
   notDiagnosis: 'Color flags are screening references, not a diagnosis.',
   traceCaption:
     'Processed eye position, not degrees. The two core tests use the calibrated viewport. Other tests use the eye region.',
@@ -330,7 +330,7 @@ const en: { [K in keyof typeof vi]: string } = {
   biometricLater: 'Later',
   makingPdf: 'Creating the PDF…',
   unaligned:
-    'Accuracy and the anti-saccade error rate are not scored: eye calibration is not in the same target region as this test, so it is not converted to the viewport.',
+    'This test currently records and processes eye-region traces. Vertical saccade accuracy and anti-saccade error rate do not yet use calibration in the same target region; these metrics stay empty even if calibration passes.',
 };
 
 export type CopyKey = keyof typeof vi;

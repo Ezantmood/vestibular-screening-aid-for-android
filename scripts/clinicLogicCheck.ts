@@ -149,6 +149,15 @@ function checks() {
   );
   assert.equal(hidden[0]?.flag, 'unscored');
   assert.equal(hidden[0]?.value, '—');
+  const hiddenAnti = extendedRows(
+    'anti-saccade',
+    [anti],
+    'adult',
+    { cm: null, breakMs: null, recoveryMs: null },
+    false,
+  );
+  assert.equal(hiddenAnti[0]?.flag, 'unscored');
+  assert.equal(hiddenAnti[0]?.value, '—');
 
   const drift = trace(
     Array.from({ length: 20 }, (_, index) => ({
