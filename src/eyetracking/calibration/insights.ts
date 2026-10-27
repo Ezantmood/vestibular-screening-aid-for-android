@@ -185,7 +185,12 @@ export function calibrationFeedback(result: CalibrationResult): string[] {
     const unstable = rows.filter((q) => q.reasons.includes('UNSTABLE_FIXATION'));
     if (unstable.length)
       messages.push(
-        `${label}: ${unstable.length} điểm có độ phân tán vượt 0,04 hoặc không có mẫu. Giữ mắt ở chấm suốt lần ghi; kiểm tra ánh sáng và ảnh đồng tử trước khi thử lại.`,
+        `${label}: ${unstable.length} điểm có độ phân tán đo được vượt 0,04. Kiểm tra dấu đồng tử trong ảnh gốc và ảnh đánh dấu để phân biệt detector rung với mắt chuyển động.`,
+      );
+    const missing = rows.filter((q) => q.reasons.includes('NO_VALID_SAMPLES')).length;
+    if (missing)
+      messages.push(
+        `${label}: ${missing} điểm không có mẫu đồng tử hợp lệ; chưa đo được độ ổn định. Mở ảnh mắt gốc bên dưới để kiểm tra vùng cắt và chất lượng ảnh.`,
       );
     if (result.reasons.some((r) => r.startsWith(`HEAD_OR_ROI_MOVED:${eye}`)))
       messages.push(

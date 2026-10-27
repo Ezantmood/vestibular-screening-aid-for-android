@@ -63,7 +63,7 @@ class ExpoFramePipelineModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ExpoFramePipeline")
-    Constant("measurementVersion") { "eye-contour-pupil-v8" }
+    Constant("measurementVersion") { "eye-contour-pupil-v9" }
 
     AsyncFunction("analyzeVideoFile") { filePath: String, expectedFps: Int,
       faceSampleCount: Int, saveDebugFrames: Boolean, faceRotationDegrees: Int? ->

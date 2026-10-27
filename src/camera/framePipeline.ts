@@ -33,7 +33,7 @@ export function isFramePipelineAvailable(): boolean {
 export function assertCurrentFramePipeline(): void {
   if (!isFramePipelineAvailable() || !currentPupilMeasurement(nativeModule?.measurementVersion))
     throw new Error(
-      'Cần cập nhật APK có frame geometry eye-contour-pupil-v8. Fast Refresh không cập nhật native.',
+      'Cần cập nhật APK có frame geometry eye-contour-pupil-v9. Fast Refresh không cập nhật native.',
     );
 }
 

@@ -30,6 +30,14 @@ export const IMAGE_DIAGNOSTIC_KEYS = [
   'bestScore',
   'runnerUpScore',
   'borderTouch',
+  'apertureArea',
+  'apertureMeanY',
+  'rawCandidateCount',
+  'rejectedBoundary',
+  'rejectedArea',
+  'rejectedSize',
+  'rejectedAspect',
+  'rejectedPrior',
 ] as const satisfies readonly (keyof PupilImageDiagnostics)[];
 export const DETECTION_FAILURES = [
   'NO_FACE',

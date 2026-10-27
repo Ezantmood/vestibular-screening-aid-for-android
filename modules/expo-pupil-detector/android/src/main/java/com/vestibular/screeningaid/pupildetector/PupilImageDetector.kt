@@ -6,12 +6,7 @@ import kotlin.math.*
 class PupilImageDetector {
   companion object {
     const val MIN_PUPIL_CONFIDENCE = 0.35
-    /**
-     * Darkest fraction of the eye crop that is allowed to form a candidate.
-     * 12% on this phone merged the pupil into the eyelid: the blob was about
-     * 41×114 and was rejected for its aspect, so calibration kept no pupil.
-     * 4% stays inside the darker pupil core.
-     */
+    /** Dark-core proposal quantile within the anatomical aperture, not the square crop. */
     const val DARK_PERCENTILE = 0.04
     const val RELAXED_PUPIL_CONFIDENCE = 0.25
     const val AMBIGUITY_SCORE_MARGIN = 0.05
@@ -32,6 +27,8 @@ class PupilImageDetector {
     var meanIntensity: Double = 0.0,
     var touchesBorder: Boolean = false,
   )
+
+  private data class Filtered(val items: List<Comp>, val diagnostics: Map<String, Double>)
 
   data class Outcome(
     val success: Boolean,
@@ -159,7 +156,7 @@ class PupilImageDetector {
     val aperture = contour?.let { EyeAperture.mask(it, rw, rh) }
     if (contour != null && aperture == null)
       return withImageDiagnostics(Outcome(false, null, null, null, null, 0.0, "NO_EYE_ROI"), gray, rw, rh)
-    val smoothed = boxBlur(gray, rw, rh, 1)
+    val smoothed = smoothEye(gray, rw, rh, aperture)
     val mask: ByteArray
     val threshold: Double
     val weights: DoubleArray
@@ -185,7 +182,7 @@ class PupilImageDetector {
           dark++
         }
       }
-      darkFrac = dark.toDouble() / n.toDouble()
+      darkFrac = dark.toDouble() / searchArea(aperture, n)
       mask = binaryOpen(raw, rw, rh)
       weightImage = stretched
       weights = doubleArrayOf(1.0, 2.0, 3.0, 0.0, 2.0)
@@ -200,24 +197,44 @@ class PupilImageDetector {
           dark++
         }
       }
-      darkFrac = dark.toDouble() / (rw * rh).toDouble()
+      darkFrac = dark.toDouble() / searchArea(aperture, rw * rh)
       weightImage = gray
       weights = doubleArrayOf(2.0, 2.0, 2.0, 0.0, 1.0)
     }
     val comps = filterAndWeigh(findComps(mask, rw, rh), gray, weightImage, rw, rh, threshold, aperture)
-    val near = comps.filter { c ->
+    val near = comps.items.filter { c ->
       val cx = c.sumX.toDouble() / max(1.0, c.area.toDouble())
       val cy = c.sumY.toDouble() / max(1.0, c.area.toDouble())
       Math.hypot(cx - priorX, cy - priorY) <= radiusPx
     }
-    if (near.isEmpty()) {
-      return Outcome(false, null, null, null, null, 0.0, "NO_PUPIL_CANDIDATE")
-    }
-    return withImageDiagnostics(selectBest(gray, near, weights, darkFrac, rw, rh, RELAXED_PUPIL_CONFIDENCE, threshold), gray, rw, rh)
+    val filtered = comps.copy(items = near, diagnostics = comps.diagnostics +
+      ("rejectedPrior" to (comps.items.size - near.size).toDouble()))
+    return withImageDiagnostics(selectBest(gray, filtered, weights, darkFrac, rw, rh,
+      RELAXED_PUPIL_CONFIDENCE, threshold, aperture), gray, rw, rh)
   }
 
   private fun aperturePixels(gray: DoubleArray, aperture: BooleanArray?): DoubleArray =
     if (aperture == null) gray else gray.filterIndexed { index, _ -> aperture[index] }.toDoubleArray()
+
+  private fun searchArea(aperture: BooleanArray?, fallback: Int): Double =
+    max(1, aperture?.count { it } ?: fallback).toDouble()
+
+  /** Outside-lid skin/lashes must not enter the threshold through smoothing. */
+  private fun smoothEye(gray: DoubleArray, w: Int, h: Int, aperture: BooleanArray?): DoubleArray {
+    if (aperture == null) return boxBlur(gray, w, h, 1)
+    val out = gray.copyOf()
+    for (i in gray.indices) if (aperture[i]) {
+      val x = i % w; val y = i / w
+      var sum = 0.0; var count = 0
+      for (yy in max(0, y - 1)..min(h - 1, y + 1))
+        for (xx in max(0, x - 1)..min(w - 1, x + 1)) {
+          val j = yy * w + xx
+          if (aperture[j]) { sum += gray[j]; count++ }
+        }
+      out[i] = sum / count
+    }
+    return out
+  }
 
   // ---------- Shared CV primitives (mirror the TS domain logic) ----------
 
@@ -372,12 +389,12 @@ class PupilImageDetector {
     wShape: Double,
     wCenter: Double,
     wContrast: Double,
+    referenceArea: Double,
   ): Double {
-    val roiArea = max(1, roiW * roiH).toDouble()
     val boxW = (c.maxX - c.minX + 1).toDouble()
     val boxH = (c.maxY - c.minY + 1).toDouble()
     val darkness = clamp01((roiMean - c.meanIntensity) / 128.0)
-    val areaFrac = c.area / roiArea
+    val areaFrac = c.area / referenceArea
     val areaPrior = if (areaFrac <= 0) 0.0 else clamp01(1.0 - abs(Math.log(areaFrac / 0.04)) / Math.log(20.0))
     val fillRatio = c.area / max(1.0, boxW * boxH)
     val aspect = max(boxW, boxH) / max(1.0, min(boxW, boxH))
@@ -397,7 +414,8 @@ class PupilImageDetector {
     )
   }
 
-  private fun surroundMean(gray: DoubleArray, w: Int, h: Int, c: Comp, pad: Int): Double? {
+  private fun surroundMean(gray: DoubleArray, w: Int, h: Int, c: Comp, pad: Int,
+    aperture: BooleanArray?): Double? {
     val x0 = max(0, c.minX - pad)
     val y0 = max(0, c.minY - pad)
     val x1 = min(w - 1, c.maxX + pad)
@@ -406,7 +424,8 @@ class PupilImageDetector {
     var count = 0
     for (y in y0..y1) {
       for (x in x0..x1) {
-        if (x in c.minX..c.maxX && y in c.minY..c.maxY) {
+        if ((x in c.minX..c.maxX && y in c.minY..c.maxY) ||
+          (aperture != null && !aperture[y * w + x])) {
           continue
         }
         sum += gray[y * w + x]
@@ -424,9 +443,10 @@ class PupilImageDetector {
     h: Int,
     threshold: Double,
     aperture: BooleanArray? = null,
-  ): List<Comp> {
-    val roiArea = max(1, w * h).toDouble()
+  ): Filtered {
+    val roiArea = searchArea(aperture, w * h)
     val out = mutableListOf<Comp>()
+    var boundary = 0; var area = 0; var size = 0; var aspect = 0
     for (c in raw) {
       // A dark component touching the lid boundary can be eyelashes or a
       // clipped pupil. Do not report its biased partial centroid as a pupil.
@@ -434,17 +454,20 @@ class PupilImageDetector {
         val x = i % w; val y = i / w
         x == 0 || y == 0 || x == w - 1 || y == h - 1 ||
           !aperture[i - 1] || !aperture[i + 1] || !aperture[i - w] || !aperture[i + w]
-      }) continue
+      }) { boundary++; continue }
       val areaFrac = c.area / roiArea
       if (areaFrac < 0.003 || areaFrac > 0.28) {
+        area++
         continue
       }
       val bw = c.maxX - c.minX + 1
       val bh = c.maxY - c.minY + 1
       if (bw < 6 || bh < 6) {
+        size++
         continue
       }
       if (max(bw, bh).toDouble() / max(1, min(bw, bh)).toDouble() > 2.5) {
+        aspect++
         continue
       }
       var sum = 0.0
@@ -465,31 +488,38 @@ class PupilImageDetector {
       c.wTotal = wTotal
       out.add(c)
     }
-    return out
+    return Filtered(out, mapOf("rawCandidateCount" to raw.size.toDouble(),
+      "rejectedBoundary" to boundary.toDouble(), "rejectedArea" to area.toDouble(),
+      "rejectedSize" to size.toDouble(), "rejectedAspect" to aspect.toDouble()))
   }
 
   private fun selectBest(
     gray: DoubleArray,
-    comps: List<Comp>,
+    filtered: Filtered,
     weights: DoubleArray,
     maskFraction: Double,
     width: Int,
     height: Int,
     minConfidence: Double = MIN_PUPIL_CONFIDENCE,
     threshold: Double? = null,
+    aperture: BooleanArray? = null,
   ): Outcome {
+    val comps = filtered.items
+    val referenceArea = searchArea(aperture, width * height)
+    val roiMean = aperturePixels(gray, aperture).average()
+    val common = filtered.diagnostics + mapOf("apertureArea" to referenceArea,
+      "apertureMeanY" to roiMean, "candidateCount" to comps.size.toDouble(),
+      "darkFraction" to maskFraction, "thresholdY" to threshold)
     if (comps.isEmpty()) {
-      return noCandidate(gray, maskFraction).copy(diagnostics = mapOf("candidateCount" to 0.0, "darkFraction" to maskFraction, "thresholdY" to threshold))
+      return noCandidate(roiMean, maskFraction).copy(diagnostics = common)
     }
-    val roiMean = gray.average()
     val scored = comps.map { c ->
-      Scored(c, scoreComp(c, roiMean, width, height, surroundMean(gray, width, height, c, 6),
-        weights[0], weights[1], weights[2], weights[3], weights[4]))
+      Scored(c, scoreComp(c, roiMean, width, height, surroundMean(gray, width, height, c, 6, aperture),
+        weights[0], weights[1], weights[2], weights[3], weights[4], referenceArea))
     }.sortedByDescending { it.score }
     val best = scored[0]
     val runnerUp = if (scored.size > 1) scored[1] else null
-    val diagnostics = mapOf("candidateCount" to comps.size.toDouble(), "darkFraction" to maskFraction,
-      "thresholdY" to threshold, "bestScore" to best.score, "runnerUpScore" to runnerUp?.score,
+    val diagnostics = common + mapOf("bestScore" to best.score, "runnerUpScore" to runnerUp?.score,
       "borderTouch" to if (best.comp.touchesBorder) 1.0 else 0.0)
     if (runnerUp != null && best.score - runnerUp.score < AMBIGUITY_SCORE_MARGIN && runnerUp.score >= minConfidence) {
       return Outcome(false, null, null, null, null, best.score, "AMBIGUOUS_CANDIDATES", diagnostics)
@@ -526,8 +556,7 @@ class PupilImageDetector {
       "nearWhiteFraction" to histogram.drop(251).sum().toDouble() / gray.size))
   }
 
-  private fun noCandidate(gray: DoubleArray, maskFraction: Double): Outcome {
-    val roiMean = gray.average()
+  private fun noCandidate(roiMean: Double, maskFraction: Double): Outcome {
     if (maskFraction > 0.4 || roiMean < 60.0) {
       return Outcome(false, null, null, null, null, 0.0, "EYE_CLOSED_OR_OCCLUDED")
     }
@@ -535,7 +564,7 @@ class PupilImageDetector {
   }
 
   private fun detectPercentileDark(gray: DoubleArray, w: Int, h: Int, aperture: BooleanArray?): Outcome {
-    val smoothed = boxBlur(gray, w, h, 1)
+    val smoothed = smoothEye(gray, w, h, aperture)
     val rawThreshold = percentileValue(aperturePixels(smoothed, aperture), DARK_PERCENTILE)
     val threshold = min(110.0, max(25.0, rawThreshold))
     val mask = ByteArray(w * h)
@@ -549,11 +578,12 @@ class PupilImageDetector {
       }
     }
     val comps = filterAndWeigh(findComps(mask, w, h), gray, gray, w, h, threshold, aperture)
-    return selectBest(gray, comps, doubleArrayOf(2.0, 2.0, 2.0, 0.0, 1.0), dark.toDouble() / (w * h).toDouble(), w, h, threshold = threshold)
+    return selectBest(gray, comps, doubleArrayOf(2.0, 2.0, 2.0, 0.0, 1.0),
+      dark.toDouble() / searchArea(aperture, w * h), w, h, threshold = threshold, aperture = aperture)
   }
 
   private fun detectContrastNormalized(gray: DoubleArray, w: Int, h: Int, aperture: BooleanArray?): Outcome {
-    val smoothed = boxBlur(gray, w, h, 1)
+    val smoothed = smoothEye(gray, w, h, aperture)
     val lo = percentileValue(aperturePixels(smoothed, aperture), 0.02)
     val hi = percentileValue(aperturePixels(smoothed, aperture), 0.98)
     if (hi - lo < 8.0) {
@@ -575,7 +605,8 @@ class PupilImageDetector {
     }
     val opened = binaryOpen(mask, w, h)
     val comps = filterAndWeigh(findComps(opened, w, h), gray, stretched, w, h, absCut, aperture)
-    return selectBest(gray, comps, doubleArrayOf(1.0, 2.0, 3.0, 0.0, 2.0), dark.toDouble() / n.toDouble(), w, h, threshold = absCut)
+    return selectBest(gray, comps, doubleArrayOf(1.0, 2.0, 3.0, 0.0, 2.0),
+      dark.toDouble() / searchArea(aperture, n), w, h, threshold = absCut, aperture = aperture)
   }
 
   private fun binaryOpen(mask: ByteArray, w: Int, h: Int): ByteArray {

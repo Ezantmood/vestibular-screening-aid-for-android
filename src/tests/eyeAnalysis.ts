@@ -26,6 +26,7 @@ export async function analyzeCalibrationTakes(args: {
   takes: CapturedCalibrationTake[];
   progress?: (index: number) => void;
   cancelled?: () => boolean;
+  reanalysisOf?: { id: string; measurementVersion: string };
 }) {
   const takes: CalibrationTake[] = [];
   const replays: ReplayRunResult[] = [];
@@ -60,7 +61,15 @@ export async function analyzeCalibrationTakes(args: {
     takes,
   });
   const diagnostics = calibrationDiagnostics(result, replays, takes);
-  const artifact = { schemaVersion: 1 as const, result, takes, replays, signals, diagnostics };
+  const artifact = {
+    schemaVersion: 1 as const,
+    result,
+    takes,
+    replays,
+    signals,
+    diagnostics,
+    reanalysisOf: args.reanalysisOf ?? null,
+  };
   const path = await saveCalibrationArtifact(artifact);
   if (args.cancelled?.()) {
     await invalidateCalibration();

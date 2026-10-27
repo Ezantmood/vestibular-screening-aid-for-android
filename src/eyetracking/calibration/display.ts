@@ -87,7 +87,7 @@ export function savedCalibrationAuditImages(value: unknown): { target: string; p
         (p): p is string =>
           typeof p === 'string' &&
           /^(?:file:\/\/)?\//.test(p) &&
-          /\/pupildebug\/[^/]+\.jpg$/.test(p),
+          /\/pupildebug\/[^/]+(?:\.jpg|_raw\.png)$/.test(p),
       )
       .slice(0, 16);
     return paths.length ? [{ target: target.id, paths }] : [];

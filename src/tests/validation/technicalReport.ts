@@ -24,7 +24,7 @@ import {
 } from './failures';
 import type { SavedCalibrationRead } from './diagnosticRun';
 
-export const BATCH3_BUILD = 'batch3-20261026-eye-contours-v10';
+export const BATCH3_BUILD = 'batch3-20261027-scroll-audit-v12';
 export const NATIVE_CHECK_IDS = [
   'native-component-isolation-percentile-dark',
   'native-center-percentile-dark',
@@ -62,6 +62,7 @@ const calReasons = new Set([
   'INSUFFICIENT_COVERAGE',
   'INVALID_PTS_SPAN',
   'UNSTABLE_FIXATION',
+  'NO_VALID_SAMPLES',
   'HEAD_OR_ROI_MOVED',
   'ORIENTATION_CHANGED',
   'MISSING_TARGET_FEATURES',

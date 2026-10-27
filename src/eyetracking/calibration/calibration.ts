@@ -322,7 +322,8 @@ export function fitCalibration(args: {
         reasons.push('INSUFFICIENT_COVERAGE');
       if (spanUs > take.recordEndNativeUs - take.recordStartNativeUs + 100_000)
         reasons.push('INVALID_PTS_SPAN');
-      if (spread === null || spread > policy.maxSpread) reasons.push('UNSTABLE_FIXATION');
+      if (spread === null) reasons.push('NO_VALID_SAMPLES');
+      else if (spread > policy.maxSpread) reasons.push('UNSTABLE_FIXATION');
       // Compare the head anchor, never the eye crop which follows gaze.
       const ref = accepted.length ? medianBox(accepted.map((row) => row.feature.box)) : null;
       if (ref && accepted.some((row) => !roiCompatible(row.feature.box, ref)))

@@ -1,4 +1,5 @@
 import { savedCalibrationAuditImages } from '../src/eyetracking/calibration/display';
+import { savedCalibrationReplay } from '../src/eyetracking/calibration/replay';
 import { buildSuccessResult } from '../src/eyetracking/pupil/coordinates';
 import { reconcilePupilBatch } from '../src/eyetracking/pupil/reconcileBatch';
 import assert from './assert';
@@ -174,6 +175,8 @@ const images = savedCalibrationAuditImages({
       condition: 'fit-0-0',
       auditOverlays: [
         '/data/user/0/app/cache/pupildebug/p3_left_f80.jpg',
+        '/data/user/0/app/cache/pupildebug/p3_left_f80_raw.png',
+        '/data/user/0/app/cache/pupildebug/unapproved.png',
         '/data/user/0/app/files/clinic-vault-v1.bin',
         'https://example.invalid/eye.jpg',
       ],
@@ -181,7 +184,7 @@ const images = savedCalibrationAuditImages({
   ],
 });
 assert.equal(images.length, 1);
-assert.equal(images[0].paths.length, 1);
+assert.equal(images[0].paths.length, 2);
 assert.equal(
   savedCalibrationAuditImages({
     replays: [{ condition: 'PRIVATE_PATIENT', auditOverlays: ['/cache/pupildebug/a.jpg'] }],
@@ -198,6 +201,73 @@ const legacyExport = calibrationEvidence(legacy);
 assert.equal(legacyExport.takes[0].target.x, 0.18);
 assert.equal(legacyExport.technical, null);
 assert.equal(legacyExport.storedModelErrors[0].fitRmse, legacy.result.models.left!.fitRmse);
+
+const replaySource = {
+  schemaVersion: 1,
+  result: {
+    ...result,
+    context: {
+      ...result.context,
+      coordinateVersion: 'eye-contour-pupil-v8',
+      faceRotationDegrees: 270,
+    },
+  },
+  takes: takes.map((t) => ({ ...t, filePath: '/app/cache/calibration.mp4' })),
+};
+const replayBefore = JSON.stringify(replaySource);
+const replay = savedCalibrationReplay(replaySource);
+assert.equal(replay.createdAtMs, result.createdAtMs);
+assert.equal(replay.sourceMeasurementVersion, 'eye-contour-pupil-v8');
+assert.equal(replay.context.coordinateVersion, SYNTHETIC_CONTEXT.coordinateVersion);
+assert.equal(replay.takes[0].presentedJsUs, takes[0].presentedJsUs);
+assert.equal(replay.takes[0].recordStartNativeUs, takes[0].recordStartNativeUs);
+assert.ok(!('samples' in replay.takes[0]));
+assert.equal(JSON.stringify(replaySource), replayBefore);
+for (const corrupt of [
+  { ...replaySource, takes: replaySource.takes.slice(1) },
+  { ...replaySource, takes: [...replaySource.takes].reverse() },
+  {
+    ...replaySource,
+    takes: replaySource.takes.map((t, i) => (i ? t : { ...t, completed: false })),
+  },
+  {
+    ...replaySource,
+    takes: replaySource.takes.map((t, i) =>
+      i ? t : { ...t, filePath: 'https://example.invalid/video.mp4' },
+    ),
+  },
+  {
+    ...replaySource,
+    result: {
+      ...replaySource.result,
+      context: { ...replaySource.result.context, faceRotationDegrees: '270' },
+    },
+  },
+  {
+    ...replaySource,
+    result: {
+      ...replaySource.result,
+      context: { ...replaySource.result.context, coordinateVersion: 'decoded-roi-v1' },
+    },
+  },
+])
+  assert.throws(() => savedCalibrationReplay(corrupt));
+
+const missingSamples = syntheticCalibrationTakes();
+for (const take of missingSamples)
+  for (const s of take.samples) {
+    s.x = null;
+    s.y = null;
+  }
+const missingResult = fitCalibration({
+  id: 'missing',
+  createdAtMs: 1000,
+  context: SYNTHETIC_CONTEXT,
+  takes: missingSamples,
+});
+assert.equal(missingResult.verdict, 'RETRY');
+assert.ok(missingResult.targetQuality.every((q) => q.reasons.includes('NO_VALID_SAMPLES')));
+assert.ok(missingResult.targetQuality.every((q) => !q.reasons.includes('UNSTABLE_FIXATION')));
 console.log(
   JSON.stringify({
     eyeGeometryChecks: 'PASS',

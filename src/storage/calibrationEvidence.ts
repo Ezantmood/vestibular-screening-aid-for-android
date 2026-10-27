@@ -22,7 +22,7 @@ export async function shareCalibrationImage(path: string) {
   if (!file.exists) throw new Error('Ảnh ROI không còn trong bộ nhớ tạm.');
   if (!(await Sharing.isAvailableAsync())) throw new Error('Thiết bị chưa hỗ trợ chia sẻ file.');
   await Sharing.shareAsync(file.uri, {
-    mimeType: 'image/jpeg',
+    mimeType: /\.png$/i.test(path) ? 'image/png' : 'image/jpeg',
     dialogTitle: 'Lưu hoặc chia sẻ ảnh ROI',
   });
 }

@@ -4,6 +4,93 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PupilImageDetectorTest {
+  private fun eye(size: Int, background: Double, pupil: Boolean = true,
+    dx: Double = 0.0, dy: Double = 0.0): Pair<DoubleArray, List<EyeAperture.Point>> {
+    val center = size / 2.0
+    val contour = List(16) { i -> EyeAperture.Point(
+      center + 24 * Math.cos(i * Math.PI / 8), center + 72 * Math.sin(i * Math.PI / 8)) }
+    val aperture = EyeAperture.mask(contour, size, size)!!
+    val image = DoubleArray(size * size) { i ->
+      val r = Math.hypot(i % size - center - dx, i / size - center - dy)
+      when {
+        !aperture[i] -> background
+        pupil && r < 9 -> 28 + 22 * r * r / 81
+        pupil && r < 24 -> 60 + 40 * r * r / 576
+        else -> 130.0
+      }
+    }
+    return image to contour
+  }
+
+  @Test fun anatomicalEyeMeasurementIsInvariantToCropPaddingAndOutsideBrightness() {
+    val detector = PupilImageDetector()
+    for (id in listOf("percentile-dark", "contrast-normalized")) {
+      var confidence: Double? = null
+      for (size in listOf(160, 200, 226, 260, 320)) for (background in listOf(0.0, 85.0, 142.0, 255.0)) {
+        val (gray, contour) = eye(size, background)
+        val before = gray.copyOf()
+        val out = detector.detect(gray, size, size, id, contour)
+        assertTrue("$id $size $background: ${out.failure}", out.success)
+        assertTrue("$id confidence=${out.confidence}", out.confidence >= 0.5)
+        assertEquals(size / 2.0, out.cxRoi!!, 0.5)
+        assertEquals(size / 2.0, out.cyRoi!!, 0.5)
+        confidence?.let { assertEquals(it, out.confidence, 1e-10) }
+        confidence = out.confidence
+        val hinted = detector.detectWithPrior(gray, size, size, size / 2.0, size / 2.0, 12.0, id, contour)
+        assertTrue(hinted.success)
+        assertEquals(out.confidence, hinted.confidence, 1e-10)
+        assertArrayEquals(before, gray, 0.0)
+      }
+    }
+  }
+
+  @Test fun anatomicalUniformEyeAndOutsideDarkBlobDoNotCreateAPupil() {
+    val detector = PupilImageDetector()
+    for (id in listOf("percentile-dark", "contrast-normalized")) for (background in listOf(0.0, 85.0, 255.0)) {
+      val (gray, contour) = eye(226, background, false)
+      val out = detector.detect(gray, 226, 226, id, contour)
+      assertFalse(out.success)
+      assertNull(out.cxRoi)
+      assertNull(out.cyRoi)
+    }
+  }
+
+  @Test fun filterDiagnosticsAccountForRejectedComponentsWithoutInventingCoordinates() {
+    val (gray, contour) = eye(226, 85.0, false)
+    for (i in gray.indices) if (gray[i] == 130.0) gray[i] = 90.0
+    val out = PupilImageDetector().detect(gray, 226, 226, "percentile-dark", contour)
+    assertFalse(out.success)
+    val d = out.diagnostics
+    assertEquals(d["rawCandidateCount"]!!, d["candidateCount"]!! + d["rejectedBoundary"]!! +
+      d["rejectedArea"]!! + d["rejectedSize"]!! + d["rejectedAspect"]!!, 0.0)
+    assertTrue(d["rejectedBoundary"]!! > 0)
+    assertEquals(90.0, d["apertureMeanY"]!!, 0.0)
+  }
+
+  @Test fun anatomicalPupilMotionIsMeasuredRatherThanLockedToTheCropCenter() {
+    val detector = PupilImageDetector()
+    for (dx in listOf(-8.0, 8.0)) for (dy in listOf(-30.0, 30.0)) {
+      val (gray, contour) = eye(226, 85.0, dx = dx, dy = dy)
+      val out = detector.detect(gray, 226, 226, "percentile-dark", contour)
+      assertTrue(out.failure, out.success)
+      assertTrue(out.confidence >= 0.5)
+      assertEquals(113 + dx, out.cxRoi!!, 1.0)
+      assertEquals(113 + dy, out.cyRoi!!, 1.0)
+    }
+  }
+
+  @Test fun anatomicalAmbiguousPupilsRemainMissing() {
+    val (gray, contour) = eye(226, 85.0, false)
+    for (i in gray.indices) {
+      if (Math.hypot(i % 226 - 113.0, i / 226 - 83.0) < 9 ||
+        Math.hypot(i % 226 - 113.0, i / 226 - 143.0) < 9) gray[i] = 25.0
+    }
+    val out = PupilImageDetector().detect(gray, 226, 226, "percentile-dark", contour)
+    assertFalse(out.success)
+    assertEquals("AMBIGUOUS_CANDIDATES", out.failure)
+    assertNull(out.cxRoi)
+  }
+
   @Test fun quantizedPupilPlateauIsNotDiscardedAtThePercentile() {
     val detector = PupilImageDetector()
     for (id in listOf("percentile-dark", "contrast-normalized")) {

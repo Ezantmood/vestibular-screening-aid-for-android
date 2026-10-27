@@ -47,6 +47,10 @@ export function pickAuditFrames(tracked: PupilTrackingResult[]): number[] {
     const valid = seq.filter((t) => t.trackedCentroidX !== null);
     if (valid.length > 0) {
       picks.push(valid[Math.floor(valid.length / 2)].frameIndex);
+    } else if (seq.length > 0) {
+      // A failed detector still needs representative source pixels for diagnosis.
+      for (const fraction of [0.25, 0.5, 0.75])
+        picks.push(seq[Math.floor((seq.length - 1) * fraction)].frameIndex);
     }
     let bestIdx = -1;
     let bestD = 0;

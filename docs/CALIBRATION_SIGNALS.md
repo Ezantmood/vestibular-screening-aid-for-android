@@ -40,11 +40,21 @@ P4 tracking and stores artifacts through the camera/storage seams.
   a detector direction change is not proof that the owner rotated the phone.
 - The pupil is measured only inside the anatomical 16-point eyelid contour from
   [ML Kit](https://developers.google.com/ml-kit/vision/face-detection/android).
-  The crop is centered on that contour. Its dark cutoff uses aperture pixels;
-  components touching the lid boundary are rejected rather than reporting a
-  biased partial centroid. Missing/closed/malformed contours fail closed in the
+  The crop is centered on that contour. Smoothing, dark cutoff, component-area
+  filtering/prior, mean brightness and surrounding contrast use aperture pixels;
+  padding or outside-lid brightness cannot change an otherwise identical eye
+  measurement. Components touching the lid boundary are rejected. An internal
+  dark core of a partially occluded pupil can still be biased; independent
+  mapping/frame-error gates remain required. Missing/malformed contours fail closed in the
   calibration and recorded-eye-test paths. Legacy engineering crop probes may
   still run unmasked and cannot establish a usable calibration.
+- Result-screen replay re-decodes all saved v8/v9 capture videos with the current
+  detector. Target sequence, hold clocks, viewport and original capture time are
+  validated/preserved; old pupil numbers are discarded. Replay never renews age
+  or counts as a fresh physical test. Audit images include unmarked lossless
+  grayscale PNGs from the exact decoded Y crop plus marked JPEGs; rejection
+  counters identify boundary/area/size/aspect/prior filtering. Missing samples
+  have `NO_VALID_SAMPLES`, not an unmeasured `UNSTABLE_FIXATION` claim.
 - The gaze feature is pupil position relative to the two canthi, using the
   longest contour chord and its perpendicular, normalized by chord length.
   Whole-face boxes remain head-movement guards and never define gaze. Eye crops
@@ -55,9 +65,10 @@ P4 tracking and stores artifacts through the camera/storage seams.
   > =30 accepted samples, >=60% coverage, >=250 ms PTS span and RMS spread <=0.04
   > canthus lengths. This spread gate is stricter in pixels than the old face-box
   > units; screen-error gates are unchanged.
-- Measurement context `eye-contour-pupil-v8` keeps exact component pixels,
-  quantized percentile inclusion and the existing confidence gate, and adds the
-  anatomical mask/canthus reference. v1–v7 measurements cannot activate. Native
+- Measurement context `eye-contour-pupil-v9` keeps exact component pixels,
+  quantized percentile inclusion, the anatomical mask/canthus reference and the
+  existing confidence gate, with aperture-normalized scoring. v1–v8 measurements
+  cannot activate. Native
   contracts and echoed mask geometry prevent mixing masked/unmasked results.
   Confidence and detector SUCCESS still do not establish a correct pupil.
 - Model contract `target-cv-ridge-v1` selects affine, affine-ridge or quadratic-ridge

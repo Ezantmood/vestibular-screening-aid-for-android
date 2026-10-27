@@ -1,7 +1,7 @@
 import type { EyeContour } from '../pupil/eyeGeometry';
 import type { EyeSide } from '../pupil/pupilTypes';
 
-export const CALIBRATION_COORDINATE_VERSION = 'eye-contour-pupil-v8' as const;
+export const CALIBRATION_COORDINATE_VERSION = 'eye-contour-pupil-v9' as const;
 export const CALIBRATION_MODEL_VERSION = 'target-cv-ridge-v1' as const;
 export const currentPupilMeasurement = (version: unknown): boolean =>
   version === CALIBRATION_COORDINATE_VERSION;

@@ -39,7 +39,10 @@ export default function CameraImageGallery({
             accessibilityLabel={'Phóng to ảnh kiểm tra ' + (index + 1)}
           >
             <Image source={{ uri: uri(path) }} style={styles.thumbnail} resizeMode="contain" />
-            <Text style={styles.caption}>{'Ảnh ' + (index + 1)}</Text>
+            <Text style={styles.caption}>
+              {/_raw\.png$/.test(path) ? 'Ảnh mắt gốc' : 'Ảnh đánh dấu'}
+              {` · ${/_(left|right)_f/.exec(path)?.[1] === 'left' ? 'trái' : /_(left|right)_f/.test(path) ? 'phải' : index + 1}`}
+            </Text>
           </Pressable>
         ))}
       </ScrollView>
@@ -50,7 +53,11 @@ export default function CameraImageGallery({
         animationType="fade"
       >
         <View style={styles.backdrop}>
-          <Text style={styles.previewTitle}>Ảnh kiểm tra</Text>
+          <Text style={styles.previewTitle}>
+            {selected && /_raw\.png$/.test(selected)
+              ? 'Ảnh mắt gốc · chưa vẽ dấu'
+              : 'Ảnh kiểm tra · dấu của detector'}
+          </Text>
           {selected && !failed && (
             <Image
               source={{ uri: uri(selected) }}

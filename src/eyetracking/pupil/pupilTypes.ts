@@ -45,6 +45,14 @@ export interface PupilImageDiagnostics {
   bestScore?: number;
   runnerUpScore?: number | null;
   borderTouch?: number;
+  apertureArea?: number;
+  apertureMeanY?: number;
+  rawCandidateCount?: number;
+  rejectedBoundary?: number;
+  rejectedArea?: number;
+  rejectedSize?: number;
+  rejectedAspect?: number;
+  rejectedPrior?: number;
 }
 
 /**

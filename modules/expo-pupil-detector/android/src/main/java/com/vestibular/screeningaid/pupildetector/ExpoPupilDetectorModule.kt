@@ -66,7 +66,7 @@ class ExpoPupilDetectorModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ExpoPupilDetector")
-    Constant("measurementVersion") { "eye-contour-pupil-v8" }
+    Constant("measurementVersion") { "eye-contour-pupil-v9" }
 
     AsyncFunction("runPupilSelfChecks") { imageDetector.selfChecks() }
 
@@ -316,6 +316,10 @@ class ExpoPupilDetectorModule : Module() {
                     Outcome(false, null, null, null, null, 0.0, "INVALID_GEOMETRY")
                   }
                   var overlayPath: String? = null
+                  if (saveOverlays && overlayDir != null && yCopy != null && ptsMatches && geometryOk(req, w, h)) {
+                    saveRawRoi(overlayDir, overlayStamp, detectorId, req, yCopy, w, warnings, overlayPrefix)
+                      ?.let { overlayPaths.add(it) }
+                  }
                   if (saveOverlays && overlayDir != null && geometryOk(req, w, h) && overlayBmp != null) {
                     overlayPath = saveOverlay(overlayDir, overlayStamp, detectorId, req, outcome, overlayBmp, warnings, overlayPrefix)
                     if (overlayPath != null) {
@@ -615,6 +619,27 @@ class ExpoPupilDetectorModule : Module() {
   }
 
   // ---------- Debug overlays (device-local only) ----------
+  /** Exact decoded Y samples, without JPEG conversion, resizing, or annotations. */
+  private fun saveRawRoi(dir: File, stamp: Long, detectorId: String, req: RoiRequest,
+    yPlane: ByteArray, frameW: Int, warnings: MutableList<String>, prefix: String): String? {
+    return try {
+      val pixels = IntArray(req.roiWidth * req.roiHeight) { i ->
+        val y = yPlane[(req.roiY + i / req.roiWidth) * frameW + req.roiX + i % req.roiWidth].toInt() and 0xff
+        Color.rgb(y, y, y)
+      }
+      val bitmap = Bitmap.createBitmap(pixels, req.roiWidth, req.roiHeight, Bitmap.Config.ARGB_8888)
+      val short = if (detectorId == "percentile-dark") "perc" else "norm"
+      val out = File(dir, "${prefix}_${stamp}_${short}_${req.eyeSide}_f${req.frameIndex}_raw.png")
+      try {
+        FileOutputStream(out).use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+      } finally { bitmap.recycle() }
+      out.absolutePath
+    } catch (e: Exception) {
+      warnings.add("Raw ROI save failed f${req.frameIndex}${req.eyeSide}: ${e.message}")
+      null
+    }
+  }
+
   @Suppress("TooGenericExceptionCaught")
   private fun saveOverlay(
     dir: File,

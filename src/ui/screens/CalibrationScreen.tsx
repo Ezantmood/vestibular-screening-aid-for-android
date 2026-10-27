@@ -1,4 +1,6 @@
 import { shareCalibrationEvidence } from '../../storage/calibrationEvidence';
+import { File } from 'expo-file-system';
+import { savedCalibrationReplay } from '../../eyetracking/calibration/replay';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, PermissionsAndroid, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PipelineDecodeError } from '../../eyetracking/tracking/decodeIntegrity';
@@ -48,6 +50,11 @@ import TargetStage from '../components/TargetStage';
 import { useEyeAnalysisAwake } from '../hooks/useEyeAnalysisAwake';
 
 const nowUs = () => performance.now() * 1000;
+const primaryImages: Record<string, string> = {
+  'fit-1-1': 'Ảnh mắt khi nhìn giữa',
+  'fit-2-1': 'Ảnh mắt khi nhìn xuống',
+  'check-center': 'Ảnh mắt khi kiểm tra lại điểm giữa',
+};
 
 async function loadSavedCalibration(): Promise<SavedCalibrationView | null> {
   const json = await readCalibrationJson();
@@ -327,6 +334,62 @@ export default function CalibrationScreen({
       if (mounted.current) setBusy(false);
     }
   }
+  async function replaySavedVideos() {
+    if (lock.current) return;
+    lock.current = true;
+    cancelled.current = false;
+    runToken.current += 1;
+    setBusy(true);
+    setPhase('analysis');
+    setError(null);
+    try {
+      assertCurrentPupilDetector();
+      const json = await readCalibrationJson();
+      if (!json) throw new Error('Chưa có video hiệu chỉnh đã lưu.');
+      const saved = savedCalibrationReplay(JSON.parse(json));
+      for (const take of saved.takes)
+        if (!new File(take.filePath).exists)
+          throw new Error('Video lượt đo cũ không còn trên máy. Cần thực hiện hiệu chỉnh mới.');
+      await camera.close();
+      const out = await analyzeCalibrationTakes({
+        id: `cal-replay-${Date.now()}`,
+        // Reprocessing must not extend the validity of an old physical capture.
+        createdAtMs: saved.createdAtMs,
+        context: saved.context,
+        takes: saved.takes,
+        reanalysisOf: { id: saved.id, measurementVersion: saved.sourceMeasurementVersion },
+        cancelled: () => cancelled.current || !mounted.current,
+        progress: (i) => {
+          if (mounted.current)
+            setMessage(
+              `Đang phân tích lại video cũ ${i}/${saved.takes.length}. Không cần nhìn chấm.`,
+            );
+        },
+      });
+      if (!mounted.current) return;
+      setReport(JSON.stringify(out.summary, null, 2));
+      setFeedback(calibrationFeedback(out.result));
+      setAuditImages(out.summary.auditImages);
+      setPhase('result');
+      setMessage(
+        `Đã phân tích lại video ghi lúc ${new Date(saved.createdAtMs).toLocaleString()}. ${out.result.verdict === 'VALID' ? 'Số đo đạt các kiểm tra của lượt ghi cũ.' : 'Số đo vẫn chưa đạt; xem ảnh mắt gốc bên dưới.'} Thời hạn hiệu chỉnh vẫn tính từ lúc ghi, không tính từ lúc phân tích lại.`,
+      );
+      revealResult();
+    } catch (e) {
+      if (mounted.current) {
+        setPhase('result');
+        setError(e instanceof Error ? e.message : String(e));
+        setMessage(
+          cancelled.current
+            ? 'Đã dừng phân tích lại video.'
+            : 'Chưa hoàn thành phân tích lại video.',
+        );
+      }
+    } finally {
+      lock.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
   function cancel() {
     cancelled.current = true;
     setTarget(null);
@@ -370,6 +433,13 @@ export default function CalibrationScreen({
         {error && <Text selectable>{error}</Text>}
         {phase === 'result' && !busy && (
           <CameraButton
+            title="Phân tích lại video đã lưu"
+            tone="secondary"
+            onPress={() => void replaySavedVideos()}
+          />
+        )}
+        {phase === 'result' && !busy && (
+          <CameraButton
             title="Xuất số đo hiệu chỉnh (JSON)"
             tone="secondary"
             onPress={() => {
@@ -379,24 +449,42 @@ export default function CalibrationScreen({
             }}
           />
         )}
+        {auditImages.length > 0 && (
+          <View>
+            <Text style={styles.imageTitle}>Ảnh kiểm tra đồng tử</Text>
+            <Text>
+              Ảnh mắt gốc là ảnh xám chưa vẽ dấu. Ảnh đánh dấu có viền mí màu xanh và vị trí
+              detector màu đỏ. Các ảnh chỉ lưu trên máy; dấu đỏ không phải vị trí chuẩn hay bằng
+              chứng đạt.
+            </Text>
+            {auditImages
+              .filter((row) => primaryImages[row.target])
+              .map((row) => (
+                <CameraImageGallery
+                  key={row.target}
+                  title={primaryImages[row.target]}
+                  paths={row.paths}
+                  allowShare
+                />
+              ))}
+          </View>
+        )}
         {feedback.map((line, i) => (
           <Text key={i}>{line}</Text>
         ))}
         {report !== '' && (
-          <CameraDetails title="Calibration quality & signal">
+          <CameraDetails title="Báo cáo kỹ thuật và các ảnh còn lại">
+            {auditImages
+              .filter((row) => !primaryImages[row.target])
+              .map((row) => (
+                <CameraImageGallery
+                  key={row.target}
+                  title={`ROI ${row.target}`}
+                  paths={row.paths}
+                  allowShare
+                />
+              ))}
             <Text selectable>{report}</Text>
-            <Text>
-              Ảnh ROI chỉ lưu trên máy. Dấu đỏ là detector đo lại, không phải ground truth hay bằng
-              chứng calibration đạt.
-            </Text>
-            {auditImages.map((row) => (
-              <CameraImageGallery
-                key={row.target}
-                title={`ROI ${row.target}`}
-                paths={row.paths}
-                allowShare
-              />
-            ))}
           </CameraDetails>
         )}
         {busy && <CameraButton title="Hủy calibration" tone="danger" onPress={cancel} />}
@@ -431,4 +519,5 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, gap: 12, paddingBottom: 160 },
   title: { fontSize: 24, fontWeight: '700' },
+  imageTitle: { fontSize: 20, fontWeight: '700' },
 });
