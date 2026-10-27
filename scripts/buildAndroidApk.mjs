@@ -6,12 +6,7 @@ import { resolve } from 'node:path';
 // Reuse the generated Expo Android project. Build only; never install, launch,
 // enumerate devices, start Metro, or connect to a phone.
 const variants = {
-  batch3: {
-    task: 'Batch3',
-    native: 'batch3',
-    name: 'vestibular-batch3.apk',
-    verify: 'verifyBatch3Apk.mjs',
-  },
+  // Development builds are retained only for a separately requested Metro task.
   development: {
     task: 'Debug',
     native: 'debug',
@@ -21,14 +16,13 @@ const variants = {
   clinician: {
     task: 'Clinician',
     native: 'clinician',
-    name: 'vestibular-clinician.apk',
+    name: 'vestibular-clinic.apk',
     verify: 'verifyClinicianApk.mjs',
-    phone: 'vestibular-clinic.apk',
   },
 };
-const variant = process.argv[2] ?? 'batch3';
+const variant = process.argv[2] ?? 'clinician';
 const settings = variants[variant];
-if (!settings) throw new Error('Expected batch3, development, or clinician variant.');
+if (!settings) throw new Error('Delivery builds use clinician only: vestibular-clinic.apk.');
 const env = { ...process.env };
 const sourceState = () => {
   try {
@@ -42,8 +36,6 @@ const sourceState = () => {
   }
 };
 const sourceAtStart = sourceState();
-// The offline measurement APK has no network, so it cannot confirm email.
-if (variant === 'batch3') env.EXPO_PUBLIC_AUTH_REQUIRED = '0';
 if (variant === 'clinician') env.EXPO_PUBLIC_AUTH_REQUIRED = '1';
 execFileSync('npx', ['expo', 'prebuild', '--no-install', '--platform', 'android'], {
   stdio: 'inherit',
@@ -87,7 +79,7 @@ writeFileSync(
     {
       schemaVersion: 1,
       variant,
-      authRequired: variant === 'clinician' ? true : variant === 'batch3' ? false : null,
+      authRequired: variant === 'clinician' ? true : null,
       version: app.version,
       versionCode: app.android.versionCode,
       sourceCommit: sourceAtStart.sourceCommit,
@@ -109,7 +101,7 @@ console.log(`${variant} APK: ${destination}\nSHA-256: ${digest}`);
 // This directory contains APK artifacts only, never phone recordings/evidence.
 const phoneDir = resolve('artifacts/phone');
 mkdirSync(phoneDir, { recursive: true });
-const phoneName = settings.phone ?? (variant === 'batch3' ? 'vestibular.apk' : settings.name);
+const phoneName = settings.name;
 // Preserve a complete file for any download already in progress during a rebuild.
 const phonePath = resolve(phoneDir, phoneName);
 copyFileSync(destination, `${phonePath}.tmp`);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 
@@ -25,10 +25,9 @@ const output = resolve('artifacts/releases', tag);
 const entries = [
   {
     variant: 'clinician',
-    source: 'artifacts/clinician/vestibular-clinician.apk',
+    source: 'artifacts/clinician/vestibular-clinic.apk',
     name: 'vestibular-clinic.apk',
   },
-  { variant: 'batch3', source: 'artifacts/batch3/vestibular-batch3.apk', name: 'vestibular.apk' },
 ];
 const assets = entries.map((entry) => {
   const info = JSON.parse(
@@ -38,7 +37,7 @@ const assets = entries.map((entry) => {
   assert.equal(
     info.sourceCommit,
     sourceCommit,
-    'Both APKs must come from the tagged source commit',
+    'The clinician APK must come from the tagged source commit',
   );
   assert.equal(info.variant, entry.variant);
   assert.equal(info.authRequired, entry.variant === 'clinician', 'Wrong authentication mode');
@@ -58,6 +57,10 @@ const assets = entries.map((entry) => {
   };
 });
 mkdirSync(output, { recursive: true });
+assert.ok(
+  readdirSync(output).every((name) => !/\.apk$/i.test(name) || name === 'vestibular-clinic.apk'),
+  'Release directory contains another APK; archive it before preparing the single-APK release',
+);
 for (const entry of entries) copyFileSync(resolve(entry.source), resolve(output, entry.name));
 writeFileSync(
   resolve(output, 'SHA256SUMS'),

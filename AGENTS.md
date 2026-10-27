@@ -12,9 +12,7 @@ Working agreement for AI/human contributors. Details live in `docs/` — don't d
 ```bash
 npm install
 npm start            # Metro LAN + dev-client QR; owner opens on phone
-npm run build:dev    # local Development APK; no device install/launch
-npm run build:batch3  # local APK build; JDK 21, no phone connection
-npm run build:clinic  # one-install clinician APK; keeps INTERNET; no phone connection
+npm run build:clinic  # only delivery APK: vestibular-clinic.apk; no phone connection
 npm run typecheck
 npm run lint
 npm run format
@@ -47,10 +45,14 @@ npm run check   # typecheck + lint (run before committing)
 
 ## Git
 
+- Build and release exactly one APK: `vestibular-clinic.apk`. Do not build or
+  publish a separate `vestibular.apk`, offline/Batch 3 APK or Development APK as
+  part of routine delivery. Additional build variants require a new explicit
+  owner request; keep existing domain/native checks without adding another APK.
 - Scoped commits, no history rewrites, no force-push.
 - Push only if a remote is configured; never invent one.
 - After each completed task, commit and push the changes and publish a GitHub
-  Release with downloadable APKs for owner testing. The owner authorizes this
+  Release with `vestibular-clinic.apk` for owner testing. The owner authorizes this
   routine delivery; do not stop at local/LAN artifacts or ask again to push/release.
   Follow [release packaging](docs/RELEASING.md), including clean-source builds,
   checksums and explicit pending physical results. Keep private evidence out of Git

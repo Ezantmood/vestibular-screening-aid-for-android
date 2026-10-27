@@ -4,9 +4,10 @@
 
 - Android-first clinician app: account/sign-in, encrypted on-device patient chart,
   eye-test instructions/recording, saved traces, report and PDF.
-- Clinician navigation no longer embeds the legacy engineering menu. Camera,
-  pupil/pipeline checks and screen 09 remain in the separate offline Batch 3 app;
-  calibration and eye-test recording remain in the clinician exam flow.
+- Routine build/release delivery contains only `vestibular-clinic.apk`. The
+  separate engineering APK is no longer distributed. Existing engineering code
+  and domain/native self-checks remain; calibration and eye-test recording use
+  the clinician exam flow.
 - Active engineering scope remains Batch 3: calibration, Smooth Pursuit and
   Horizontal Saccade. Batch 4 is not started.
 - Calibration uses `eye-contour-pupil-v9` measurements and `target-cv-ridge-v1` models.
@@ -65,14 +66,16 @@ Numeric export excludes pixels; source PNGs and marked images appear under
 **Ảnh kiểm tra đồng tử**, with individual sharing. A simulated detector fix is
 not device acceptance.
 
-The 0.2.12 beta delivery includes clinician and offline engineering APKs built
-from the same clean source commit. Computer verification covers type/lint,
+The 0.2.12 beta delivery now contains only the clinician APK, unchanged from its
+verified clean source commit. Its extra engineering APK was withdrawn at the
+owner's request; the checksum/manifest and release notes reflect one APK.
+Computer verification covers type/lint,
 format, all 22 logic suites, 25 native JVM tests and binary/native-contract checks.
-Signing certificates match published 0.2.10. Browser checks reproduce the
+Its signing certificate matches published 0.2.10. Browser checks reproduce the
 scroll failure in 15/15 old-screen cases and reach/invoke controls in 15/15
 repaired cases using a mocked native camera. An isolated deliberate test failure
-remains FAIL and causes exit 1. No phone was accessed or controlled. These APKs
-have not been tested on the Redmi; calibration acceptance is unresolved.
+remains FAIL and causes exit 1. No phone was accessed or controlled. This APK
+has not been tested on the Redmi; calibration acceptance is unresolved.
 Only proceed to reliable moving-test metrics when calibration, synchronization
 and signal quality independently pass. See [verification workflow](BATCH3_VALIDATION.md).
 

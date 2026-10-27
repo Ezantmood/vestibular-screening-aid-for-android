@@ -146,7 +146,7 @@ P4 tracking and stores artifacts through the camera/storage seams.
 
 Verification and measured limitations: [device evidence](device-probes/CALIBRATION_SIGNALS.md).
 
-Independent APK testing and aggregate export: [Batch 3 verification](BATCH3_VALIDATION.md).
+Clinician APK testing and local calibration export: [Batch 3 verification](BATCH3_VALIDATION.md).
 
 Per-version changes and verified evidence:
 [GitHub Releases](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases).

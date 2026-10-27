@@ -18,11 +18,10 @@ APK, mã kiểm tra SHA-256, thay đổi từng phiên bản và kết quả ki�
 | File trong Release                     | Mục đích                                                                       |
 | -------------------------------------- | ------------------------------------------------------------------------------ |
 | `vestibular-clinic.apk`                | Ứng dụng chính: tài khoản, hồ sơ, bài đo và báo cáo; có INTERNET cho đăng nhập |
-| `vestibular.apk`                       | Công cụ kiểm thử Batch 3 độc lập, không cần tài khoản hay mạng                 |
 | `SHA256SUMS` / `release-manifest.json` | Đối chiếu file tải, phiên bản và source commit                                 |
 
-Hai APK dùng cùng package Android và là hai cách chạy thay thế. Chủ thiết bị cài
-bản phù hợp; các lệnh build trong dự án không cài hay mở ứng dụng trên điện thoại.
+Chỉ build và phát hành một APK: **`vestibular-clinic.apk`**. Chủ thiết bị cài cập
+nhật bản này; các lệnh build không cài hay mở ứng dụng trên điện thoại.
 
 ## Phát triển trên máy
 
@@ -40,9 +39,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home npm run
 | Lệnh                                        | Công việc                                            |
 | ------------------------------------------- | ---------------------------------------------------- |
 | `npm start`                                 | Metro LAN + QR cho Development Build do chủ máy mở   |
-| `npm run build:dev`                         | Tạo Development APK                                  |
 | `npm run build:clinic`                      | Tạo APK ứng dụng chính                               |
-| `npm run build:batch3`                      | Tạo APK kiểm thử độc lập                             |
 | `npm run check`                             | TypeScript + ESLint                                  |
 | `npm test`                                  | Kiểm thử logic và mô phỏng                           |
 | `npm run format`                            | Kiểm tra Prettier                                    |
