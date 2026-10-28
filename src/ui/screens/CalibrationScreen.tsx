@@ -427,7 +427,8 @@ export default function CalibrationScreen({
         `Đã phân tích lại video ghi lúc ${new Date(saved.createdAtMs).toLocaleString()}. ${out.result.verdict === 'VALID' ? 'Số đo đạt các kiểm tra của lượt ghi cũ.' : 'Số đo vẫn chưa đạt; xem ảnh mắt gốc bên dưới.'} Thời hạn hiệu chỉnh vẫn tính từ lúc ghi, không tính từ lúc phân tích lại.`,
       );
       revealResult();
-      onComplete?.(out.result, out.evidence);
+      // Replay is review of an existing capture. It must not complete/advance
+      // the fresh physical Batch 3 workflow through the capture callback.
     } catch (e) {
       if (mounted.current) {
         setPhase('result');
