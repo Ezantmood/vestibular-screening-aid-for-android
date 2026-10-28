@@ -29,42 +29,40 @@
 
 ## Evidence and next acceptance
 
-Owner feedback on 2026-10-27: published 0.2.10 beta still fails calibration on the
-Redmi. Vertical Saccade opens but cannot scroll to camera setup/start. This is a
-confirmed layout defect: extended tests bypass the outer ScrollView and lacked
-their own. The local repair restores scrolling and explicit recording-check
-access without repeating calibration; it does not complete vertical/anti-saccade
-metric alignment. Browser layout checks reproduce the old failure and exercise
-the repaired controls with a mocked camera. Android behavior remains unverified.
-See the [0.2.12 test release](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/v0.2.12-beta.1)
-for verification evidence and claim boundaries.
+The owner reports that the latest APK still returns RETRY on Redmi. Supplied v9
+numeric evidence now has accepted observations for both eyes, but several targets
+fail sample coverage and all mapping gates fail. Recomputing the exported samples
+with the production fitter reproduces the reported rejection. Encoded/decoded
+counts and reported PTS checks pass; they do not establish optical alignment.
+The numeric export omits exact APK identity and fresh-capture/replay provenance.
 
-Owner numeric evidence for `eye-contour-pupil-v8` is RETRY before
-model fitting: 2,534 decoded frames, 0 accepted left-eye observations and 65
-right-eye observations (2.57%); neither eye has a model. All 14 takes completed,
-PTS are monotonic, and all 336 face keyframes yielded eye pairs. Numeric geometry
-passes, but correct optical alignment and pupil visibility require ROI pixels.
-Earlier screenshots with high retention and poor mapping describe the older path.
-Later Redmi screenshots also show zero accepted observations for both eyes
-(0/2,526 each); they contain no ROI pixels to identify the rejected component.
+Owner ROI screenshots show visible eyes, anatomical-mask overlays and examples of
+ambiguous or marginal-confidence detection. They are resized gallery thumbnails,
+not source Y-plane PNGs or independently labelled pupil centers. They do not
+establish the cause of every rejected frame or the poorly observed vertical axis.
+Stored sensor-oriented crops alone do not establish a rotation bug.
 
-Computer counterfactuals using unchanged native code reproduce crop-size-dependent
-candidate loss and confidence changes from background outside the eyelids.
-Percentile selection uses eyelid area, while component area limits/prior and mean
-brightness still use the full square crop. These are confirmed software weaknesses;
-their contribution to each real rejection cannot be separated without pixels and
-per-filter diagnostics. Missing samples also receive an unmeasured instability label.
+Unchanged native production code has a reproduced localization weakness: its
+darkest-4%-component weighted centroid follows internal shading even when the
+synthetic pupil boundary and true center stay fixed. A single synthetic pupil
+with two dark lobes can also produce ambiguity or a high-confidence false center.
+The localization stress check fails. This confirms an estimator limitation, not
+its exact contribution to the physical run. Existing v9 fixes remove demonstrated
+crop-padding/background dependencies but do not solve dark-core localization.
+
+Next acceptance: evaluate boundary-supported center estimation against fixed-boundary
+shading, true two-axis motion, occlusion and false-candidate controls, then inspect
+exact source PNGs and saved-video sequences from the same failed capture. Detector
+overlays are not ground truth. Only a supported detector repair should lead to
+another APK and fresh physical calibration. Preserve all mapping/confidence gates.
+Source PNGs and marked images have individual sharing under **Ảnh kiểm tra đồng tử**.
 No physical VALID or clinical accuracy is established.
 
-The v9 repair removes the demonstrated crop-padding/background dependencies;
-mapping, confidence and error gates are unchanged. No-sample targets are reported
-separately from measured fixation spread. Computer checks do not establish phone
-accuracy. Next acceptance: analyze the saved capture videos with the updated APK,
-inspect source PNGs/marked ROIs and stage counters, then repeat fresh physical
-calibration if detector quality supports it. Preserve mapping/error gates.
-Numeric export excludes pixels; source PNGs and marked images appear under
-**Ảnh kiểm tra đồng tử**, with individual sharing. A simulated detector fix is
-not device acceptance.
+The 0.2.12 layout repair restores scrolling and explicit recording-check access;
+browser checks use a mocked camera and Android scrolling remains unverified. It
+does not complete vertical/anti-saccade metric alignment. See the
+[0.2.12 test release](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/v0.2.12-beta.1)
+for verification evidence and claim boundaries.
 
 The 0.2.12 beta delivery now contains only the clinician APK, unchanged from its
 verified clean source commit. Its extra engineering APK was withdrawn at the
@@ -74,8 +72,8 @@ format, all 22 logic suites, 25 native JVM tests and binary/native-contract chec
 Its signing certificate matches published 0.2.10. Browser checks reproduce the
 scroll failure in 15/15 old-screen cases and reach/invoke controls in 15/15
 repaired cases using a mocked native camera. An isolated deliberate test failure
-remains FAIL and causes exit 1. No phone was accessed or controlled. This APK
-has not been tested on the Redmi; calibration acceptance is unresolved.
+remains FAIL and causes exit 1. No phone was accessed or controlled by the agent.
+Owner-provided calibration results remain RETRY; acceptance is unresolved.
 Only proceed to reliable moving-test metrics when calibration, synchronization
 and signal quality independently pass. See [verification workflow](BATCH3_VALIDATION.md).
 

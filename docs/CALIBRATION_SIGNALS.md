@@ -48,6 +48,13 @@ P4 tracking and stores artifacts through the camera/storage seams.
   mapping/frame-error gates remain required. Missing/malformed contours fail closed in the
   calibration and recorded-eye-test paths. Legacy engineering crop probes may
   still run unmasked and cannot establish a usable calibration.
+- The current native estimator takes an intensity-weighted centroid of a darkest-4%
+  component within the aperture. This is not a full pupil-boundary center fit.
+  Synthetic fixed-boundary tests demonstrate high-confidence center drift under
+  changing internal shading, and ambiguity between two dark lobes of one pupil.
+  The anatomical mask and confidence score do not resolve this limitation. Its
+  contribution to a physical failure requires source pixels and independent
+  center checks; neither a marked thumbnail nor a good fit median is ground truth.
 - Result-screen replay re-decodes all saved v8/v9 capture videos with the current
   detector. Target sequence, hold clocks, viewport and original capture time are
   validated/preserved; old pupil numbers are discarded. Replay never renews age
