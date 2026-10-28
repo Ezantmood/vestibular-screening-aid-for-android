@@ -53,6 +53,15 @@ export interface PupilImageDiagnostics {
   rejectedSize?: number;
   rejectedAspect?: number;
   rejectedPrior?: number;
+  rejectedUnstable?: number;
+  rejectedEllipse?: number;
+  rejectedOutline?: number;
+  thresholdLevels?: number;
+  hypothesisCount?: number;
+  ellipseRmsePx?: number | null;
+  boundarySupport?: number | null;
+  outlineContrast?: number | null;
+  regionStability?: number | null;
 }
 
 /**

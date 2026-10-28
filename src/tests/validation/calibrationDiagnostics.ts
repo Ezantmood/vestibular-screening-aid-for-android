@@ -38,6 +38,15 @@ export const IMAGE_DIAGNOSTIC_KEYS = [
   'rejectedSize',
   'rejectedAspect',
   'rejectedPrior',
+  'rejectedUnstable',
+  'rejectedEllipse',
+  'rejectedOutline',
+  'thresholdLevels',
+  'hypothesisCount',
+  'ellipseRmsePx',
+  'boundarySupport',
+  'outlineContrast',
+  'regionStability',
 ] as const satisfies readonly (keyof PupilImageDiagnostics)[];
 export const DETECTION_FAILURES = [
   'NO_FACE',

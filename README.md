@@ -9,7 +9,7 @@ chưa được xác nhận độ chính xác lâm sàng; ứng dụng không đ�
 
 ## Tải và cập nhật
 
-**[Bản kiểm thử 0.2.12 beta](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/v0.2.12-beta.1)** ·
+**[Bản kiểm thử 0.2.13 beta](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/v0.2.13-beta.1)** ·
 [Toàn bộ Releases](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases)
 
 APK, mã kiểm tra SHA-256, thay đổi từng phiên bản và kết quả kiểm tra nằm trong
@@ -43,7 +43,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home npm run
 | `npm run check`                             | TypeScript + ESLint                                  |
 | `npm test`                                  | Kiểm thử logic và mô phỏng                           |
 | `npm run format`                            | Kiểm tra Prettier                                    |
-| `npm run release:prepare -- v0.2.12-beta.1` | Chuẩn bị APK/checksum/manifest từ source commit sạch |
+| `npm run release:prepare -- v0.2.13-beta.1` | Chuẩn bị APK/checksum/manifest từ source commit sạch |
 
 [Development Build và Metro](docs/DEVELOPMENT_BUILD.md) ·
 [Kiểm chứng calibration và hai bài mắt](docs/BATCH3_VALIDATION.md) ·

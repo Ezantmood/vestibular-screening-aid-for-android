@@ -53,7 +53,7 @@ or Gradle changes require a new compatible native APK. Metro/Babel/env changes
 require restarting Metro, plus rebuilding if native configuration changed.
 
 Native/JS measurement contracts must agree. The current contract is
-`eye-contour-pupil-v9`; incompatible models cannot activate. Measurement-math
+`eye-contour-pupil-v10`; incompatible models cannot activate. Measurement-math
 changes require fresh calibration and physical verification. Fast Refresh is not
 proof of a VALID model or reliable metrics. See [contracts](CALIBRATION_SIGNALS.md).
 

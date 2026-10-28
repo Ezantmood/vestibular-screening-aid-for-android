@@ -51,6 +51,7 @@ import { useEyeAnalysisAwake } from '../hooks/useEyeAnalysisAwake';
 
 const nowUs = () => performance.now() * 1000;
 const primaryImages: Record<string, string> = {
+  'fit-0-0': 'Ảnh mắt tại điểm trên trái',
   'fit-1-1': 'Ảnh mắt khi nhìn giữa',
   'fit-2-1': 'Ảnh mắt khi nhìn xuống',
   'check-center': 'Ảnh mắt khi kiểm tra lại điểm giữa',
@@ -454,8 +455,8 @@ export default function CalibrationScreen({
             <Text style={styles.imageTitle}>Ảnh kiểm tra đồng tử</Text>
             <Text>
               Ảnh mắt gốc là ảnh xám chưa vẽ dấu. Ảnh đánh dấu có viền mí màu xanh và vị trí
-              detector màu đỏ. Các ảnh chỉ lưu trên máy; dấu đỏ không phải vị trí chuẩn hay bằng
-              chứng đạt.
+              detector màu đỏ. Elip vàng là biên được khớp từ ảnh. Các ảnh chỉ lưu trên máy; dấu của
+              detector không phải vị trí chuẩn hay bằng chứng đạt.
             </Text>
             {auditImages
               .filter((row) => primaryImages[row.target])

@@ -342,7 +342,7 @@ check('fitted calibration → observed ROI sample → calibrated signal → purs
     viewportLeft: 16,
     viewportTop: 100,
     detectorId: 'percentile-dark',
-    coordinateVersion: 'eye-contour-pupil-v9',
+    coordinateVersion: 'eye-contour-pupil-v10',
   };
   const roi = { x: 100, y: 200, width: 100, height: 80 };
   const calibration = fitCalibration({

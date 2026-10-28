@@ -45,19 +45,21 @@ accuracy. [Release packaging](RELEASING.md).
    preserving clipping, eye visibility and centering checks. On **Giữ nguyên vị
    trí**, stop adjusting. A green lamp establishes framing only, not calibration
    quality. The explicit technical recording option cannot force VALID.
-4. If saved v8/v9 videos remain, **Phân tích lại video đã lưu** re-decodes those
+4. If saved v8/v9/v10 videos remain, **Phân tích lại video đã lưu** re-decodes those
    videos using the current detector. It preserves original capture time and
    expiry and is not a fresh physical calibration. Missing video/metadata blocks
    replay. Prefer inspecting the same failed capture before requesting another
    full sequence.
 5. Inspect **Ảnh kiểm tra đồng tử**, feedback and ROI overlays. Unmarked PNGs are
    exact decoded grayscale crops: the crop must contain the eye, the cyan polygon
-   must follow its eyelids and the red marker must lie on the pupil. Missing/closed
+   must follow its eyelids. Check the yellow fitted ellipse against the visible
+   pupil boundary and the red marker against its center, including the top-left
+   target. The ellipse and confidence are detector hypotheses. Missing/closed
    contours must not fall back to an unmasked dark blob. Detector overlays are not
    manual ground truth. Check each eye's coverage, fit-CV, held-out target errors,
    per-frame RMS/p95 and worst targets.
 6. Use **Xuất số đo hiệu chỉnh (JSON)** on the calibration result screen to save
-   local numeric evidence. Tap an ROI image → **Chia sẻ ảnh ROI** for individual
+   local numeric evidence, with export/analysis build and replay provenance. Tap an ROI image → **Chia sẻ ảnh ROI** for individual
    pixels. Do not upload patient records or private captures into Git/Releases.
 7. Once detector evidence supports another physical run, acceptance requires at
    least three full calibrations under the same conditions and one after reopening.

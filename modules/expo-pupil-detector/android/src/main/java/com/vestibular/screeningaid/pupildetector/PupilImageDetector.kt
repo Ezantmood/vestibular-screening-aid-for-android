@@ -6,7 +6,7 @@ import kotlin.math.*
 class PupilImageDetector {
   companion object {
     const val MIN_PUPIL_CONFIDENCE = 0.35
-    /** Dark-core proposal quantile within the anatomical aperture, not the square crop. */
+    /** Legacy reference quantile; masked production uses BoundaryPupilEstimator. */
     const val DARK_PERCENTILE = 0.04
     const val RELAXED_PUPIL_CONFIDENCE = 0.25
     const val AMBIGUITY_SCORE_MARGIN = 0.05
@@ -30,6 +30,8 @@ class PupilImageDetector {
 
   private data class Filtered(val items: List<Comp>, val diagnostics: Map<String, Double>)
 
+  data class Ellipse(val radiusA: Double, val radiusB: Double, val angleRadians: Double)
+
   data class Outcome(
     val success: Boolean,
     val cxRoi: Double?,
@@ -39,6 +41,7 @@ class PupilImageDetector {
     val confidence: Double,
     val failure: String?,
     val diagnostics: Map<String, Double?> = emptyMap(),
+    val ellipse: Ellipse? = null,
   )
 
   /** Synthetic measurements only: no sensor, storage, or personal data. */
@@ -141,7 +144,9 @@ class PupilImageDetector {
     val aperture = contour?.let { EyeAperture.mask(it, w, h) }
     if (contour != null && aperture == null)
       return withImageDiagnostics(Outcome(false, null, null, null, null, 0.0, "NO_EYE_ROI"), gray, w, h)
-    val out = if (detectorId == "contrast-normalized") detectContrastNormalized(gray, w, h, aperture)
+    val out = if (aperture != null && detectorId == "percentile-dark")
+      BoundaryPupilEstimator.detect(gray, w, h, aperture)
+    else if (detectorId == "contrast-normalized") detectContrastNormalized(gray, w, h, aperture)
     else detectPercentileDark(gray, w, h, aperture)
     return withImageDiagnostics(out, gray, w, h)
   }
@@ -156,6 +161,15 @@ class PupilImageDetector {
     val aperture = contour?.let { EyeAperture.mask(it, rw, rh) }
     if (contour != null && aperture == null)
       return withImageDiagnostics(Outcome(false, null, null, null, null, 0.0, "NO_EYE_ROI"), gray, rw, rh)
+    if (aperture != null && detectorId == "percentile-dark") {
+      val out = BoundaryPupilEstimator.detect(gray, rw, rh, aperture)
+      // A prior may reject a measured center, never create one, relax its edge
+      // checks or choose between ambiguous hypotheses.
+      val near = !out.success || hypot(out.cxRoi!! - priorX, out.cyRoi!! - priorY) <= radiusPx
+      val checked = if (near) out else Outcome(false, null, null, null, null, 0.0,
+        "NO_PUPIL_CANDIDATE", out.diagnostics + ("rejectedPrior" to 1.0))
+      return withImageDiagnostics(checked, gray, rw, rh)
+    }
     val smoothed = smoothEye(gray, rw, rh, aperture)
     val mask: ByteArray
     val threshold: Double

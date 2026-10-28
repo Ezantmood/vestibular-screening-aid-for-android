@@ -304,7 +304,13 @@ export async function analyzeFileForTracking(args: {
     });
   const standard = standardBatch.results;
   const warnings = [...analysis.warnings, ...(standardBatch.report?.warnings ?? [])];
-  const hints = buildRescueHints(standard);
+  // V10's boundary estimator cannot gain evidence from a prior. Re-decoding
+  // failed masked frames through that same estimator would repeat the result.
+  // Keep hinted rescue for the existing engineering/reference detector paths.
+  const hints =
+    args.requireEyeContour && args.detectorId === 'percentile-dark'
+      ? []
+      : buildRescueHints(standard);
   let rescued: PupilDetectionResult[] = [];
   const rescueFailures: Record<string, number> = {};
   if (hints.length > 0) {

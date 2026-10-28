@@ -42,6 +42,7 @@ export default function CameraImageGallery({
             <Text style={styles.caption}>
               {/_raw\.png$/.test(path) ? 'Ảnh mắt gốc' : 'Ảnh đánh dấu'}
               {` · ${/_(left|right)_f/.exec(path)?.[1] === 'left' ? 'trái' : /_(left|right)_f/.test(path) ? 'phải' : index + 1}`}
+              {/_f(\d+)/.test(path) ? ` · khung ${/_f(\d+)/.exec(path)![1]}` : ''}
             </Text>
           </Pressable>
         ))}

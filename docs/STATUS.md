@@ -2,85 +2,61 @@
 
 ## Current implementation
 
-- Android-first clinician app: account/sign-in, encrypted on-device patient chart,
-  eye-test instructions/recording, saved traces, report and PDF.
-- Routine build/release delivery contains only `vestibular-clinic.apk`. The
-  separate engineering APK is no longer distributed. Existing engineering code
-  and domain/native self-checks remain; calibration and eye-test recording use
-  the clinician exam flow.
-- Active engineering scope remains Batch 3: calibration, Smooth Pursuit and
-  Horizontal Saccade. Batch 4 is not started.
-- Calibration uses `eye-contour-pupil-v9` measurements and `target-cv-ridge-v1` models.
-  Fit-target-only CV selects affine/ridge/quadratic mapping. Held-out target and
-  frame-error checks must pass for both eyes; old models require recalibration.
-- Pupil search is restricted to anatomical eyelid contours; gaze is relative to
-  the canthi. Face rectangles only guard head movement. Local numeric calibration
-  export and individual ROI sharing are available on the result screen. The v9
-  detector normalizes area, smoothing and score to the anatomical aperture;
-  per-filter counters and unmarked lossless Y-plane PNGs support local diagnosis.
-- Saved v8/v9 capture videos can be decoded and analyzed again without recording.
-  Original target/timing metadata and capture age are preserved; old numeric
-  pupil coordinates are discarded. Replay is not a fresh physical calibration.
-- Decoder geometry/PTS integrity, explicit missing observations, native/JS
-  contract checks and camera release/cancellation guards remain enforced.
-- Portrait framing accepts sufficient height or width, with current-sample hints
-  and stable READY/start checks. The lamp is a framing preflight; post-recording
-  calibration quality gates are independent and unchanged.
+- Android-first clinician app: accounts, encrypted local patient charts, eye-test
+  recording, saved traces, reports and PDF. Routine delivery contains exactly
+  one APK: `vestibular-clinic.apk`.
+- Engineering scope remains Batch 3: calibration, Smooth Pursuit and Horizontal
+  Saccade. Batch 4 is not started; vertical/anti-saccade metric alignment remains
+  incomplete. The existing scrolling/recording-access repair is retained.
+- Calibration uses `eye-contour-pupil-v10` measurements and `target-cv-ridge-v1`
+  mapping. Both eyes must independently pass sample, fit-CV, held-out target and
+  per-frame error gates. Those gates are unchanged; old models cannot activate.
+- Production detection fits centers from stable masked regions and measured
+  ellipse edges, replacing the v9 darkest-core centroid. It checks edge-gradient
+  peaks, contrast, fit residual and angular support. Poor/ambiguous/occluded
+  evidence stays null. A prior cannot bypass those checks or select a competitor.
+- Gaze remains relative to measured canthi; face rectangles only guard head
+  movement. Masks, original pixel resolution and full numeric precision remain.
+  Missing contours, inconsistent decoding/PTS and native/JS contracts fail closed.
+- Saved v8/v9/v10 videos can be re-decoded with v10. Old pupil numbers are
+  discarded; original target geometry, hold clocks and capture age are retained.
+  Replay is distinct from a fresh physical calibration and never renews expiry.
+- Local numeric export identifies exporter and saved analysis builds separately,
+  and labels fresh/replay provenance when known. Unknown legacy provenance is
+  not inferred. No account/patient data or pixels enter the numeric export.
+- Audit images retain lossless unmarked Y-plane PNGs and marked JPEGs. V10 adds
+  a fitted ellipse, frame labels, top-left target access and numerical boundary
+  diagnostics. Overlays are hypotheses, not manual labels.
 
 ## Evidence and next acceptance
 
-The owner reports that the latest APK still returns RETRY on Redmi. Supplied v9
-numeric evidence now has accepted observations for both eyes, but several targets
-fail sample coverage and all mapping gates fail. Recomputing the exported samples
-with the production fitter reproduces the reported rejection. Encoded/decoded
-counts and reported PTS checks pass; they do not establish optical alignment.
-The numeric export omits exact APK identity and fresh-capture/replay provenance.
+Owner-provided v9 numeric evidence and ROI screenshots remain RETRY. Sample
+coverage fails at several targets and every mapping gate fails. Numeric refit
+reproduces rejection. Frame/PTS checks pass, but the vertical relation is weak;
+those checks cannot establish correct optical localization.
 
-Owner ROI screenshots show visible eyes, anatomical-mask overlays and examples of
-ambiguous or marginal-confidence detection. They are resized gallery thumbnails,
-not source Y-plane PNGs or independently labelled pupil centers. They do not
-establish the cause of every rejected frame or the poorly observed vertical axis.
-Stored sensor-oriented crops alone do not establish a rotation bug.
+Unchanged v9 native code reproduces false high-confidence centers when internal
+shading changes inside a fixed synthetic pupil. A single pupil with two dark
+lobes can also cause ambiguity. V10 addresses these mechanisms using measured
+boundary support; it does not repair saved coordinates or make old results VALID.
 
-Unchanged native production code has a reproduced localization weakness: its
-darkest-4%-component weighted centroid follows internal shading even when the
-synthetic pupil boundary and true center stay fixed. A single synthetic pupil
-with two dark lobes can also produce ambiguity or a high-confidence false center.
-The localization stress check fails. This confirms an estimator limitation, not
-its exact contribution to the physical run. Existing v9 fixes remove demonstrated
-crop-padding/background dependencies but do not solve dark-core localization.
+Computer verification includes existing domain/native checks plus new fixed-boundary
+shading, two-lobe, two-axis/subpixel motion, reflection, rotated ellipse, ambiguity,
+occlusion and input-preservation controls. Extreme scenes without adequate edges
+may now be missing instead of falsely localized. This is a safety improvement,
+not evidence of physical calibration acceptance or a guarantee of coverage.
 
-Next acceptance: evaluate boundary-supported center estimation against fixed-boundary
-shading, true two-axis motion, occlusion and false-candidate controls, then inspect
-exact source PNGs and saved-video sequences from the same failed capture. Detector
-overlays are not ground truth. Only a supported detector repair should lead to
-another APK and fresh physical calibration. Preserve all mapping/confidence gates.
-Source PNGs and marked images have individual sharing under **Ảnh kiểm tra đồng tử**.
-No physical VALID or clinical accuracy is established.
-
-The 0.2.12 layout repair restores scrolling and explicit recording-check access;
-browser checks use a mocked camera and Android scrolling remains unverified. It
-does not complete vertical/anti-saccade metric alignment. See the
-[0.2.12 test release](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/v0.2.12-beta.1)
-for verification evidence and claim boundaries.
-
-The 0.2.12 beta delivery now contains only the clinician APK, unchanged from its
-verified clean source commit. Its extra engineering APK was withdrawn at the
-owner's request; the checksum/manifest and release notes reflect one APK.
-Computer verification covers type/lint,
-format, all 22 logic suites, 25 native JVM tests and binary/native-contract checks.
-Its signing certificate matches published 0.2.10. Browser checks reproduce the
-scroll failure in 15/15 old-screen cases and reach/invoke controls in 15/15
-repaired cases using a mocked native camera. An isolated deliberate test failure
-remains FAIL and causes exit 1. No phone was accessed or controlled by the agent.
-Owner-provided calibration results remain RETRY; acceptance is unresolved.
-Only proceed to reliable moving-test metrics when calibration, synchronization
-and signal quality independently pass. See [verification workflow](BATCH3_VALIDATION.md).
+Next owner check: install the current clinic update, preserve existing evidence,
+then use **Phân tích lại video đã lưu** on the same failed capture. Inspect
+source PNGs/ellipse overlays, boundary diagnostics, coverage and all error gates.
+Only then perform fresh calibrations according to the
+[verification workflow](BATCH3_VALIDATION.md). No v10 physical VALID or clinical
+accuracy is established. No phone was accessed or controlled by the agent.
 
 ## Versions and verification history
 
-Per-version changes, APKs/checksums, source commits, computer verification and
-pending device work are maintained in
-[GitHub Releases](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases).
-This file is a current-state summary, not a release log. Recorded videos,
-screenshots, personal calibration artifacts and patient data stay out of Git/Releases.
+The [0.2.13 test release](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases/tag/v0.2.13-beta.1)
+records source, APK/checksums, computer results and pending Redmi work. Per-version
+history lives in [GitHub Releases](https://github.com/Ezantmood/vestibular-screening-aid-for-android/releases).
+Private screenshots, videos, calibration exports and patient records stay out of
+Git and release assets.

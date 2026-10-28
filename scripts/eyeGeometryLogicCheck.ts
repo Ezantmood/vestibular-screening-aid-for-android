@@ -122,6 +122,29 @@ const artifact = {
   path: 'PRIVATE_PATH',
 };
 const exported = calibrationEvidence(artifact);
+assert.equal(exported.analysisBuild, null);
+assert.equal(exported.analysisSource, 'unknown');
+assert.ok(exported.exportBuild.startsWith('batch3-'));
+assert.equal(
+  calibrationEvidence({ ...artifact, analysisBuild: 'PRIVATE_ACCOUNT' }).analysisBuild,
+  null,
+);
+assert.equal(
+  calibrationEvidence({ ...artifact, analysisBuild: 'batch3-20261028-private-account' })
+    .analysisBuild,
+  null,
+);
+assert.equal(
+  calibrationEvidence({ ...artifact, reanalysisOf: null }).analysisSource,
+  'fresh-capture',
+);
+assert.equal(
+  calibrationEvidence({
+    ...artifact,
+    reanalysisOf: { measurementVersion: 'eye-contour-pupil-v9', id: 'PRIVATE_ID' },
+  }).analysisSource,
+  'saved-video-replay',
+);
 const json = JSON.stringify(exported);
 assert.ok(!json.includes('PRIVATE_') && !json.includes('synthetic-only'));
 assert.equal(exported.takes.length, 14);
@@ -223,6 +246,15 @@ assert.equal(replay.takes[0].presentedJsUs, takes[0].presentedJsUs);
 assert.equal(replay.takes[0].recordStartNativeUs, takes[0].recordStartNativeUs);
 assert.ok(!('samples' in replay.takes[0]));
 assert.equal(JSON.stringify(replaySource), replayBefore);
+for (const version of ['eye-contour-pupil-v9', SYNTHETIC_CONTEXT.coordinateVersion]) {
+  const source = structuredClone(replaySource);
+  source.result.context.coordinateVersion = version;
+  const replayed = savedCalibrationReplay(source);
+  assert.equal(replayed.sourceMeasurementVersion, version);
+  assert.equal(replayed.context.coordinateVersion, SYNTHETIC_CONTEXT.coordinateVersion);
+  assert.equal(replayed.createdAtMs, result.createdAtMs);
+  assert.ok(!('samples' in replayed.takes[0]));
+}
 for (const corrupt of [
   { ...replaySource, takes: replaySource.takes.slice(1) },
   { ...replaySource, takes: [...replaySource.takes].reverse() },

@@ -16,7 +16,7 @@ export function savedCalibrationReplay(value: unknown) {
     c = record(result.context);
   if (
     artifact.schemaVersion !== 1 ||
-    !['eye-contour-pupil-v8', CALIBRATION_COORDINATE_VERSION].includes(
+    !['eye-contour-pupil-v8', 'eye-contour-pupil-v9', CALIBRATION_COORDINATE_VERSION].includes(
       String(c.coordinateVersion),
     ) ||
     !finite(result.createdAtMs) ||

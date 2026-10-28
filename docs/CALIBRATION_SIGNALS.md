@@ -40,27 +40,42 @@ P4 tracking and stores artifacts through the camera/storage seams.
   a detector direction change is not proof that the owner rotated the phone.
 - The pupil is measured only inside the anatomical 16-point eyelid contour from
   [ML Kit](https://developers.google.com/ml-kit/vision/face-detection/android).
-  The crop is centered on that contour. Smoothing, dark cutoff, component-area
-  filtering/prior, mean brightness and surrounding contrast use aperture pixels;
-  padding or outside-lid brightness cannot change an otherwise identical eye
-  measurement. Components touching the lid boundary are rejected. An internal
-  dark core of a partially occluded pupil can still be biased; independent
-  mapping/frame-error gates remain required. Missing/malformed contours fail closed in the
-  calibration and recorded-eye-test paths. Legacy engineering crop probes may
-  still run unmasked and cannot establish a usable calibration.
-- The current native estimator takes an intensity-weighted centroid of a darkest-4%
-  component within the aperture. This is not a full pupil-boundary center fit.
-  Synthetic fixed-boundary tests demonstrate high-confidence center drift under
-  changing internal shading, and ambiguity between two dark lobes of one pupil.
-  The anatomical mask and confidence score do not resolve this limitation. Its
-  contribution to a physical failure requires source pixels and independent
-  center checks; neither a marked thumbnail nor a good fit median is ground truth.
-- Result-screen replay re-decodes all saved v8/v9 capture videos with the current
+  The crop is centered on that contour. Production `percentile-dark` with a
+  contour now uses the v10 boundary estimator: masked smoothing, connected
+  regions over 2-Y threshold steps, and ≤18% area change across adjacent cuts.
+  Region area/size/aspect gates remain 0.3–28% of the aperture, ≥6 px and ≤2.5.
+  Thresholds propose regions; they never supply an intensity-weighted center.
+- Outer region edges exclude enclosed reflection holes and a 2-px lid margin.
+  A normalized conic fit proposes an ellipse; measured outward gradient peaks
+  refine its edges at subpixel positions. Require ≥48/64 supported directions,
+  ≥16 opposing pairs and no unsupported arc >90 degrees. Outline contrast must
+  be ≥6 Y and peak above the adjacent brightness ramps. Fit RMS must be
+  ≤max(1.25 px, 6% of the smaller semiaxis). Missing, poorly supported or
+  severely occluded outlines return null, with no dark-core/crop-center fallback.
+  Centers repeated across thresholds are one hypothesis; competing centers
+  retain the existing ambiguity margin. A motion prior can only reject a
+  measured center, never relax its outline checks or resolve ambiguity.
+- Confidence uses measured outline contrast, fit residual, angular support and
+  region stability. The calibration confidence gate remains ≥0.5; confidence
+  is not a probability of locating the anatomical pupil correctly. Unmasked
+  engineering and `contrast-normalized` probes retain their reference paths;
+  they cannot establish a usable production calibration. Missing/malformed
+  anatomical contours fail closed in calibration and recorded eye tests.
+- The v9 darkest-core method can drift under internal shading and mistake two
+  dark lobes of one pupil for competitors. V10 has explicit controls for those
+  failures. Synthetic success and rejection do not establish Redmi accuracy;
+  exact source pixels and independent center checks remain required. The
+  custom region/edge checks have independent acceptance tests; related
+  [PuRe research](https://arxiv.org/abs/1712.08900) motivates edge validation
+  without transferring its reported performance to this phone.
+- Result-screen replay re-decodes saved v8/v9/v10 capture videos with the current
   detector. Target sequence, hold clocks, viewport and original capture time are
   validated/preserved; old pupil numbers are discarded. Replay never renews age
   or counts as a fresh physical test. Audit images include unmarked lossless
   grayscale PNGs from the exact decoded Y crop plus marked JPEGs; rejection
-  counters identify boundary/area/size/aspect/prior filtering. Missing samples
+  counters identify region stability, ellipse/outline rejection and prior filtering.
+  V10 region counters sum evaluated threshold levels; hypothesis count deduplicates
+  repeated centers. Outline RMS, support, contrast and stability are exported. Missing samples
   have `NO_VALID_SAMPLES`, not an unmeasured `UNSTABLE_FIXATION` claim.
 - The gaze feature is pupil position relative to the two canthi, using the
   longest contour chord and its perpendicular, normalized by chord length.
@@ -69,15 +84,15 @@ P4 tracking and stores artifacts through the camera/storage seams.
   between adjacent valid, same-orientation keyframes using real PTS; every pupil
   is still detected from that decoded frame's pixels, never interpolated.
   Predictions and estimated timestamps are excluded. Every target/eye needs
-  > =30 accepted samples, >=60% coverage, >=250 ms PTS span and RMS spread <=0.04
-  > canthus lengths. This spread gate is stricter in pixels than the old face-box
-  > units; screen-error gates are unchanged.
-- Measurement context `eye-contour-pupil-v9` keeps exact component pixels,
-  quantized percentile inclusion, the anatomical mask/canthus reference and the
-  existing confidence gate, with aperture-normalized scoring. v1–v8 measurements
-  cannot activate. Native
-  contracts and echoed mask geometry prevent mixing masked/unmasked results.
-  Confidence and detector SUCCESS still do not establish a correct pupil.
+  ≥30 accepted samples, ≥60% coverage, ≥250 ms PTS span and RMS spread ≤0.04
+  canthus lengths. This spread gate is stricter in pixels than the old face-box
+  units; screen-error gates are unchanged.
+- Measurement context `eye-contour-pupil-v10` retains the anatomical mask/canthus
+  reference and replaces dark-core centroiding with boundary-supported ellipse
+  centers. Native/JS contracts and echoed masks prevent mixed measurements.
+  V1–v9 models cannot activate; replay must re-decode pixels and fit a new v10
+  model. Existing model family selection and every mapping/frame-error gate stay
+  unchanged. Neither detector SUCCESS nor an ellipse overlay is ground truth.
 - Model contract `target-cv-ridge-v1` selects affine, affine-ridge or quadratic-ridge
   using leave-one-target-out CV on the nine fit medians only. Each fold recomputes
   its own centering/scaling; λ is one of 0.001/0.01/0.1/1 for ridge candidates.
@@ -163,7 +178,9 @@ phone still requires owner-operated physical validation.
 
 The calibration result has **Xuất số đo hiệu chỉnh (JSON)** for a local share
 sheet containing allowlisted numeric observations and technical summaries,
-without account/patient records, paths, photos or videos. ROI images can be
+without account/patient records, paths, photos or videos. The export identifies
+the exporting build separately from the saved analysis build and labels fresh
+capture versus saved-video replay when recorded; legacy provenance stays unknown. ROI images can be
 shared individually from their enlarged view. Saved numeric evidence and
 image references remain inspectable after reopening, including rejected models.
 

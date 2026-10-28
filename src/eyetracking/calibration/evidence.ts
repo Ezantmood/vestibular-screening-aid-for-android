@@ -1,6 +1,6 @@
 import { CALIBRATION_TARGETS } from './protocol';
-import { currentPupilMeasurement } from './types';
-import { calibrationTechnicalSummary } from '../../tests/validation/technicalReport';
+import { CALIBRATION_COORDINATE_VERSION, currentPupilMeasurement } from './types';
+import { BATCH3_BUILD, calibrationTechnicalSummary } from '../../tests/validation/technicalReport';
 
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -82,6 +82,18 @@ export function calibrationEvidence(value: unknown) {
   return {
     schemaVersion: 1,
     kind: 'calibration-numeric-evidence',
+    exportBuild: BATCH3_BUILD,
+    // Only a recognized literal may cross the export boundary. Do not leak
+    // arbitrary saved strings, even if they resemble a build tag.
+    analysisBuild: artifact.analysisBuild === BATCH3_BUILD ? BATCH3_BUILD : null,
+    analysisSource:
+      artifact.reanalysisOf === null
+        ? 'fresh-capture'
+        : ['eye-contour-pupil-v8', 'eye-contour-pupil-v9', CALIBRATION_COORDINATE_VERSION].includes(
+              String(object(artifact.reanalysisOf).measurementVersion),
+            )
+          ? 'saved-video-replay'
+          : 'unknown',
     coordinateVersion:
       typeof version === 'string' &&
       /^(?:decoded-roi|face-pupil|eye-contour-pupil)-v\d{1,2}$/.test(version)

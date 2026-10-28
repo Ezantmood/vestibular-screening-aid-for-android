@@ -43,8 +43,9 @@ import kotlin.math.sqrt
  *    label, so false detections stay visually auditable.
  *
  * Detectors (both pure Android-SDK, no OpenCV, no ML model):
- * - `percentile-dark`: light blur → aperture 4th-percentile dark gate → connected
- *   components → evidence scoring.
+ * - Masked `percentile-dark`: stable-region proposals → measured edge peaks →
+ *   ellipse center and outline checks. Unmasked engineering retains the legacy
+ *   percentile reference; it cannot establish a production calibration.
  * - `contrast-normalized`: percentile contrast stretch → relative gate +
  *   morphological open → same component machinery with shape-heavy weights.
  *
@@ -66,7 +67,7 @@ class ExpoPupilDetectorModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ExpoPupilDetector")
-    Constant("measurementVersion") { "eye-contour-pupil-v9" }
+    Constant("measurementVersion") { "eye-contour-pupil-v10" }
 
     AsyncFunction("runPupilSelfChecks") { imageDetector.selfChecks() }
 
@@ -680,9 +681,17 @@ class ExpoPupilDetectorModule : Module() {
           style = Paint.Style.STROKE
           strokeWidth = max(2f, cw / 75f)
         }
+        outcome.ellipse?.let { ellipse ->
+          canvas.save()
+          canvas.rotate(Math.toDegrees(ellipse.angleRadians).toFloat(), outcome.cxRoi.toFloat(), outcome.cyRoi.toFloat())
+          canvas.drawOval((outcome.cxRoi - ellipse.radiusA).toFloat(), (outcome.cyRoi - ellipse.radiusB).toFloat(),
+            (outcome.cxRoi + ellipse.radiusA).toFloat(), (outcome.cyRoi + ellipse.radiusB).toFloat(), boxPaint)
+          canvas.restore()
+        }
         val left = (outcome.cxRoi - outcome.candW / 2.0).toFloat()
         val top = (outcome.cyRoi - outcome.candH / 2.0).toFloat()
-        canvas.drawRect(left, top, left + outcome.candW.toFloat(), top + outcome.candH.toFloat(), boxPaint)
+        if (outcome.ellipse == null)
+          canvas.drawRect(left, top, left + outcome.candW.toFloat(), top + outcome.candH.toFloat(), boxPaint)
         val cross = Paint().apply {
           color = Color.RED
           style = Paint.Style.STROKE
@@ -700,7 +709,8 @@ class ExpoPupilDetectorModule : Module() {
         textSize = max(14f, ch / 12f)
         setShadowLayer(4f, 0f, 0f, Color.BLACK)
       }
-      canvas.drawText("$detectorId $label", 8f, max(16f, ch / 11f), textPaint)
+      val method = if (req.eyeContour != null && detectorId == "percentile-dark") "boundary-v10" else detectorId
+      canvas.drawText("$method $label", 8f, max(16f, ch / 11f), textPaint)
       val detShort = if (detectorId == "percentile-dark") "perc" else "norm"
       val out = File(dir, "${overlayPrefix}_${stamp}_${detShort}_${req.eyeSide}_f${req.frameIndex}.jpg")
       FileOutputStream(out).use { marked.compress(Bitmap.CompressFormat.JPEG, 85, it) }

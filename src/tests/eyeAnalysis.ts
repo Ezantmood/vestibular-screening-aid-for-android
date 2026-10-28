@@ -4,6 +4,7 @@ import type {
   CalibrationTake,
 } from '../eyetracking/calibration/types';
 import { calibrationDiagnostics } from './validation/calibrationDiagnostics';
+import { BATCH3_BUILD } from './validation/technicalReport';
 import { fitCalibration } from '../eyetracking/calibration/calibration';
 import { calibrationInsights, calibrationFeedback } from '../eyetracking/calibration/insights';
 import { calibrationProgress, calibrationFrameProgress } from '../eyetracking/calibration/progress';
@@ -63,6 +64,7 @@ export async function analyzeCalibrationTakes(args: {
   const diagnostics = calibrationDiagnostics(result, replays, takes);
   const artifact = {
     schemaVersion: 1 as const,
+    analysisBuild: BATCH3_BUILD,
     result,
     takes,
     replays,

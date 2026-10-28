@@ -60,7 +60,7 @@ try {
   // Current head-anchored features cannot be reconstructed from legacy crop-only
   // samples. Never relabel them or claim a native CV rerun without video pixels.
   if (
-    cal.result.context.coordinateVersion === 'eye-contour-pupil-v9' &&
+    cal.result.context.coordinateVersion === 'eye-contour-pupil-v10' &&
     cal.result.modelVersion === CALIBRATION_MODEL_VERSION
   )
     assert.deepEqual(refit.models, cal.result.models);

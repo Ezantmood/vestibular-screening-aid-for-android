@@ -1,6 +1,7 @@
 // P3 pupil detectors — two lightweight image-processing candidates behind one
 // Unmasked engineering reference only. Anatomical production detection and its
-// aperture-normalized scoring live in native PupilImageDetector.kt.
+// boundary-supported ellipse centers live in native BoundaryPupilEstimator.kt,
+// routed through PupilImageDetector.kt.
 // interface. Both operate on a grayscale (luminance 0–255) eye ROI and assume
 // a dark pupil inside the ROI. No ML model, no OpenCV: plain thresholding +
 // connected components + evidence scoring.
