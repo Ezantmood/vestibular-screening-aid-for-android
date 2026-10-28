@@ -24,7 +24,7 @@ import {
 } from './failures';
 import type { SavedCalibrationRead } from './diagnosticRun';
 
-export const BATCH3_BUILD = 'batch3-20261028-boundary-v13';
+export const BATCH3_BUILD = 'batch3-20261028-replay-boundary-v14';
 export const NATIVE_CHECK_IDS = [
   'native-component-isolation-percentile-dark',
   'native-center-percentile-dark',

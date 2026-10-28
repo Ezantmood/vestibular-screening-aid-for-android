@@ -62,6 +62,16 @@ export interface PupilImageDiagnostics {
   boundarySupport?: number | null;
   outlineContrast?: number | null;
   regionStability?: number | null;
+  rejectedSeedFit?: number | null;
+  rejectedGradientSupport?: number | null;
+  rejectedCenterStability?: number | null;
+  maxMeasuredDirections?: number | null;
+  maxObservableDirections?: number | null;
+  boundaryVisibleFraction?: number | null;
+  boundaryMeasuredFraction?: number | null;
+  centerStabilityPx?: number | null;
+  noiseSigmaY?: number | null;
+  gradientThreshold?: number | null;
 }
 
 /**

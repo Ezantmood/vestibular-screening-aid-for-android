@@ -131,4 +131,78 @@ class BoundaryPupilEstimatorTest {
       "rejectedUnstable", "rejectedEllipse", "rejectedOutline").sumOf { d[it]!! }
     assertEquals(d["rawCandidateCount"]!!, d["candidateCount"]!! + rejects, 0.0)
   }
+
+  private fun blurred(image: DoubleArray, passes: Int): DoubleArray {
+    var current = image
+    repeat(passes) {
+      val source = current
+      current = DoubleArray(size * size) { i ->
+        val x = i % size; val y = i / size
+        var sum = 0.0; var count = 0
+        for (dy in -1..1) for (dx in -1..1) {
+          if (x+dx in 0 until size && y+dy in 0 until size) {
+            sum += source[(y+dy)*size+x+dx]; count++
+          }
+        }
+        sum / count
+      }
+    }
+    return current
+  }
+
+  @Test fun largePupilsAndMeasuredPartialArcsSurviveBlurWithoutAnApertureAreaCap() {
+    // The full dark region exceeds v10's 28%-of-aperture cap. The lid clips
+    // sides of the outline; no padded/external pixels may supply an edge.
+    for (dx in listOf(-4.0, 0.0, 4.0)) for (dy in listOf(-20.0, 0.0, 20.0))
+      for (passes in listOf(1, 3)) {
+        val cx = 128+dx; val cy = 128+dy
+        val image = DoubleArray(size*size) { i ->
+          val x = i%size-cx; val y = i/size-cy
+          if (hypot(x,y) < 29) 35+0.01*((x-4).pow(2)+(y+3).pow(2)) else 130.0
+        }
+        val out = detector.detect(blurred(image, passes), size, size, "percentile-dark", lid(26.0))
+        accurate(out, cx, cy, 0.9)
+        assertTrue(out.diagnostics["darkFraction"]!! > 0.28)
+        assertTrue(out.diagnostics["boundaryVisibleFraction"]!! < 0.8)
+        assertTrue(out.diagnostics["centerStabilityPx"]!! <= 0.82)
+      }
+  }
+
+  @Test fun maskedPartialArcDoesNotUsePixelsOutsideTheMeasuredLid() {
+    val contour=lid(26.0); val mask=EyeAperture.mask(contour,size,size)!!
+    val source=blurred(DoubleArray(size*size) { i ->
+      if (hypot(i%size-128.0,i/size-128.0)<29) 35.0 else 130.0
+    }, 3)
+    val changed=DoubleArray(source.size) { if(mask[it]) source[it] else if(it%2==0) 0.0 else 255.0 }
+    val a=detector.detect(source,size,size,"percentile-dark",contour)
+    val b=detector.detect(changed,size,size,"percentile-dark",contour)
+    accurate(a,128.0,128.0,0.9); accurate(b,128.0,128.0,0.9)
+    assertEquals(a.cxRoi!!,b.cxRoi!!,0.0);assertEquals(a.cyRoi!!,b.cyRoi!!,0.0)
+  }
+
+  @Test fun partialArcRemainsAccurateUnderNinetyDegreeRotation() {
+    val contour=lid(26.0)
+    val image=blurred(DoubleArray(size*size) { i ->
+      if (hypot(i%size-130.25,i/size-114.75)<29) 35.0 else 130.0
+    }, 2)
+    accurate(detector.detect(image,size,size,"percentile-dark",contour),130.25,114.75,0.9)
+    val rotated=DoubleArray(image.size) { i -> image[(size-1-i%size)*size+i/size] }
+    val points=contour.map { EyeAperture.Point(size-1-it.y,it.x) }
+    accurate(detector.detect(rotated,size,size,"percentile-dark",points),140.25,130.25,0.9)
+  }
+
+  @Test fun noiseRemainsMissingAndNarrowBlurredArcsCannotSupplyFalseCenters() {
+    for(seed in 0..9) {
+      val random=java.util.Random(seed.toLong())
+      val image=DoubleArray(size*size) { 75.0+4*random.nextGaussian() }
+      val out=detector.detect(image,size,size,"percentile-dark",lid())
+      assertFalse(out.success);assertNull(out.cxRoi);assertNull(out.cyRoi)
+    }
+    for(halfWidth in listOf(10.0,12.0,14.0)) {
+      val out=detector.detect(blurred(scene(),2),size,size,"percentile-dark",lid(halfWidth))
+      if (out.success) accurate(out,128.0,128.0)
+      else { assertNull(out.cxRoi); assertNull(out.cyRoi) }
+    }
+  }
+
 }

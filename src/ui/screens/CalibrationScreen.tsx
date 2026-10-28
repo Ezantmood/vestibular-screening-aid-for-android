@@ -1,12 +1,20 @@
 import { shareCalibrationEvidence } from '../../storage/calibrationEvidence';
-import { File } from 'expo-file-system';
-import { savedCalibrationReplay } from '../../eyetracking/calibration/replay';
+import {
+  savedCalibrationReplay,
+  prepareCalibrationReplay,
+  retainReplayCapture,
+} from '../../eyetracking/calibration/replay';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState, PermissionsAndroid, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PipelineDecodeError } from '../../eyetracking/tracking/decodeIntegrity';
 import { getCamera2Capabilities } from '../../camera/camera2Probe';
 import { collectFixedModes, portraitFaceRotation, type FixedMode } from '../../camera/fixedModes';
-import { readCalibrationJson, invalidateCalibration } from '../../camera/eyeAnalysisStorage';
+import {
+  readCalibrationEvidenceJson as readCalibrationJson,
+  readCalibrationCaptureJson,
+  retainCalibrationCapture,
+  invalidateCalibration,
+} from '../../camera/eyeAnalysisStorage';
 import { assertCurrentPupilDetector } from '../../camera/pupilDetector';
 import {
   calibrationPageScrolls,
@@ -92,6 +100,7 @@ export default function CalibrationScreen({
   const lockLayout = useRef(false);
   const runToken = useRef(0);
   const previousSaved = useRef<SavedCalibrationView | null>(null);
+  const replayAvailable = useRef(false);
   useLayoutEffect(() => {
     committed.current = target ? { id: target.id, jsUs: nowUs() } : null;
   }, [target]);
@@ -105,10 +114,34 @@ export default function CalibrationScreen({
     const token = runToken.current;
     void (async () => {
       try {
-        const savedJson = await readCalibrationJson();
+        const reads = await Promise.allSettled([
+          readCalibrationJson(),
+          readCalibrationCaptureJson(),
+        ]);
+        const [savedJson, captureJson] = reads.map((read) =>
+          read.status === 'fulfilled' ? read.value : null,
+        );
         const saved = savedJson ? describeSavedCalibration(savedJson) : null;
+        let captureAvailable = false;
+        for (const json of [captureJson, savedJson]) {
+          if (!json) continue;
+          try {
+            savedCalibrationReplay(JSON.parse(json));
+            captureAvailable = true;
+          } catch {
+            /* try the independent source */
+          }
+        }
         if (!mounted.current || token !== runToken.current) return;
-        if (!saved) return;
+        replayAvailable.current = captureAvailable;
+        if (!saved && !captureAvailable) return;
+        if (!saved) {
+          setPhase('result');
+          setMessage(
+            'Video hiệu chỉnh đã được giữ trên máy. Có thể phân tích lại, không cần ghi mới.',
+          );
+          return;
+        }
         previousSaved.current = saved;
         if (savedJson) {
           setAuditImages(saved.auditImages);
@@ -164,15 +197,19 @@ export default function CalibrationScreen({
       saved = null;
     }
     if (!mounted.current) return;
-    setPhase(saved ? 'result' : 'ready');
+    setPhase(saved || replayAvailable.current ? 'result' : 'ready');
     setFeedback(saved?.lines ?? []);
     setTarget(null);
     setMessage(
       kind === 'stopped'
-        ? saved
-          ? 'Đã dừng. Lần này chưa lưu. Lần hiệu chỉnh đã lưu trước vẫn hiện bên dưới.'
-          : 'Đã dừng. Lần hiệu chỉnh này chưa được lưu.'
-        : 'Calibration chưa hoàn thành. Hãy thử lại.',
+        ? replayAvailable.current
+          ? 'Đã dừng. Video đã giữ trên máy vẫn có thể phân tích lại.'
+          : saved
+            ? 'Đã dừng. Lần này chưa lưu. Lần hiệu chỉnh đã lưu trước vẫn hiện bên dưới.'
+            : 'Đã dừng. Lần hiệu chỉnh này chưa được lưu.'
+        : replayAvailable.current
+          ? 'Phân tích chưa hoàn thành. Video đã giữ trên máy; có thể phân tích lại.'
+          : 'Calibration chưa hoàn thành. Hãy thử lại.',
     );
     if (saved) revealResult();
   }
@@ -292,11 +329,22 @@ export default function CalibrationScreen({
         setPhase('analysis');
         revealResult();
       }
+      setMessage('Đang giữ 14 video hiệu chỉnh trong bộ nhớ ứng dụng…');
+      const retained = await retainReplayCapture(
+        savedCalibrationReplay({
+          schemaVersion: 1,
+          result: { id: `cal-${createdAtMs}`, createdAtMs, context },
+          takes,
+        }),
+        retainCalibrationCapture,
+      );
+      replayAvailable.current = true;
+      if (cancelled.current || !mounted.current) throw new CaptureCancelled();
       const out = await analyzeCalibrationTakes({
-        id: `cal-${Date.now()}`,
+        id: retained.id,
         createdAtMs,
         context,
-        takes,
+        takes: retained.takes,
         cancelled: () => cancelled.current || !mounted.current,
         progress: (i) => {
           if (mounted.current)
@@ -345,12 +393,15 @@ export default function CalibrationScreen({
     setError(null);
     try {
       assertCurrentPupilDetector();
-      const json = await readCalibrationJson();
-      if (!json) throw new Error('Chưa có video hiệu chỉnh đã lưu.');
-      const saved = savedCalibrationReplay(JSON.parse(json));
-      for (const take of saved.takes)
-        if (!new File(take.filePath).exists)
-          throw new Error('Video lượt đo cũ không còn trên máy. Cần thực hiện hiệu chỉnh mới.');
+      setMessage('Đang kiểm tra và giữ video đã lưu…');
+      const saved = await prepareCalibrationReplay({
+        readCapture: readCalibrationCaptureJson,
+        readEvidence: readCalibrationJson,
+        retain: retainCalibrationCapture,
+      });
+      replayAvailable.current = true;
+      if (cancelled.current || !mounted.current) throw new CaptureCancelled();
+      await invalidateCalibration();
       await camera.close();
       const out = await analyzeCalibrationTakes({
         id: `cal-replay-${Date.now()}`,
@@ -376,6 +427,7 @@ export default function CalibrationScreen({
         `Đã phân tích lại video ghi lúc ${new Date(saved.createdAtMs).toLocaleString()}. ${out.result.verdict === 'VALID' ? 'Số đo đạt các kiểm tra của lượt ghi cũ.' : 'Số đo vẫn chưa đạt; xem ảnh mắt gốc bên dưới.'} Thời hạn hiệu chỉnh vẫn tính từ lúc ghi, không tính từ lúc phân tích lại.`,
       );
       revealResult();
+      onComplete?.(out.result, out.evidence);
     } catch (e) {
       if (mounted.current) {
         setPhase('result');
@@ -439,7 +491,7 @@ export default function CalibrationScreen({
             onPress={() => void replaySavedVideos()}
           />
         )}
-        {phase === 'result' && !busy && (
+        {phase === 'result' && !busy && report !== '' && (
           <CameraButton
             title="Xuất số đo hiệu chỉnh (JSON)"
             tone="secondary"
@@ -490,7 +542,11 @@ export default function CalibrationScreen({
         )}
         {busy && <CameraButton title="Hủy calibration" tone="danger" onPress={cancel} />}
         {modes.length === 0 ? (
-          <CameraButton title="Chuẩn bị camera trước" onPress={() => void prepare()} />
+          <CameraButton
+            title="Chuẩn bị camera trước"
+            disabled={busy}
+            onPress={() => void prepare()}
+          />
         ) : (
           <CameraCapturePanel
             camera={camera}

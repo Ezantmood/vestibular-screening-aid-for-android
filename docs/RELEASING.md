@@ -19,7 +19,7 @@ or publish an additional offline/Batch 3 or Development APK for routine work.
 
 ```bash
 JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home npm run build:clinic
-npm run release:prepare -- v0.2.13-beta.1
+npm run release:prepare -- v0.2.14-beta.1
 ```
 
 Preparation requires a matching clean source commit and the current verified APK.

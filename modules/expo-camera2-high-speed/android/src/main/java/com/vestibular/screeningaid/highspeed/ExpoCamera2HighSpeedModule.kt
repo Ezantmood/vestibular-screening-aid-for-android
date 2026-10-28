@@ -159,7 +159,7 @@ class ExpoCamera2HighSpeedModule : Module() {
     }
 
     // Versioned local eye-analysis artifacts. Calibration persists across app
-    // restart; video references remain cache files and can be evicted.
+    // restart. Complete calibration captures are retained separately from cache.
     AsyncFunction("saveEyeAnalysis") { kind: String, json: String ->
       if (kind != "calibration" && kind != "signal")
         throw CodedException("ERR_ARTIFACT_KIND", "Unsupported artifact kind", null)
@@ -169,31 +169,46 @@ class ExpoCamera2HighSpeedModule : Module() {
       val data = org.json.JSONObject(json)
       if (data.optInt("schemaVersion") != 1)
         throw CodedException("ERR_ARTIFACT_SCHEMA", "Unsupported artifact schema", null)
-      val root = appContext.reactContext?.filesDir
+      val context = appContext.reactContext
         ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
-      val dir = File(root, "eye-analysis").apply { mkdirs() }
-      val file = File(dir, "${kind}_${SystemClock.elapsedRealtimeNanos()}.json")
-      file.writeBytes(bytes)
-      if (kind == "calibration") {
-        val pending = File(dir, "latest-calibration.tmp")
-        pending.writeBytes(bytes)
-        if (!pending.renameTo(File(dir, "latest-calibration.json")))
-          throw CodedException("ERR_ARTIFACT_WRITE", "Cannot replace calibration", null)
-      }
-      file.absolutePath
+      CalibrationFiles(context.filesDir, context.cacheDir).save(kind, bytes)
     }
     AsyncFunction("loadCalibrationResult") {
-      val root = appContext.reactContext?.filesDir
+      val context = appContext.reactContext
         ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
-      val file = File(root, "eye-analysis/latest-calibration.json")
-      if (file.exists() && file.length() <= EyeAnalysisPayload.MAX_BYTES) file.readText() else null
+      CalibrationFiles(context.filesDir, context.cacheDir).active()
+    }
+    AsyncFunction("loadCalibrationEvidence") {
+      val context = appContext.reactContext ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
+      CalibrationFiles(context.filesDir, context.cacheDir).evidence { json ->
+        val data = org.json.JSONObject(json)
+        data.optInt("schemaVersion") == 1 && data.optJSONObject("result")?.optString("verdict") in listOf("VALID", "RETRY")
+      }
+    }
+    AsyncFunction("loadCalibrationCapture") {
+      val context = appContext.reactContext ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
+      CalibrationFiles(context.filesDir, context.cacheDir).capture { json ->
+        val data = org.json.JSONObject(json)
+        data.optInt("schemaVersion") == 1 && data.optJSONArray("takes")?.length() == 14
+      }
+    }
+    AsyncFunction("retainCalibrationCapture") { json: String ->
+      if (json.length > 1_000_000) throw CodedException("ERR_CAPTURE_METADATA", "Capture metadata too large", null)
+      val data = org.json.JSONObject(json)
+      val takes = data.getJSONArray("takes")
+      if (data.optInt("schemaVersion") != 1 || takes.length() != 14)
+        throw CodedException("ERR_CAPTURE_METADATA", "Incomplete capture metadata", null)
+      val context = appContext.reactContext ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
+      CalibrationFiles(context.filesDir, context.cacheDir).retain((0 until 14).map { takes.getJSONObject(it).getString("filePath") }) { paths ->
+        val saved = org.json.JSONObject(json)
+        for (i in paths.indices) saved.getJSONArray("takes").getJSONObject(i).put("filePath", paths[i])
+        saved.toString()
+      }
     }
     AsyncFunction("invalidateCalibrationResult") {
-      val root = appContext.reactContext?.filesDir
+      val context = appContext.reactContext
         ?: throw CodedException("ERR_CONTEXT", "React context unavailable", null)
-      val file = File(root, "eye-analysis/latest-calibration.json")
-      if (file.exists() && !file.delete())
-        throw CodedException("ERR_ARTIFACT_WRITE", "Cannot invalidate calibration", null)
+      CalibrationFiles(context.filesDir, context.cacheDir).invalidate()
       true
     }
 

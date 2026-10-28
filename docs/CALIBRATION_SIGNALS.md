@@ -41,42 +41,43 @@ P4 tracking and stores artifacts through the camera/storage seams.
 - The pupil is measured only inside the anatomical 16-point eyelid contour from
   [ML Kit](https://developers.google.com/ml-kit/vision/face-detection/android).
   The crop is centered on that contour. Production `percentile-dark` with a
-  contour now uses the v10 boundary estimator: masked smoothing, connected
-  regions over 2-Y threshold steps, and ≤18% area change across adjacent cuts.
-  Region area/size/aspect gates remain 0.3–28% of the aperture, ≥6 px and ≤2.5.
-  Thresholds propose regions; they never supply an intensity-weighted center.
-- Outer region edges exclude enclosed reflection holes and a 2-px lid margin.
-  A normalized conic fit proposes an ellipse; measured outward gradient peaks
-  refine its edges at subpixel positions. Require ≥48/64 supported directions,
-  ≥16 opposing pairs and no unsupported arc >90 degrees. Outline contrast must
-  be ≥6 Y and peak above the adjacent brightness ramps. Fit RMS must be
-  ≤max(1.25 px, 6% of the smaller semiaxis). Missing, poorly supported or
-  severely occluded outlines return null, with no dark-core/crop-center fallback.
-  Centers repeated across thresholds are one hypothesis; competing centers
-  retain the existing ambiguity margin. A motion prior can only reject a
-  measured center, never relax its outline checks or resolve ambiguity.
-- Confidence uses measured outline contrast, fit residual, angular support and
-  region stability. The calibration confidence gate remains ≥0.5; confidence
-  is not a probability of locating the anatomical pupil correctly. Unmasked
-  engineering and `contrast-normalized` probes retain their reference paths;
-  they cannot establish a usable production calibration. Missing/malformed
-  anatomical contours fail closed in calibration and recorded eye tests.
-- The v9 darkest-core method can drift under internal shading and mistake two
-  dark lobes of one pupil for competitors. V10 has explicit controls for those
-  failures. Synthetic success and rejection do not establish Redmi accuracy;
-  exact source pixels and independent center checks remain required. The
-  custom region/edge checks have independent acceptance tests; related
-  [PuRe research](https://arxiv.org/abs/1712.08900) motivates edge validation
-  without transferring its reported performance to this phone.
-- Result-screen replay re-decodes saved v8/v9/v10 capture videos with the current
-  detector. Target sequence, hold clocks, viewport and original capture time are
-  validated/preserved; old pupil numbers are discarded. Replay never renews age
-  or counts as a fresh physical test. Audit images include unmarked lossless
-  grayscale PNGs from the exact decoded Y crop plus marked JPEGs; rejection
-  counters identify region stability, ellipse/outline rejection and prior filtering.
-  V10 region counters sum evaluated threshold levels; hypothesis count deduplicates
-  repeated centers. Outline RMS, support, contrast and stability are exported. Missing samples
-  have `NO_VALID_SAMPLES`, not an unmeasured `UNSTABLE_FIXATION` claim.
+  contour uses the v11 boundary estimator: masked smoothing, connected regions
+  over 2-Y threshold steps, and ≤18% area change across adjacent cuts. Full pupil
+  area is bounded by the measured eye chord (18 px minimum, ≤0.25 chord²), not
+  v10's 28%-of-open-aperture dark-core cap. Bbox minimum is 6 px, aspect ≤2.5 and
+  fitted diameter ≤65% of the chord. Masks are never expanded to find an edge.
+- Outer region edges exclude reflection holes and a 2-px lid margin. A normalized
+  conic fit proposes an ellipse; outward gradient peaks refine source-pixel edges.
+  The gradient floor is max(1 Y/px, 3 × local noise σ / √2), with σ estimated from
+  the median absolute four-neighbor Laplacian. Smooth brightness ramps cannot
+  supply edge peaks. Require ≥24/64 measured directions and no empty arc >180°.
+  At least 75% of observable outline directions must have ≥6 Y contrast and a
+  slope peak above neighboring bands. Hidden/masked directions are counted
+  separately, not treated as observable failures. Fit RMS remains
+  ≤max(1.25 px, 6% of the smaller semiaxis).
+- Partial arcs must constrain both center axes (normal-moment eigenvalue ratio
+  ≥0.2). Refit after removing each measured octant and perturbing its edge by
+  ±0.5 source px: center change must stay ≤max(0.5 px, 0.5% eye chord), or ≤0.5 px
+  when ≥75% of the outline is observable; semiaxis changes must stay ≤10%.
+  This sensitivity is not gaze accuracy. Missing/unstable evidence stays null,
+  with no circle, dark-core centroid or crop-center substitute. Repeated centers
+  form one hypothesis; the existing competing-center ambiguity margin remains.
+  A prior can only reject a measured center, never select/repair one.
+- Confidence uses outline contrast, residual, support and region stability.
+  Calibration still requires ≥0.5; confidence is not a correctness probability.
+  Unmasked engineering and `contrast-normalized` probes retain reference paths;
+  neither establishes usable production calibration. Missing/malformed contours
+  fail closed. V9 shading and v10 large/clipped-pupil regressions have independent
+  synthetic geometry controls. Screenshots, overlays and simulations do not
+  establish anatomical ground truth or physical Redmi acceptance.
+- Saved v8/v9/v10/v11 videos can be re-decoded with the current detector. Target
+  sequence, clocks, viewport and capture age are preserved; old pupil numbers
+  are discarded. Replay never renews age or counts as a fresh physical test.
+  Audit images include exact unmarked Y-plane PNGs and marked JPEGs. Numeric
+  diagnostics separate seed/gradient/center-stability rejection, visible/measured
+  outline fractions, noise, RMS and support. Sub-reasons overlap ellipse rejection;
+  only top-level rejection counters plus candidate count sum to evaluated regions.
+  Missing samples have `NO_VALID_SAMPLES`, not measured fixation instability.
 - The gaze feature is pupil position relative to the two canthi, using the
   longest contour chord and its perpendicular, normalized by chord length.
   Whole-face boxes remain head-movement guards and never define gaze. Eye crops
@@ -87,10 +88,10 @@ P4 tracking and stores artifacts through the camera/storage seams.
   ≥30 accepted samples, ≥60% coverage, ≥250 ms PTS span and RMS spread ≤0.04
   canthus lengths. This spread gate is stricter in pixels than the old face-box
   units; screen-error gates are unchanged.
-- Measurement context `eye-contour-pupil-v10` retains the anatomical mask/canthus
+- Measurement context `eye-contour-pupil-v11` retains the anatomical mask/canthus
   reference and replaces dark-core centroiding with boundary-supported ellipse
   centers. Native/JS contracts and echoed masks prevent mixed measurements.
-  V1–v9 models cannot activate; replay must re-decode pixels and fit a new v10
+  V1–v10 models cannot activate; replay must re-decode pixels and fit a new v11
   model. Existing model family selection and every mapping/frame-error gate stay
   unchanged. Neither detector SUCCESS nor an ellipse overlay is ground truth.
 - Model contract `target-cv-ridge-v1` selects affine, affine-ridge or quadratic-ridge
@@ -122,8 +123,16 @@ P4 tracking and stores artifacts through the camera/storage seams.
 - A retry/cancel invalidates the previous active result. Versioned result,
   coefficients, provenance, per-target quality, raw detections/tracks, normalized
   observations and processed signals persist in app-private `files/eye-analysis/`.
-  A latest pointer is replaced atomically. Videos remain cache references and
-  can be evicted; no database/upload is added.
+  Active scoring and diagnostic evidence have separate atomic pointers. Revoking
+  scoring never deletes the evidence needed for replay. Legacy archives can
+  recover diagnostic access without reactivating an old model.
+- A complete set of 14 videos is copied from camera cache to app-private
+  `files/eye-analysis/capture-videos/` before analysis. A separately committed
+  capture manifest survives failed/cancelled analysis and app restarts. Staging
+  failures preserve originals and previous captures. Native asynchronous retention
+  accepts absolute Android paths or file URIs; JS never sends raw paths to Expo's
+  synchronous `File` HostFunction. Old cached videos can migrate when still present;
+  missing source pixels cannot be restored from JSON. No database/upload is added.
 - Reuse is limited to 15 minutes, identical camera/resolution/FPS/detector,
   coordinate version and viewport geometry, including absolute display origin.
   Mapping rejects face-box scale changes >20%, center changes >0.3 of the face,

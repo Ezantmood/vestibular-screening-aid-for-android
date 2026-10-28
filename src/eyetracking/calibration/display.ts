@@ -48,7 +48,7 @@ export function describeSavedCalibration(json: string): SavedCalibrationView | n
       result.modelVersion !== CALIBRATION_MODEL_VERSION
     )
       lines.push(
-        'Kết quả dùng phiên bản tọa độ/model cũ, không được kích hoạt. Cập nhật APK và hiệu chỉnh mới.',
+        'Kết quả dùng phiên bản tọa độ/model cũ, không được kích hoạt. Phân tích lại video còn lưu bằng APK hiện tại hoặc hiệu chỉnh mới.',
       );
     else if (result.verdict === 'VALID' && !calibrationUsable(result, result.context, Date.now()))
       lines.push(

@@ -145,7 +145,7 @@ class PupilImageDetector {
     if (contour != null && aperture == null)
       return withImageDiagnostics(Outcome(false, null, null, null, null, 0.0, "NO_EYE_ROI"), gray, w, h)
     val out = if (aperture != null && detectorId == "percentile-dark")
-      BoundaryPupilEstimator.detect(gray, w, h, aperture)
+      BoundaryPupilEstimator.detect(gray, w, h, aperture, EyeAperture.chordLength(contour!!))
     else if (detectorId == "contrast-normalized") detectContrastNormalized(gray, w, h, aperture)
     else detectPercentileDark(gray, w, h, aperture)
     return withImageDiagnostics(out, gray, w, h)
@@ -162,7 +162,7 @@ class PupilImageDetector {
     if (contour != null && aperture == null)
       return withImageDiagnostics(Outcome(false, null, null, null, null, 0.0, "NO_EYE_ROI"), gray, rw, rh)
     if (aperture != null && detectorId == "percentile-dark") {
-      val out = BoundaryPupilEstimator.detect(gray, rw, rh, aperture)
+      val out = BoundaryPupilEstimator.detect(gray, rw, rh, aperture, EyeAperture.chordLength(contour!!))
       // A prior may reject a measured center, never create one, relax its edge
       // checks or choose between ambiguous hypotheses.
       val near = !out.success || hypot(out.cxRoi!! - priorX, out.cyRoi!! - priorY) <= radiusPx

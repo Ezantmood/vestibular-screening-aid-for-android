@@ -6,6 +6,13 @@ import kotlin.math.*
 internal object EyeAperture {
   data class Point(val x: Double, val y: Double)
 
+  fun chordLength(points: List<Point>): Double {
+    var squared = 0.0
+    for (i in points.indices) for (j in i + 1 until points.size)
+      squared = max(squared, (points[i].x - points[j].x).pow(2) + (points[i].y - points[j].y).pow(2))
+    return sqrt(squared)
+  }
+
   fun mask(points: List<Point>, w: Int, h: Int): BooleanArray? {
     if (points.size != 16 || points.any {
       !it.x.isFinite() || !it.y.isFinite() || it.x < 0 || it.y < 0 || it.x > w || it.y > h

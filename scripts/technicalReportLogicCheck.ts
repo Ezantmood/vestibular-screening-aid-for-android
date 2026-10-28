@@ -163,6 +163,9 @@ const rich = richStages[0] as unknown as Record<string, unknown>;
 rich.pipeline = { frameWidth: 1920, effectiveFps: 119.5, patientName: 'PERSONAL_SENTINEL' };
 rich.image = {
   meanY: { count: 1, min: 70, median: 80, max: 90, note: 'PERSONAL_SENTINEL' },
+  boundaryVisibleFraction: { count: 1, min: 0.4, median: 0.5, max: 0.6 },
+  centerStabilityPx: { count: 1, min: 0.2, median: 0.3, max: 0.4 },
+  rejectedGradientSupport: { count: 1, min: 10, median: 10, max: 10 },
   patientName: 'PERSONAL_SENTINEL',
 };
 rich.hold = {
@@ -174,6 +177,9 @@ rich.hold = {
 const richReport = calibrationTechnicalSummary({ ...artifact, diagnostics: richStages });
 assert.equal(richReport.stageCounts[0].pipeline.frameWidth, 1920);
 assert.equal(richReport.stageCounts[0].image.meanY.median, 80);
+assert.equal(richReport.stageCounts[0].image.boundaryVisibleFraction.median, 0.5);
+assert.equal(richReport.stageCounts[0].image.centerStabilityPx.median, 0.3);
+assert.equal(richReport.stageCounts[0].image.rejectedGradientSupport.median, 10);
 assert.equal(richReport.stageCounts[0].hold.settleMarginUs, -50);
 assert.ok(!JSON.stringify(richReport).includes('PERSONAL_SENTINEL'));
 

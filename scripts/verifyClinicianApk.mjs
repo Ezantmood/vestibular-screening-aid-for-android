@@ -21,7 +21,7 @@ const tools = resolve(root, version);
 const badging = execFileSync(resolve(tools, 'aapt'), ['dump', 'badging', apk], {
   encoding: 'utf8',
 });
-assert.ok(badging.includes("name='com.vestibular.screeningaid' versionCode='16'"));
+assert.ok(badging.includes("name='com.vestibular.screeningaid' versionCode='17'"));
 assert.ok(!/\bsplit=/.test(badging.split('\n')[0]), 'Supply a single APK, not a split package');
 assert.ok(/^native-code:.*'arm64-v8a'/m.test(badging), 'Redmi arm64 libraries missing');
 assert.ok(badging.includes('android.permission.CAMERA'));
@@ -41,11 +41,11 @@ const measurementBundle = execFileSync('unzip', ['-p', apk, 'assets/index.androi
   maxBuffer: 64 * 1024 * 1024,
 });
 assert.ok(
-  measurementBundle.includes(Buffer.from('eye-contour-pupil-v10')),
+  measurementBundle.includes(Buffer.from('eye-contour-pupil-v11')),
   'Current JS coordinate contract missing',
 );
 assert.ok(
-  measurementBundle.includes(Buffer.from('batch3-20261028-boundary-v13')),
+  measurementBundle.includes(Buffer.from('batch3-20261028-replay-boundary-v14')),
   'Current diagnostic build missing',
 );
 assert.ok(
@@ -57,7 +57,7 @@ const nativeDex = dexEntries.map((entry) =>
   execFileSync('unzip', ['-p', apk, entry], { maxBuffer: 64 * 1024 * 1024 }),
 );
 assert.ok(
-  nativeDex.some((dex) => dex.includes(Buffer.from('eye-contour-pupil-v10'))),
+  nativeDex.some((dex) => dex.includes(Buffer.from('eye-contour-pupil-v11'))),
   'Current native measurement contract missing',
 );
 assert.ok(
@@ -66,5 +66,16 @@ assert.ok(
   ),
   'Native boundary estimator missing from clinician APK',
 );
+for (const method of [
+  'retainCalibrationCapture',
+  'loadCalibrationCapture',
+  'loadCalibrationEvidence',
+]) {
+  assert.ok(
+    nativeDex.some((dex) => dex.includes(Buffer.from(method))),
+    `Native ${method} missing`,
+  );
+  assert.ok(measurementBundle.includes(Buffer.from(method)), `JS ${method} missing`);
+}
 execFileSync(resolve(tools, 'apksigner'), ['verify', apk], { stdio: 'inherit' });
 console.log(JSON.stringify({ clinicianApkChecks: 'PASS' }));

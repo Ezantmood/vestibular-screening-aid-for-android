@@ -45,7 +45,10 @@ accuracy. [Release packaging](RELEASING.md).
    preserving clipping, eye visibility and centering checks. On **Giữ nguyên vị
    trí**, stop adjusting. A green lamp establishes framing only, not calibration
    quality. The explicit technical recording option cannot force VALID.
-4. If saved v8/v9/v10 videos remain, **Phân tích lại video đã lưu** re-decodes those
+4. From home or test instructions, open **Xem và phân tích lại hiệu chỉnh đã lưu**.
+   After an app restart or interrupted analysis, retained capture metadata must
+   still expose replay without camera preparation. If saved v8/v9/v10/v11 videos
+   remain, **Phân tích lại video đã lưu** re-decodes those
    videos using the current detector. It preserves original capture time and
    expiry and is not a fresh physical calibration. Missing video/metadata blocks
    replay. Prefer inspecting the same failed capture before requesting another

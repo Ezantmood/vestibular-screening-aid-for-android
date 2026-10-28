@@ -1,6 +1,6 @@
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { readCalibrationJson } from '../camera/eyeAnalysisStorage';
+import { readCalibrationEvidenceJson as readCalibrationJson } from '../camera/eyeAnalysisStorage';
 import { calibrationEvidence } from '../eyetracking/calibration/evidence';
 
 /** Opens Android's share sheet only after an explicit button press. */

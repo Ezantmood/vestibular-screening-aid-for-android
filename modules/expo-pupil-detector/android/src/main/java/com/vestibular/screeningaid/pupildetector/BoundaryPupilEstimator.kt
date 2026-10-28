@@ -16,7 +16,7 @@ internal object BoundaryPupilEstimator {
   private data class Point(val x: Double, val y: Double)
   private data class Ellipse(
     val x: Double, val y: Double, val a: Double, val b: Double, val angle: Double,
-    val rms: Double,
+    val rms: Double, val centerStability: Double = 0.0,
   ) {
     fun point(t: Double, scale: Double = 1.0): Point {
       val u = scale * a * cos(t); val v = scale * b * sin(t)
@@ -26,9 +26,12 @@ internal object BoundaryPupilEstimator {
   private data class Candidate(
     val ellipse: Ellipse, val score: Double, val cut: Double, val area: Int,
     val stability: Double, val support: Double, val contrast: Double,
+    val visibleFraction: Double, val measuredFraction: Double,
   )
+  private data class Outline(val support: Double, val contrast: Double,
+    val visibleFraction: Double, val measuredFraction: Double)
 
-  fun detect(gray: DoubleArray, width: Int, height: Int, aperture: BooleanArray): PupilImageDetector.Outcome {
+  fun detect(gray: DoubleArray, width: Int, height: Int, aperture: BooleanArray, eyeWidthPx: Double): PupilImageDetector.Outcome {
     val indices = aperture.indices.filter { aperture[it] }
     if (indices.isEmpty()) return missing("NO_EYE_ROI")
     // Work at original pixel resolution inside the lid's bounding box. Padding
@@ -40,6 +43,16 @@ internal object BoundaryPupilEstimator {
     val mask = BooleanArray(w * h) { i -> aperture[(y0 + i / w) * width + x0 + i % w] }
     val raw = DoubleArray(w * h) { i -> gray[(y0 + i / w) * width + x0 + i % w] }
     val smooth = raw.copyOf()
+    val noiseSamples = mutableListOf<Double>()
+    for (y in 1 until h - 1) for (x in 1 until w - 1) {
+      val i = y * w + x
+      if (mask[i] && mask[i - 1] && mask[i + 1] && mask[i - w] && mask[i + w])
+        noiseSamples.add(abs(raw[i - 1] + raw[i + 1] + raw[i - w] + raw[i + w] - 4 * raw[i]))
+    }
+    noiseSamples.sort()
+    val noiseSigma = if (noiseSamples.isEmpty()) 0.0 else
+      noiseSamples[noiseSamples.size / 2] / (0.67449 * sqrt(20.0))
+    val gradientThreshold = max(1.0, 3.0 * noiseSigma / sqrt(2.0))
     for (i in raw.indices) if (mask[i]) {
       val x = i % w; val y = i / w; var sum = 0.0; var n = 0
       for (yy in max(0, y - 1)..min(h - 1, y + 1))
@@ -53,6 +66,8 @@ internal object BoundaryPupilEstimator {
       "rawCandidateCount" to 0.0, "rejectedBoundary" to 0.0,
       "rejectedArea" to 0.0, "rejectedSize" to 0.0, "rejectedAspect" to 0.0,
       "rejectedUnstable" to 0.0, "rejectedEllipse" to 0.0, "rejectedOutline" to 0.0,
+      "rejectedSeedFit" to 0.0, "rejectedGradientSupport" to 0.0, "rejectedCenterStability" to 0.0,
+      "maxMeasuredDirections" to 0.0, "maxObservableDirections" to 0.0,
     )
     fun reject(key: String) { counts[key] = counts.getValue(key) + 1 }
     val candidates = mutableListOf<Candidate>()
@@ -65,7 +80,11 @@ internal object BoundaryPupilEstimator {
         reject("rawCandidateCount")
         val fraction = region.area.toDouble() / indices.size
         if (fraction > 0.9) { reject("rejectedBoundary"); continue }
-        if (fraction < 0.003 || fraction > 0.28) { reject("rejectedArea"); continue }
+        // V10 reused a dark-core/aperture area gate for a full pupil region.
+        // Aperture openness must not shrink the allowed physical pupil size.
+        if (region.area < 18 || region.area > 0.25 * eyeWidthPx * eyeWidthPx) {
+          reject("rejectedArea"); continue
+        }
         val bw = region.maxX - region.minX + 1; val bh = region.maxY - region.minY + 1
         if (bw < 6 || bh < 6) { reject("rejectedSize"); continue }
         if (max(bw, bh).toDouble() / min(bw, bh) > 2.5) { reject("rejectedAspect"); continue }
@@ -78,9 +97,13 @@ internal object BoundaryPupilEstimator {
         val boundary = outerBoundary(mid, region, mask, w, h)
         if (boundary.size < 20) { reject("rejectedBoundary"); continue }
         val initial = fitEllipse(boundary)
-        val ellipse = initial?.let { refineEdges(it, smooth, mask, w, h) }
+        if (initial == null) reject("rejectedSeedFit")
+        val ellipse = initial?.let {
+          refineEdges(it, smooth, mask, w, h, counts, gradientThreshold, max(0.5, 0.005 * eyeWidthPx))
+        }
         if (ellipse == null || ellipse.a < 3 || ellipse.b < 3 ||
           max(ellipse.a, ellipse.b) / min(ellipse.a, ellipse.b) > 2.5 ||
+          2 * max(ellipse.a, ellipse.b) > 0.65 * eyeWidthPx ||
           ellipse.rms > max(1.25, 0.06 * min(ellipse.a, ellipse.b)) ||
           fraction / (PI * ellipse.a * ellipse.b / indices.size) !in 0.55..1.12 ||
           ellipse.x !in 0.0..(w - 1).toDouble() || ellipse.y !in 0.0..(h - 1).toDouble() ||
@@ -89,12 +112,13 @@ internal object BoundaryPupilEstimator {
         }
         val outline = outlineEvidence(ellipse, smooth, mask, w, h)
         if (outline == null) { reject("rejectedOutline"); continue }
-        val (support, contrast) = outline
+        val support = outline.support; val contrast = outline.contrast
         val fitQuality = (1 - ellipse.rms / (1.5 + 0.12 * min(ellipse.a, ellipse.b))).coerceIn(0.0, 1.0)
         val stableQuality = (1 - variation / 0.36).coerceIn(0.0, 1.0)
         val score = (contrast / 24).coerceIn(0.0, 1.0) *
           (0.5 * fitQuality + 0.3 * stableQuality + 0.2 * support)
-        candidates.add(Candidate(ellipse, score, mid.cut, region.area, variation, support, contrast))
+        candidates.add(Candidate(ellipse, score, mid.cut, region.area, variation, support, contrast,
+          outline.visibleFraction, outline.measuredFraction))
       }
       low = mid; mid = high
     }
@@ -116,6 +140,10 @@ internal object BoundaryPupilEstimator {
       "borderTouch" to 0.0, "ellipseRmsePx" to best?.ellipse?.rms,
       "boundarySupport" to best?.support, "outlineContrast" to best?.contrast,
       "regionStability" to best?.stability,
+      "boundaryVisibleFraction" to best?.visibleFraction,
+      "boundaryMeasuredFraction" to best?.measuredFraction,
+      "centerStabilityPx" to best?.ellipse?.centerStability,
+      "noiseSigmaY" to noiseSigma, "gradientThreshold" to gradientThreshold,
     )
     if (best == null) return missing("NO_PUPIL_CANDIDATE", diagnostics = diagnostics)
     if (runner != null && runner.score >= PupilImageDetector.MIN_PUPIL_CONFIDENCE &&
@@ -244,8 +272,9 @@ internal object BoundaryPupilEstimator {
       dy * ((1 - dx) * gray[i + w] + dx * gray[i + w + 1])
   }
 
-  private fun outlineEvidence(e: Ellipse, gray: DoubleArray, aperture: BooleanArray, w: Int, h: Int): Pair<Double, Double>? {
+  private fun outlineEvidence(e: Ellipse, gray: DoubleArray, aperture: BooleanArray, w: Int, h: Int): Outline? {
     val supported = BooleanArray(64); val contrasts = mutableListOf<Double>()
+    var observable = 0
     for (i in supported.indices) {
       val t = 2 * PI * i / supported.size
       val point = e.point(t); val radius = hypot(point.x - e.x, point.y - e.y)
@@ -254,6 +283,7 @@ internal object BoundaryPupilEstimator {
       val outer = sample(gray, aperture, w, h, e.point(t, 1 + distance / radius)) ?: continue
       val deep = sample(gray, aperture, w, h, e.point(t, 1 - 2 * distance / radius)) ?: continue
       val far = sample(gray, aperture, w, h, e.point(t, 1 + 2 * distance / radius)) ?: continue
+      observable++
       val contrast = outer - inner
       // A smooth internal gradient also crosses every intensity threshold. It
       // is not a pupil edge: the outward slope must peak at the fitted outline
@@ -263,23 +293,26 @@ internal object BoundaryPupilEstimator {
         supported[i] = true; contrasts.add(contrast)
       }
     }
-    if (contrasts.size < 48 || (0..31).count { supported[it] && supported[it + 32] } < 16) return null
+    if (contrasts.size < 24 || contrasts.size < ceil(0.75 * observable).toInt()) return null
     var gap = 0; var longest = 0
     for (i in 0 until 128) {
       gap = if (supported[i % 64]) 0 else gap + 1
       longest = max(longest, gap)
     }
-    if (longest > 16) return null
+    if (longest > 32) return null
     contrasts.sort()
-    return contrasts.size / 64.0 to contrasts[contrasts.size / 2]
+    return Outline(contrasts.size.toDouble() / observable, contrasts[contrasts.size / 2],
+      observable / 64.0, contrasts.size / 64.0)
   }
 
   /** Refine threshold proposals at actual outward gradient peaks. A threshold
    * crossing on an internal brightness ramp has no interior gradient peak and
    * cannot become a measurement. Subpixel peaks remove cutoff-dependent drift. */
-  private fun refineEdges(e: Ellipse, gray: DoubleArray, aperture: BooleanArray, w: Int, h: Int): Ellipse? {
+  private fun refineEdges(e: Ellipse, gray: DoubleArray, aperture: BooleanArray, w: Int, h: Int,
+    diagnostics: MutableMap<String, Double>, gradientThreshold: Double, centerTolerance: Double): Ellipse? {
     if (min(e.a, e.b) < 3 || max(e.a, e.b) / min(e.a, e.b) > 2.5) return null
-    val points = mutableListOf<Point>(); val supported = BooleanArray(64)
+    val points = mutableListOf<Point>(); val sectors = mutableListOf<Int>(); val supported = BooleanArray(64)
+    var observable = 0
     val range = max(3.0, 0.22 * min(e.a, e.b))
     val steps = ceil(2 * range / 0.5).toInt()
     for (i in supported.indices) {
@@ -293,23 +326,92 @@ internal object BoundaryPupilEstimator {
         val outer = sample(gray, aperture, w, h, at(distance + 1)) ?: return null
         return (outer - inner) / 2
       }
+      if (gradient(0.0) != null) observable++
       val gradients = DoubleArray(steps + 1) { k -> gradient(-range + 0.5 * k) ?: Double.NEGATIVE_INFINITY }
       val peak = gradients.indices.maxBy { gradients[it] }
-      if (peak < 3 || peak > steps - 3 || gradients[peak] < 3.0) continue
+      if (peak < 3 || peak > steps - 3 || gradients[peak] < gradientThreshold) continue
       val value = gradients[peak]
       if (value < 1.15 * max(gradients[peak - 3], gradients[peak + 3])) continue
       val left = gradients[peak - 1]; val right = gradients[peak + 1]
       val denominator = left - 2 * value + right
       val offset = if (denominator.isFinite() && abs(denominator) > 1e-9)
         (0.25 * (left - right) / denominator).coerceIn(-0.5, 0.5) else 0.0
-      points.add(at(-range + 0.5 * peak + offset)); supported[i] = true
+      points.add(at(-range + 0.5 * peak + offset)); sectors.add(i / 8); supported[i] = true
     }
-    if (points.size < 48 || (0..31).count { supported[it] && supported[it + 32] } < 16) return null
+    diagnostics["maxMeasuredDirections"] = max(diagnostics.getValue("maxMeasuredDirections"), points.size.toDouble())
+    diagnostics["maxObservableDirections"] = max(diagnostics.getValue("maxObservableDirections"), observable.toDouble())
+    // The seed is only a proposal and can be distorted by clipping. Final
+    // visible-outline support is checked after edge fitting, not against this
+    // possibly biased seed's apparent visibility.
+    if (points.size < 24) {
+      diagnostics["rejectedGradientSupport"] = diagnostics.getValue("rejectedGradientSupport") + 1
+      return null
+    }
     var gap = 0
     for (i in 0 until 128) {
       gap = if (supported[i % 64]) 0 else gap + 1
-      if (gap > 16) return null
+      if (gap > 32) {
+        diagnostics["rejectedGradientSupport"] = diagnostics.getValue("rejectedGradientSupport") + 1
+        return null
+      }
     }
-    return fitEllipse(points)
+    val fitted = fitEllipse(points) ?: return null
+    val distance = max(2.0, 0.12 * min(fitted.a, fitted.b))
+    val visible = (0 until 64).count { i ->
+      val t = 2 * PI * i / 64; val p = fitted.point(t)
+      val radius = hypot(p.x - fitted.x, p.y - fitted.y)
+      listOf(-2.0, -1.0, 1.0, 2.0).all {
+        sample(gray, aperture, w, h, fitted.point(t, 1 + it * distance / radius)) != null
+      }
+    }
+    val sensitivityLimit = if (visible >= 48) 0.5 else centerTolerance
+    var xx = 0.0; var yy = 0.0; var xy = 0.0
+    for (p in points) {
+      val dx = p.x - fitted.x; val dy = p.y - fitted.y
+      val u = (dx * cos(fitted.angle) + dy * sin(fitted.angle)) / fitted.a.pow(2)
+      val v = (-dx * sin(fitted.angle) + dy * cos(fitted.angle)) / fitted.b.pow(2)
+      val nx = u * cos(fitted.angle) - v * sin(fitted.angle)
+      val ny = u * sin(fitted.angle) + v * cos(fitted.angle)
+      val norm = nx * nx + ny * ny
+      xx += nx * nx / norm; yy += ny * ny / norm; xy += nx * ny / norm
+    }
+    // Opposing narrow slivers do not constrain both center axes adequately.
+    if ((xx + yy - hypot(xx - yy, 2 * xy)) / (2 * (xx + yy)) < 0.2) {
+      diagnostics["rejectedCenterStability"] = diagnostics.getValue("rejectedCenterStability") + 1
+      return null
+    }
+    // A partial arc must actually constrain the center. Remove each measured
+    // octant and perturb its edge by half a pixel, then refit. The center
+    // must stay within 0.5% of the eye chord (floor: half a source pixel).
+    // This is geometric sensitivity, not a gaze-accuracy estimate.
+    var spread = 0.0
+    for (sector in sectors.distinct()) {
+      val held = points.filterIndexed { index, _ -> sectors[index] != sector }
+      if (held.size < 12) {
+        diagnostics["rejectedCenterStability"] = diagnostics.getValue("rejectedCenterStability") + 1
+        return null
+      }
+      val fold = fitEllipse(held) ?: return null
+      spread = max(spread, hypot(fold.x - fitted.x, fold.y - fitted.y))
+      if (spread > sensitivityLimit || abs(fold.a / fitted.a - 1) > 0.1 || abs(fold.b / fitted.b - 1) > 0.1) {
+        diagnostics["rejectedCenterStability"] = diagnostics.getValue("rejectedCenterStability") + 1
+        return null
+      }
+      for (sign in listOf(-1.0, 1.0)) {
+        val perturbed = points.mapIndexed { index, p ->
+          if (sectors[index] != sector) p else {
+            val dx = p.x - fitted.x; val dy = p.y - fitted.y; val length = hypot(dx, dy)
+            Point(p.x + sign * 0.5 * dx / length, p.y + sign * 0.5 * dy / length)
+          }
+        }
+        val shifted = fitEllipse(perturbed) ?: return null
+        spread = max(spread, hypot(shifted.x - fitted.x, shifted.y - fitted.y))
+        if (spread > sensitivityLimit || abs(shifted.a / fitted.a - 1) > 0.1 || abs(shifted.b / fitted.b - 1) > 0.1) {
+          diagnostics["rejectedCenterStability"] = diagnostics.getValue("rejectedCenterStability") + 1
+          return null
+        }
+      }
+    }
+    return fitted.copy(centerStability = spread)
   }
 }

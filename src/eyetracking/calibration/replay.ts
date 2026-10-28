@@ -16,9 +16,12 @@ export function savedCalibrationReplay(value: unknown) {
     c = record(result.context);
   if (
     artifact.schemaVersion !== 1 ||
-    !['eye-contour-pupil-v8', 'eye-contour-pupil-v9', CALIBRATION_COORDINATE_VERSION].includes(
-      String(c.coordinateVersion),
-    ) ||
+    ![
+      'eye-contour-pupil-v8',
+      'eye-contour-pupil-v9',
+      'eye-contour-pupil-v10',
+      CALIBRATION_COORDINATE_VERSION,
+    ].includes(String(c.coordinateVersion)) ||
     !finite(result.createdAtMs) ||
     result.createdAtMs <= 0 ||
     typeof result.id !== 'string' ||
@@ -96,4 +99,52 @@ export function savedCalibrationReplay(value: unknown) {
     takes,
     sourceMeasurementVersion: String(c.coordinateVersion),
   };
+}
+
+export type CalibrationReplay = ReturnType<typeof savedCalibrationReplay>;
+
+/** Store only capture metadata, not fitted models, samples or analysis results.
+ * Native retention changes file paths only; capture clocks/age remain original. */
+export async function retainReplayCapture(
+  capture: CalibrationReplay,
+  retain: (json: string) => Promise<string>,
+): Promise<CalibrationReplay> {
+  const document = {
+    schemaVersion: 1,
+    result: {
+      id: capture.id,
+      createdAtMs: capture.createdAtMs,
+      context: { ...capture.context, coordinateVersion: capture.sourceMeasurementVersion },
+    },
+    takes: capture.takes,
+  };
+  const retained = savedCalibrationReplay(JSON.parse(await retain(JSON.stringify(document))));
+  const metadata = (value: CalibrationReplay) => ({
+    ...value,
+    takes: value.takes.map((take) => ({ ...take, filePath: '' })),
+  });
+  if (JSON.stringify(metadata(retained)) !== JSON.stringify(metadata(capture)))
+    throw new Error('Metadata video thay đổi khi lưu. Không dùng lần phân tích này.');
+  return retained;
+}
+
+export async function prepareCalibrationReplay(deps: {
+  readCapture: () => Promise<string | null>;
+  readEvidence: () => Promise<string | null>;
+  retain: (json: string) => Promise<string>;
+}): Promise<CalibrationReplay> {
+  const reads = await Promise.allSettled([deps.readCapture(), deps.readEvidence()]);
+  const sources = reads.map((read) => (read.status === 'fulfilled' ? read.value : null));
+  const candidates: CalibrationReplay[] = [];
+  for (const json of sources) {
+    if (!json) continue;
+    try {
+      candidates.push(savedCalibrationReplay(JSON.parse(json)));
+    } catch {
+      // An unreadable old analysis must not hide a complete retained capture.
+    }
+  }
+  const capture = candidates.sort((a, b) => b.createdAtMs - a.createdAtMs)[0];
+  if (!capture) throw new Error('Chưa tìm được đủ metadata của 14 video đã lưu để phân tích lại.');
+  return retainReplayCapture(capture, deps.retain);
 }

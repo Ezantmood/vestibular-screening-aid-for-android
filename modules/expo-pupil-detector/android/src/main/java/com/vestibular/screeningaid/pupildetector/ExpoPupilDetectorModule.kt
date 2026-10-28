@@ -67,7 +67,7 @@ class ExpoPupilDetectorModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ExpoPupilDetector")
-    Constant("measurementVersion") { "eye-contour-pupil-v10" }
+    Constant("measurementVersion") { "eye-contour-pupil-v11" }
 
     AsyncFunction("runPupilSelfChecks") { imageDetector.selfChecks() }
 
@@ -709,7 +709,7 @@ class ExpoPupilDetectorModule : Module() {
         textSize = max(14f, ch / 12f)
         setShadowLayer(4f, 0f, 0f, Color.BLACK)
       }
-      val method = if (req.eyeContour != null && detectorId == "percentile-dark") "boundary-v10" else detectorId
+      val method = if (req.eyeContour != null && detectorId == "percentile-dark") "boundary-v11" else detectorId
       canvas.drawText("$method $label", 8f, max(16f, ch / 11f), textPaint)
       val detShort = if (detectorId == "percentile-dark") "perc" else "norm"
       val out = File(dir, "${overlayPrefix}_${stamp}_${detShort}_${req.eyeSide}_f${req.frameIndex}.jpg")
